@@ -1,0 +1,33 @@
+{
+  "name": "threadcord",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "flue dev --target node",
+    "build": "flue build --target node",
+    "start": "node dist/server.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flue/postgres": "1.0.0-beta.1",
+    "@flue/runtime": "1.0.0-beta.2",
+    "@octokit/rest": "22.0.1",
+    "discord.js": "14.26.4",
+    "hono": "4.12.26",
+    "pg": "8.22.0",
+    "valibot": "1.4.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@flue/cli": "1.0.0-beta.1",
+    "@types/node": "24.10.1",
+    "@types/pg": "8.15.6",
+    "typescript": "5.9.3",
+    "vitest": "4.1.9"
+  },
+  "overrides": {
+    "undici": "6.27.0"
+  }
+}

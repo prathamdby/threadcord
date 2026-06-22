@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-types
+.git
+.env
+coverage
+*.log
+workspaces

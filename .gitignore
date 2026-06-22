@@ -1,0 +1,10 @@
+.env
+node_modules/
+dist/
+dist-types/
+.flue-vite/
+workspaces/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store
