@@ -164,15 +164,15 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 ## How it works
 
 ```mermaid
-flowchart LR
-  Discord[Discord messages] --> Gateway[gateway.ts]
-  Gateway --> Orchestrator[TaskOrchestrator]
-  Orchestrator --> Store[Postgres TaskStore]
-  Orchestrator --> Bootstrap[git clone and checkout]
-  Orchestrator --> Flue[Flue coding agent]
-  Flue --> GitHub[GitHub API]
-  Flue --> Observe[observe-bridge]
-  Observe --> Thread[Discord thread status]
+flowchart TD
+  discord["Discord messages"] --> gateway["gateway.ts"]
+  gateway --> orchestrator["TaskOrchestrator"]
+  orchestrator --> store["Postgres TaskStore"]
+  orchestrator --> bootstrap["git clone and checkout"]
+  orchestrator --> flue["Flue coding agent"]
+  flue --> githubApi["GitHub API"]
+  flue --> observe["observe-bridge.ts"]
+  observe --> thread["Discord thread status"]
 ```
 
 1. [`gateway.ts`](src/discord/gateway.ts) routes channel messages to task creation and thread messages to follow-ups.
