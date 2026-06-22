@@ -1,8 +1,8 @@
-import { basename, join } from 'node:path';
-import { getPool } from '../db.js';
-import { targetBranchForTask } from './policy.js';
-import { TaskStore } from './store.js';
-import type { TaskRecord } from '../types.js';
+import { basename, join } from "node:path";
+import { getPool } from "../db.js";
+import { targetBranchForTask } from "./policy.js";
+import { TaskStore } from "./store.js";
+import type { TaskRecord } from "../types.js";
 
 export interface AgentRuntimeContext {
   model: string;
@@ -19,15 +19,21 @@ export function checkoutPathForTask(task: TaskRecord): string {
 
 export async function resolveAgentRuntimeContext(
   instanceId: string,
-  env: Record<string, unknown>
+  env: Record<string, unknown>,
 ): Promise<AgentRuntimeContext> {
   const store = new TaskStore(getPool(), 1);
   const task = await store.getByInstanceId(instanceId);
   if (!task) {
-    throw new Error(`No Threadcord task found for agent instance ${instanceId}`);
+    throw new Error(
+      `No Threadcord task found for agent instance ${instanceId}`,
+    );
   }
 
-  const defaultModel = stringEnv(env, 'THREADCORD_DEFAULT_MODEL', 'anthropic/claude-sonnet-4-5');
+  const defaultModel = stringEnv(
+    env,
+    "THREADCORD_DEFAULT_MODEL",
+    "anthropic/claude-sonnet-4-5",
+  );
   const allowedRepos = parseAllowedRepos(env.ALLOWED_REPOS);
 
   return {
@@ -36,19 +42,23 @@ export async function resolveAgentRuntimeContext(
     repo: task.repo,
     baseBranch: task.branch,
     featureBranch: targetBranchForTask(task.id, task),
-    allowedRepos
+    allowedRepos,
   };
 }
 
-function stringEnv(env: Record<string, unknown>, key: string, fallback: string): string {
+function stringEnv(
+  env: Record<string, unknown>,
+  key: string,
+  fallback: string,
+): string {
   const value = env[key];
-  return typeof value === 'string' && value.length > 0 ? value : fallback;
+  return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
 function parseAllowedRepos(value: unknown): string[] {
-  if (typeof value !== 'string' || value.length === 0) return [];
+  if (typeof value !== "string" || value.length === 0) return [];
   return value
-    .split(',')
+    .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
 }

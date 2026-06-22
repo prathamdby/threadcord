@@ -1,8 +1,12 @@
+<div align="center">
+
 # Threadcord
 
 **Self-hosted Discord control plane for Flue coding-agent sessions**
 
 `threadcord` · Node 22+ · Postgres · Flue · discord.js
+
+</div>
 
 > A message in your control channel opens a public thread, clones an allowed GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, running tasks go back to `waiting`.
 
@@ -76,11 +80,11 @@ npm run build
 
 ## Configure model providers
 
-| Provider | Example model | Credentials |
-| --- | --- | --- |
-| anthropic | `anthropic/claude-sonnet-4-5` | `ANTHROPIC_API_KEY` |
-| openai | `openai/gpt-5-codex` | `OPENAI_API_KEY` |
-| opencode-go | `opencode-go/gpt-5-codex` | `OPENCODE_GO_BASE_URL`, optional `OPENCODE_GO_API_KEY` |
+| Provider    | Example model                 | Credentials                                            |
+| ----------- | ----------------------------- | ------------------------------------------------------ |
+| anthropic   | `anthropic/claude-sonnet-4-5` | `ANTHROPIC_API_KEY`                                    |
+| openai      | `openai/gpt-5-codex`          | `OPENAI_API_KEY`                                       |
+| opencode-go | `opencode-go/gpt-5-codex`     | `OPENCODE_GO_BASE_URL`, optional `OPENCODE_GO_API_KEY` |
 
 List allowed models in `ALLOWED_MODELS`. Startup checks that each provider has its key set ([`assertProviderKeysForModels`](src/config.ts)).
 
@@ -152,14 +156,14 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 
 ## Features
 
-| Capability | Where | What happens |
-| --- | --- | --- |
-| New task | Control channel | Thread created, repo cloned, first turn queued |
-| Follow-up | Task thread | Instruction queued; runs when task is `waiting` |
-| `status` | Task thread | Replies with current task status |
-| `cancel` | Task thread | Stops further dispatches, frees a concurrency slot |
-| `done` | Task thread | Marks task `completed` from `waiting` or `queued` |
-| Open PR | Agent tool | `create_github_pull_request` after push |
+| Capability | Where           | What happens                                       |
+| ---------- | --------------- | -------------------------------------------------- |
+| New task   | Control channel | Thread created, repo cloned, first turn queued     |
+| Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`    |
+| `status`   | Task thread     | Replies with current task status                   |
+| `cancel`   | Task thread     | Stops further dispatches, frees a concurrency slot |
+| `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`  |
+| Open PR    | Agent tool      | `create_github_pull_request` after push            |
 
 ## How it works
 

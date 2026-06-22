@@ -1,13 +1,18 @@
-import type { Pool, PoolClient, QueryResultRow } from 'pg';
-import type { ClaimedTurn, NewTaskRecord, TaskRecord, TaskStatus } from '../types.js';
-import { TASK_STATUSES } from '../types.js';
+import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type {
+  ClaimedTurn,
+  NewTaskRecord,
+  TaskRecord,
+  TaskStatus,
+} from "../types.js";
+import { TASK_STATUSES } from "../types.js";
 
 const SCHEDULER_LOCK_KEY = 8675309;
 
 export class TaskStore {
   constructor(
     private readonly pool: Pool,
-    private readonly maxConcurrentTasks: number
+    private readonly maxConcurrentTasks: number,
   ) {}
 
   async migrate(): Promise<void> {
@@ -53,7 +58,9 @@ export class TaskStore {
     `);
   }
 
-  async createTask(task: NewTaskRecord): Promise<{ task: TaskRecord; created: boolean }> {
+  async createTask(
+    task: NewTaskRecord,
+  ): Promise<{ task: TaskRecord; created: boolean }> {
     const insert = await this.pool.query(
       `
         INSERT INTO tasks (
@@ -75,14 +82,15 @@ export class TaskStore {
         task.model,
         task.instruction,
         task.pushOverride ?? null,
-        task.statusMessageId ?? null
-      ]
+        task.statusMessageId ?? null,
+      ],
     );
     if (insert.rows[0]) {
       return { task: rowToTask(insert.rows[0]), created: true };
     }
     const existing = await this.getByMessageId(task.discordMessageId);
-    if (!existing) throw new Error('Expected existing task after insert conflict');
+    if (!existing)
+      throw new Error("Expected existing task after insert conflict");
     return { task: existing, created: false };
   }
 
@@ -90,7 +98,7 @@ export class TaskStore {
     taskId: string,
     threadId: string,
     flueInstanceId: string,
-    statusMessageId: string
+    statusMessageId: string,
   ): Promise<TaskRecord> {
     const result = await this.pool.query(
       `
@@ -102,71 +110,94 @@ export class TaskStore {
         WHERE id = $1
         RETURNING *
       `,
-      [taskId, threadId, flueInstanceId, statusMessageId]
+      [taskId, threadId, flueInstanceId, statusMessageId],
     );
     return rowToTask(singleRow(result.rows));
   }
 
   async getByThreadId(threadId: string): Promise<TaskRecord | undefined> {
-    const result = await this.pool.query('SELECT * FROM tasks WHERE discord_thread_id = $1', [threadId]);
+    const result = await this.pool.query(
+      "SELECT * FROM tasks WHERE discord_thread_id = $1",
+      [threadId],
+    );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
 
   async getById(taskId: string): Promise<TaskRecord | undefined> {
-    const result = await this.pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    const result = await this.pool.query("SELECT * FROM tasks WHERE id = $1", [
+      taskId,
+    ]);
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
 
   async getByMessageId(messageId: string): Promise<TaskRecord | undefined> {
-    const result = await this.pool.query('SELECT * FROM tasks WHERE discord_message_id = $1', [messageId]);
+    const result = await this.pool.query(
+      "SELECT * FROM tasks WHERE discord_message_id = $1",
+      [messageId],
+    );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
 
   async getByInstanceId(instanceId: string): Promise<TaskRecord | undefined> {
-    const result = await this.pool.query('SELECT * FROM tasks WHERE flue_instance_id = $1', [instanceId]);
+    const result = await this.pool.query(
+      "SELECT * FROM tasks WHERE flue_instance_id = $1",
+      [instanceId],
+    );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
 
-  async getModelForInstance(instanceId: string, fallbackModel: string): Promise<string> {
-    const result = await this.pool.query('SELECT model FROM tasks WHERE flue_instance_id = $1', [instanceId]);
+  async getModelForInstance(
+    instanceId: string,
+    fallbackModel: string,
+  ): Promise<string> {
+    const result = await this.pool.query(
+      "SELECT model FROM tasks WHERE flue_instance_id = $1",
+      [instanceId],
+    );
     const model = result.rows[0]?.model;
-    return typeof model === 'string' && model.length > 0 ? model : fallbackModel;
+    return typeof model === "string" && model.length > 0
+      ? model
+      : fallbackModel;
   }
 
   async claimNextTurn(preferTaskId?: string): Promise<ClaimedTurn | undefined> {
     const client = await this.pool.connect();
     try {
-      await client.query('BEGIN');
-      await client.query('SELECT pg_advisory_xact_lock($1)', [SCHEDULER_LOCK_KEY]);
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock($1)", [
+        SCHEDULER_LOCK_KEY,
+      ]);
 
-      const running = await client.query("SELECT COUNT(*)::int AS count FROM tasks WHERE status = 'running'");
+      const running = await client.query(
+        "SELECT COUNT(*)::int AS count FROM tasks WHERE status = 'running'",
+      );
       if (Number(singleRow(running.rows).count) >= this.maxConcurrentTasks) {
-        await client.query('ROLLBACK');
+        await client.query("ROLLBACK");
         return undefined;
       }
 
       const claimed = await this.claimFollowupTurn(client, preferTaskId);
       if (claimed) {
-        await client.query('COMMIT');
+        await client.query("COMMIT");
         return claimed;
       }
 
       const initial = await this.claimInitialTurn(client, preferTaskId);
       if (initial) {
-        await client.query('COMMIT');
+        await client.query("COMMIT");
         return initial;
       }
 
       const globalFollowup = await this.claimFollowupTurn(client);
       if (globalFollowup) {
-        await client.query('COMMIT');
+        await client.query("COMMIT");
         return globalFollowup;
       }
 
-      await client.query('ROLLBACK');
+      await client.query("ROLLBACK");
       return undefined;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
@@ -181,7 +212,7 @@ export class TaskStore {
         WHERE status = 'queued'
           AND created_at <= (SELECT created_at FROM tasks WHERE id = $1)
       `,
-      [taskId]
+      [taskId],
     );
     return Number(singleRow(result.rows).position);
   }
@@ -190,7 +221,7 @@ export class TaskStore {
     taskId: string,
     from: TaskStatus | TaskStatus[],
     to: TaskStatus,
-    errorSummary?: string
+    errorSummary?: string,
   ): Promise<TaskRecord | undefined> {
     const fromStatuses = Array.isArray(from) ? from : [from];
     const result = await this.pool.query(
@@ -202,7 +233,7 @@ export class TaskStore {
         WHERE id = $1 AND status = ANY($4::text[])
         RETURNING *
       `,
-      [taskId, to, errorSummary ?? null, fromStatuses]
+      [taskId, to, errorSummary ?? null, fromStatuses],
     );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
@@ -210,7 +241,7 @@ export class TaskStore {
   async cancelTask(taskId: string): Promise<TaskRecord | undefined> {
     const client = await this.pool.connect();
     try {
-      await client.query('BEGIN');
+      await client.query("BEGIN");
       const result = await client.query(
         `
           UPDATE tasks
@@ -218,13 +249,15 @@ export class TaskStore {
           WHERE id = $1 AND status IN ('queued', 'waiting', 'running')
           RETURNING *
         `,
-        [taskId]
+        [taskId],
       );
-      await client.query('DELETE FROM task_followups WHERE task_id = $1', [taskId]);
-      await client.query('COMMIT');
+      await client.query("DELETE FROM task_followups WHERE task_id = $1", [
+        taskId,
+      ]);
+      await client.query("COMMIT");
       return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
@@ -238,12 +271,16 @@ export class TaskStore {
         SET status = 'waiting', updated_at = now()
         WHERE status = 'running'
         RETURNING *
-      `
+      `,
     );
     return result.rows.map(rowToTask);
   }
 
-  async enqueueFollowup(taskId: string, discordMessageId: string, instruction: string): Promise<number> {
+  async enqueueFollowup(
+    taskId: string,
+    discordMessageId: string,
+    instruction: string,
+  ): Promise<number> {
     const insert = await this.pool.query(
       `
         INSERT INTO task_followups (task_id, discord_message_id, instruction)
@@ -251,7 +288,7 @@ export class TaskStore {
         ON CONFLICT (discord_message_id) DO NOTHING
         RETURNING id
       `,
-      [taskId, discordMessageId, instruction]
+      [taskId, discordMessageId, instruction],
     );
     const result = await this.pool.query(
       `
@@ -263,7 +300,7 @@ export class TaskStore {
             WHERE task_id = $1 AND discord_message_id = $3
           ))
       `,
-      [taskId, insert.rows[0]?.id ?? null, discordMessageId]
+      [taskId, insert.rows[0]?.id ?? null, discordMessageId],
     );
     return Number(singleRow(result.rows).position);
   }
@@ -276,19 +313,22 @@ export class TaskStore {
         WHERE status IN ('completed', 'failed', 'cancelled')
           AND updated_at < now() - ($1::text || ' days')::interval
       `,
-      [String(ttlDays)]
+      [String(ttlDays)],
     );
     return result.rows
       .map((row) => row.workspace_path)
-      .filter((path): path is string => typeof path === 'string');
+      .filter((path): path is string => typeof path === "string");
   }
 
   async health(): Promise<boolean> {
-    await this.pool.query('SELECT 1');
+    await this.pool.query("SELECT 1");
     return true;
   }
 
-  private async claimInitialTurn(client: PoolClient, preferTaskId?: string): Promise<ClaimedTurn | undefined> {
+  private async claimInitialTurn(
+    client: PoolClient,
+    preferTaskId?: string,
+  ): Promise<ClaimedTurn | undefined> {
     const result = await client.query(
       `
         UPDATE tasks
@@ -305,15 +345,18 @@ export class TaskStore {
         )
         RETURNING *
       `,
-      [preferTaskId ?? null]
+      [preferTaskId ?? null],
     );
     const row = result.rows[0];
     if (!row) return undefined;
     const task = rowToTask(row);
-    return { task, instruction: task.instruction, source: 'initial' };
+    return { task, instruction: task.instruction, source: "initial" };
   }
 
-  private async claimFollowupTurn(client: PoolClient, preferTaskId?: string): Promise<ClaimedTurn | undefined> {
+  private async claimFollowupTurn(
+    client: PoolClient,
+    preferTaskId?: string,
+  ): Promise<ClaimedTurn | undefined> {
     const result = await client.query(
       `
         WITH candidate AS (
@@ -342,23 +385,26 @@ export class TaskStore {
         FROM updated
         JOIN deleted ON true
       `,
-      [preferTaskId ?? null]
+      [preferTaskId ?? null],
     );
     const row = result.rows[0];
-    if (!row || typeof row.run_instruction !== 'string') return undefined;
+    if (!row || typeof row.run_instruction !== "string") return undefined;
     const task = rowToTask(row);
-    return { task, instruction: row.run_instruction, source: 'followup' };
+    return { task, instruction: row.run_instruction, source: "followup" };
   }
 }
 
 function singleRow<T extends QueryResultRow>(rows: T[]): T {
   const row = rows[0];
-  if (!row) throw new Error('Expected one row');
+  if (!row) throw new Error("Expected one row");
   return row;
 }
 
 function parseTaskStatus(value: unknown): TaskStatus {
-  if (typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value)) {
+  if (
+    typeof value === "string" &&
+    (TASK_STATUSES as readonly string[]).includes(value)
+  ) {
     return value as TaskStatus;
   }
   throw new Error(`Invalid task status: ${String(value)}`);
@@ -375,12 +421,18 @@ function rowToTask(row: QueryResultRow): TaskRecord {
     branch: String(row.branch),
     model: String(row.model),
     instruction: String(row.instruction),
-    ...(typeof row.push_override === 'string' ? { pushOverride: row.push_override } : {}),
+    ...(typeof row.push_override === "string"
+      ? { pushOverride: row.push_override }
+      : {}),
     status: parseTaskStatus(row.status),
     initialTurnStarted: Boolean(row.initial_turn_started),
-    ...(typeof row.status_message_id === 'string' ? { statusMessageId: row.status_message_id } : {}),
-    ...(typeof row.error_summary === 'string' ? { errorSummary: row.error_summary } : {}),
+    ...(typeof row.status_message_id === "string"
+      ? { statusMessageId: row.status_message_id }
+      : {}),
+    ...(typeof row.error_summary === "string"
+      ? { errorSummary: row.error_summary }
+      : {}),
     createdAt: new Date(String(row.created_at)),
-    updatedAt: new Date(String(row.updated_at))
+    updatedAt: new Date(String(row.updated_at)),
   };
 }

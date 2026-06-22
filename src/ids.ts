@@ -1,4 +1,4 @@
-export const DISCORD_THREAD_INSTANCE_PREFIX = 'discord:thread:' as const;
+export const DISCORD_THREAD_INSTANCE_PREFIX = "discord:thread:" as const;
 
 export function toFlueInstanceId(threadId: string): string {
   return `${DISCORD_THREAD_INSTANCE_PREFIX}${threadId}`;
@@ -18,5 +18,5 @@ export function pendingThreadId(taskId: string): string {
 }
 
 export function isPendingThreadId(threadId: string): boolean {
-  return threadId.startsWith('pending:');
+  return threadId.startsWith("pending:");
 }

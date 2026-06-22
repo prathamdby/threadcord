@@ -1,4 +1,11 @@
-export const TASK_STATUSES = ['queued', 'running', 'waiting', 'completed', 'failed', 'cancelled'] as const;
+export const TASK_STATUSES = [
+  "queued",
+  "running",
+  "waiting",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface TaskRequest {
@@ -57,7 +64,7 @@ export interface ThreadRef {
 
 /** Payload passed to the coding agent on each dispatched turn. */
 export interface DispatchAgentInput {
-  kind: 'threadcord.turn';
+  kind: "threadcord.turn";
   workspacePath: string;
   model: string;
   repo: string;
@@ -70,5 +77,5 @@ export interface DispatchAgentInput {
 export interface ClaimedTurn {
   task: TaskRecord;
   instruction: string;
-  source: 'initial' | 'followup';
+  source: "initial" | "followup";
 }

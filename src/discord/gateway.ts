@@ -1,11 +1,25 @@
-import { Client, Events, GatewayIntentBits, Partials, ThreadAutoArchiveDuration, type Message } from 'discord.js';
-import type { TaskOrchestrator } from '../task/orchestrator.js';
-import type { ChannelMessage, ThreadMessage, ThreadRef } from '../types.js';
+import {
+  Client,
+  Events,
+  GatewayIntentBits,
+  Partials,
+  ThreadAutoArchiveDuration,
+  type Message,
+} from "discord.js";
+import type { TaskOrchestrator } from "../task/orchestrator.js";
+import type { ChannelMessage, ThreadMessage, ThreadRef } from "../types.js";
 
-export function startDiscordGateway(token: string, orchestrator: TaskOrchestrator): Client {
+export function startDiscordGateway(
+  token: string,
+  orchestrator: TaskOrchestrator,
+): Client {
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
-    partials: [Partials.Channel, Partials.Message]
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+    partials: [Partials.Channel, Partials.Message],
   });
 
   client.once(Events.ClientReady, (ready) => {
@@ -20,7 +34,10 @@ export function startDiscordGateway(token: string, orchestrator: TaskOrchestrato
   return client;
 }
 
-async function routeMessage(message: Message, orchestrator: TaskOrchestrator): Promise<void> {
+async function routeMessage(
+  message: Message,
+  orchestrator: TaskOrchestrator,
+): Promise<void> {
   if (message.partial) message = await message.fetch();
   if (message.author.bot) return;
 
@@ -37,13 +54,16 @@ function toChannelMessage(message: Message): ChannelMessage {
     content: message.content,
     authorBot: message.author.bot,
     channelId: message.channelId,
-    createThread: async (name) => toThreadRef(await message.startThread({
-      name,
-      autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek
-    })),
+    createThread: async (name) =>
+      toThreadRef(
+        await message.startThread({
+          name,
+          autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+        }),
+      ),
     reply: async (content) => {
       await message.reply(content);
-    }
+    },
   };
 }
 
@@ -55,11 +75,13 @@ function toThreadMessage(message: Message): ThreadMessage {
     channelId: message.channelId,
     reply: async (content) => {
       await message.reply(content);
-    }
+    },
   };
 }
 
-function toThreadRef(thread: Awaited<ReturnType<Message['startThread']>>): ThreadRef {
+function toThreadRef(
+  thread: Awaited<ReturnType<Message["startThread"]>>,
+): ThreadRef {
   return {
     id: thread.id,
     send: async (content) => {
@@ -69,6 +91,6 @@ function toThreadRef(thread: Awaited<ReturnType<Message['startThread']>>): Threa
     editMessage: async (messageId, content) => {
       const message = await thread.messages.fetch(messageId);
       await message.edit(content);
-    }
+    },
   };
 }

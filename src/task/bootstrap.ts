@@ -1,15 +1,15 @@
-import { mkdir, stat } from 'node:fs/promises';
-import { basename, join } from 'node:path';
-import { execa } from './execa.js';
-import { targetBranchForTask } from './policy.js';
-import type { TaskRecord } from '../types.js';
+import { mkdir, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
+import { execa } from "./execa.js";
+import { targetBranchForTask } from "./policy.js";
+import type { TaskRecord } from "../types.js";
 
-export type BootstrapMode = 'initial' | 'continue';
+export type BootstrapMode = "initial" | "continue";
 
 export async function bootstrapWorkspace(
   task: TaskRecord,
   githubToken: string,
-  mode: BootstrapMode
+  mode: BootstrapMode,
 ): Promise<string> {
   await mkdir(task.workspacePath, { recursive: true });
   const checkoutDir = join(task.workspacePath, basename(task.repo));
@@ -19,25 +19,39 @@ export async function bootstrapWorkspace(
     await cloneRepo(task, githubToken, checkoutDir);
   }
 
-  if (mode === 'initial') {
-    await execa('git', ['fetch', 'origin', task.branch], { cwd: checkoutDir, env: gitEnv(githubToken) });
-    await execa('git', ['checkout', '-B', featureBranch, `origin/${task.branch}`], {
+  if (mode === "initial") {
+    await execa("git", ["fetch", "origin", task.branch], {
       cwd: checkoutDir,
-      env: gitEnv(githubToken)
+      env: gitEnv(githubToken),
     });
+    await execa(
+      "git",
+      ["checkout", "-B", featureBranch, `origin/${task.branch}`],
+      {
+        cwd: checkoutDir,
+        env: gitEnv(githubToken),
+      },
+    );
   } else {
-    await execa('git', ['checkout', featureBranch], { cwd: checkoutDir, env: gitEnv(githubToken) });
+    await execa("git", ["checkout", featureBranch], {
+      cwd: checkoutDir,
+      env: gitEnv(githubToken),
+    });
   }
 
   return checkoutDir;
 }
 
-async function cloneRepo(task: TaskRecord, githubToken: string, checkoutDir: string): Promise<void> {
+async function cloneRepo(
+  task: TaskRecord,
+  githubToken: string,
+  checkoutDir: string,
+): Promise<void> {
   const repoUrl = `https://github.com/${task.repo}.git`;
   await execa(
-    'git',
-    ['clone', '--branch', task.branch, '--single-branch', repoUrl, checkoutDir],
-    { cwd: task.workspacePath, env: gitEnv(githubToken) }
+    "git",
+    ["clone", "--branch", task.branch, "--single-branch", repoUrl, checkoutDir],
+    { cwd: task.workspacePath, env: gitEnv(githubToken) },
   );
 }
 
@@ -54,8 +68,8 @@ function gitEnv(token: string): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
-    GIT_TERMINAL_PROMPT: '0',
+    GIT_TERMINAL_PROMPT: "0",
     GITHUB_TOKEN: token,
-    GH_TOKEN: token
+    GH_TOKEN: token,
   };
 }

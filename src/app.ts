@@ -1,16 +1,16 @@
-import { registerProvider } from '@flue/runtime';
-import { flue } from '@flue/runtime/routing';
-import { Hono } from 'hono';
-import type { MiddlewareHandler } from 'hono';
-import type { AppConfig } from './config.js';
-import { loadConfig } from './config.js';
-import { initializeDatabase } from './db.js';
-import { startDiscordGateway } from './discord/gateway.js';
-import { registerObserveBridge } from './discord/observe-bridge.js';
-import { DiscordPublisher } from './discord/publisher.js';
-import { startWorkspaceJanitor } from './task/janitor.js';
-import { TaskOrchestrator } from './task/orchestrator.js';
-import { TaskStore } from './task/store.js';
+import { registerProvider } from "@flue/runtime";
+import { flue } from "@flue/runtime/routing";
+import { Hono } from "hono";
+import type { MiddlewareHandler } from "hono";
+import type { AppConfig } from "./config.js";
+import { loadConfig } from "./config.js";
+import { initializeDatabase } from "./db.js";
+import { startDiscordGateway } from "./discord/gateway.js";
+import { registerObserveBridge } from "./discord/observe-bridge.js";
+import { DiscordPublisher } from "./discord/publisher.js";
+import { startWorkspaceJanitor } from "./task/janitor.js";
+import { TaskOrchestrator } from "./task/orchestrator.js";
+import { TaskStore } from "./task/store.js";
 
 export async function createApp(): Promise<{
   app: Hono;
@@ -25,7 +25,10 @@ export async function createApp(): Promise<{
   await store.migrate();
 
   const orchestrator = new TaskOrchestrator(config, store);
-  const discordClient = startDiscordGateway(config.DISCORD_BOT_TOKEN, orchestrator);
+  const discordClient = startDiscordGateway(
+    config.DISCORD_BOT_TOKEN,
+    orchestrator,
+  );
   const publisher = new DiscordPublisher(discordClient);
   orchestrator.setMilestonePublisher(async (threadId, content) => {
     await publisher.send(threadId, content);
@@ -34,40 +37,46 @@ export async function createApp(): Promise<{
   registerObserveBridge({
     store,
     publisher,
-    onAgentEnd: (instanceId) => orchestrator.handleAgentEnd(instanceId)
+    onAgentEnd: (instanceId) => orchestrator.handleAgentEnd(instanceId),
   });
 
-  const janitor = startWorkspaceJanitor({ store, workspaceTtlDays: config.WORKSPACE_TTL_DAYS });
+  const janitor = startWorkspaceJanitor({
+    store,
+    workspaceTtlDays: config.WORKSPACE_TTL_DAYS,
+  });
 
   void orchestrator
     .resumeAfterRestart(async (threadId, content) => {
       await publisher.send(threadId, content);
     })
     .catch((error) => {
-      console.error('[threadcord] startup reconciliation failed', error);
+      console.error("[threadcord] startup reconciliation failed", error);
     });
 
   const app = new Hono();
 
-  app.get('/health/live', async (c) => {
+  app.get("/health/live", async (c) => {
     const postgres = await healthcheckPostgres(store);
     return c.json({ ok: postgres, postgres }, postgres ? 200 : 503);
   });
 
-  app.get('/health', async (c) => {
+  app.get("/health", async (c) => {
     const postgres = await healthcheckPostgres(store);
     const discord = discordClient.isReady();
-    return c.json({ ok: postgres && discord, postgres, discord }, postgres && discord ? 200 : 503);
+    return c.json(
+      { ok: postgres && discord, postgres, discord },
+      postgres && discord ? 200 : 503,
+    );
   });
 
   const bearer = config.THREADCORD_HTTP_BEARER;
   if (bearer) {
-    app.use('/agents/*', bearerAuth(bearer));
-    app.use('/workflows/*', bearerAuth(bearer));
-    app.use('/runs/*', bearerAuth(bearer));
+    app.use("/agents/*", bearerAuth(bearer));
+    app.use("/workflows/*", bearerAuth(bearer));
+    app.use("/runs/*", bearerAuth(bearer));
   }
 
-  app.route('/', flue());
+  app.route("/", flue());
 
   return {
     app,
@@ -75,7 +84,7 @@ export async function createApp(): Promise<{
     shutdown: async () => {
       clearInterval(janitor);
       await pool.end();
-    }
+    },
   };
 }
 
@@ -93,23 +102,26 @@ async function healthcheckPostgres(store: TaskStore): Promise<boolean> {
 
 function bearerAuth(token: string): MiddlewareHandler {
   return async (c, next) => {
-    if (c.req.header('authorization') !== `Bearer ${token}`) return c.text('Unauthorized', 401);
+    if (c.req.header("authorization") !== `Bearer ${token}`)
+      return c.text("Unauthorized", 401);
     await next();
   };
 }
 
 function registerCatalogProviders(config: AppConfig): void {
   if (config.ANTHROPIC_API_KEY) {
-    registerProvider('anthropic', { apiKey: config.ANTHROPIC_API_KEY });
+    registerProvider("anthropic", { apiKey: config.ANTHROPIC_API_KEY });
   }
   if (config.OPENAI_API_KEY) {
-    registerProvider('openai', { apiKey: config.OPENAI_API_KEY });
+    registerProvider("openai", { apiKey: config.OPENAI_API_KEY });
   }
   if (config.OPENCODE_GO_BASE_URL) {
-    registerProvider('opencode-go', {
-      api: 'openai-completions',
+    registerProvider("opencode-go", {
+      api: "openai-completions",
       baseUrl: config.OPENCODE_GO_BASE_URL,
-      ...(config.OPENCODE_GO_API_KEY ? { apiKey: config.OPENCODE_GO_API_KEY } : {})
+      ...(config.OPENCODE_GO_API_KEY
+        ? { apiKey: config.OPENCODE_GO_API_KEY }
+        : {}),
     });
   }
 }
