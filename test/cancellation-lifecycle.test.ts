@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import type {
+  FollowupResult,
   RestartReconciliation,
   TaskStorePort,
 } from "../src/task/store.js";
@@ -192,7 +193,12 @@ class InMemoryStore implements TaskStorePort {
     taskId: string,
     discordMessageId: string,
     instruction: string,
-  ): Promise<number> {
+  ): Promise<FollowupResult> {
+    const task = this.tasks.get(taskId);
+    if (!task) throw new Error(`No task ${taskId}`);
+    if (!["queued", "running", "waiting"].includes(task.status)) {
+      return { ok: false, status: task.status };
+    }
     if (!this.followups.some((f) => f.discordMessageId === discordMessageId)) {
       this.followups.push({
         seq: this.seq++,
@@ -204,9 +210,10 @@ class InMemoryStore implements TaskStorePort {
     const target = this.followups.find(
       (f) => f.discordMessageId === discordMessageId,
     );
-    return this.followups.filter(
+    const position = this.followups.filter(
       (f) => f.taskId === taskId && target && f.seq <= target.seq,
     ).length;
+    return { ok: true, position };
   }
 
   private claimInitial(preferTaskId?: string): ClaimedTurn | undefined {
@@ -325,9 +332,7 @@ class World {
   }
 
   async restart(): Promise<void> {
-    await this.orchestrator.resumeAfterRestart(async (threadId, content) => {
-      this.posts.push({ threadId, content });
-    });
+    await this.orchestrator.resumeAfterRestart();
     await flush();
   }
 }
@@ -464,5 +469,10 @@ describe("cancellation replies at the command boundary", () => {
 
     const repeat = (await world.command(running.discordThreadId, "cancel"))[0];
     expect(repeat).toContain("already cancelling");
+
+    const afterTerminal = (
+      await world.command(queued.discordThreadId, "another change")
+    )[0];
+    expect(afterTerminal).toContain("Task is cancelled");
   });
 });

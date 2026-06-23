@@ -10,6 +10,9 @@ import { ACTIVE_STATUSES, TASK_STATUSES } from "../types.js";
 
 const SCHEDULER_LOCK_KEY = 8675309;
 
+/** Statuses that can still accept a follow-up turn. */
+const FOLLOWUP_ELIGIBLE = new Set<TaskStatus>(["queued", "running", "waiting"]);
+
 /** Outcome of restart reconciliation, split by what each task became. */
 export interface RestartReconciliation {
   /** Running turns lost to the restart, returned to `waiting`. */
@@ -17,6 +20,14 @@ export interface RestartReconciliation {
   /** Cancellation-requested turns finalized to terminal `cancelled`. */
   cancelled: TaskRecord[];
 }
+
+/**
+ * Result of enqueuing a follow-up. `ok` carries the queue position; otherwise
+ * the task's current status explains why it was rejected.
+ */
+export type FollowupResult =
+  | { ok: true; position: number }
+  | { ok: false; status: TaskStatus };
 
 /**
  * Store surface the orchestrator depends on. Declaring it lets tests drive the
@@ -50,7 +61,7 @@ export interface TaskStorePort {
     taskId: string,
     discordMessageId: string,
     instruction: string,
-  ): Promise<number>;
+  ): Promise<FollowupResult>;
 }
 
 export class TaskStore implements TaskStorePort {
@@ -346,55 +357,90 @@ export class TaskStore implements TaskStorePort {
    * resurrected, so a restart never reopens work the user already stopped.
    */
   async reconcileAfterRestart(): Promise<RestartReconciliation> {
-    const resumed = await this.pool.query(
-      `
-        UPDATE tasks
-        SET status = 'waiting', updated_at = now()
-        WHERE status = 'running'
-        RETURNING *
-      `,
-    );
-    const cancelled = await this.pool.query(
-      `
-        UPDATE tasks
-        SET status = 'cancelled', updated_at = now()
-        WHERE status = 'cancelling'
-        RETURNING *
-      `,
-    );
-    return {
-      resumed: resumed.rows.map(rowToTask),
-      cancelled: cancelled.rows.map(rowToTask),
-    };
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const resumed = await client.query(
+        `
+          UPDATE tasks
+          SET status = 'waiting', updated_at = now()
+          WHERE status = 'running'
+          RETURNING *
+        `,
+      );
+      const cancelled = await client.query(
+        `
+          UPDATE tasks
+          SET status = 'cancelled', updated_at = now()
+          WHERE status = 'cancelling'
+          RETURNING *
+        `,
+      );
+      await client.query("COMMIT");
+      return {
+        resumed: resumed.rows.map(rowToTask),
+        cancelled: cancelled.rows.map(rowToTask),
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
+  /**
+   * Enqueue a follow-up only while the task can still run one. The task row is
+   * locked for the check so a concurrent cancel cannot slip a follow-up past
+   * the eligibility gate and leave it orphaned. Terminal and cancelling tasks
+   * are rejected with their current status.
+   */
   async enqueueFollowup(
     taskId: string,
     discordMessageId: string,
     instruction: string,
-  ): Promise<number> {
-    const insert = await this.pool.query(
-      `
-        INSERT INTO task_followups (task_id, discord_message_id, instruction)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (discord_message_id) DO NOTHING
-        RETURNING id
-      `,
-      [taskId, discordMessageId, instruction],
-    );
-    const result = await this.pool.query(
-      `
-        SELECT COUNT(*)::int AS position
-        FROM task_followups
-        WHERE task_id = $1
-          AND id <= COALESCE($2::bigint, (
-            SELECT id FROM task_followups
-            WHERE task_id = $1 AND discord_message_id = $3
-          ))
-      `,
-      [taskId, insert.rows[0]?.id ?? null, discordMessageId],
-    );
-    return Number(singleRow(result.rows).position);
+  ): Promise<FollowupResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const locked = await client.query(
+        "SELECT status FROM tasks WHERE id = $1 FOR UPDATE",
+        [taskId],
+      );
+      const status = parseTaskStatus(singleRow(locked.rows).status);
+      if (!FOLLOWUP_ELIGIBLE.has(status)) {
+        await client.query("COMMIT");
+        return { ok: false, status };
+      }
+      const insert = await client.query(
+        `
+          INSERT INTO task_followups (task_id, discord_message_id, instruction)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (discord_message_id) DO NOTHING
+          RETURNING id
+        `,
+        [taskId, discordMessageId, instruction],
+      );
+      const result = await client.query(
+        `
+          SELECT COUNT(*)::int AS position
+          FROM task_followups
+          WHERE task_id = $1
+            AND id <= COALESCE($2::bigint, (
+              SELECT id FROM task_followups
+              WHERE task_id = $1 AND discord_message_id = $3
+            ))
+        `,
+        [taskId, insert.rows[0]?.id ?? null, discordMessageId],
+      );
+      await client.query("COMMIT");
+      return { ok: true, position: Number(singleRow(result.rows).position) };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listExpiredWorkspacePaths(ttlDays: number): Promise<string[]> {

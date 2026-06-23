@@ -19,15 +19,8 @@ import type {
   ClaimedTurn,
   DispatchAgentInput,
   TaskRecord,
-  TaskStatus,
   ThreadMessage,
 } from "../types.js";
-
-const TERMINAL_STATUSES = new Set<TaskStatus>([
-  "completed",
-  "failed",
-  "cancelled",
-]);
 
 /** Sends one dispatched agent turn. Injectable so tests can fake the runtime. */
 export type DispatchTurn = (
@@ -62,25 +55,19 @@ export class TaskOrchestrator {
     this.postMessage = postMessage;
   }
 
-  async resumeAfterRestart(
-    notifyThread: (threadId: string, content: string) => Promise<void>,
-  ): Promise<void> {
+  async resumeAfterRestart(): Promise<void> {
     const { resumed, cancelled } = await this.store.reconcileAfterRestart();
     for (const task of resumed) {
-      if (!isPendingThreadId(task.discordThreadId)) {
-        await notifyThread(
-          task.discordThreadId,
-          "Resumed after restart. Ready for the next instruction.",
-        );
-      }
+      await this.post(
+        task.discordThreadId,
+        "Resumed after restart. Ready for the next instruction.",
+      );
     }
     for (const task of cancelled) {
-      if (!isPendingThreadId(task.discordThreadId)) {
-        await notifyThread(
-          task.discordThreadId,
-          "Cancellation complete after restart. The task has stopped.",
-        );
-      }
+      await this.post(
+        task.discordThreadId,
+        "Cancellation complete after restart. The task has stopped.",
+      );
     }
     await this.fillConcurrencySlots();
   }
@@ -183,25 +170,27 @@ export class TaskOrchestrator {
       await message.reply("Task marked complete.");
       return;
     }
-    if (task.status === "cancelling") {
-      await message.reply(
-        "Cancellation is in progress. No further turns will be scheduled for this task.",
-      );
-      return;
-    }
-    if (TERMINAL_STATUSES.has(task.status)) {
-      await message.reply(
-        `Task is ${task.status}. Send a new message in the control channel to start another task.`,
-      );
-      return;
-    }
 
-    const position = await this.store.enqueueFollowup(
+    // The store decides follow-up eligibility under a row lock, so a concurrent
+    // cancel cannot leave an orphaned follow-up that never runs.
+    const enqueued = await this.store.enqueueFollowup(
       task.id,
       message.id,
       message.content,
     );
-    await message.reply(`Queued follow-up - position ${position}`);
+    if (!enqueued.ok) {
+      if (enqueued.status === "cancelling") {
+        await message.reply(
+          "Cancellation is in progress. No further turns will be scheduled for this task.",
+        );
+        return;
+      }
+      await message.reply(
+        `Task is ${enqueued.status}. Send a new message in the control channel to start another task.`,
+      );
+      return;
+    }
+    await message.reply(`Queued follow-up - position ${enqueued.position}`);
 
     if (task.status === "waiting") {
       const claimed = await this.store.claimNextTurn(task.id);
@@ -314,7 +303,14 @@ export class TaskOrchestrator {
 
   private async post(threadId: string, content: string): Promise<void> {
     if (!this.postMessage || isPendingThreadId(threadId)) return;
-    await this.postMessage(threadId, content);
+    // Discord is a best-effort boundary. A failed notification (archived or
+    // deleted thread, transient API error) must never abort scheduling or
+    // state transitions that follow the post.
+    try {
+      await this.postMessage(threadId, content);
+    } catch (error) {
+      console.error("[threadcord] thread notification failed", error);
+    }
   }
 }
 

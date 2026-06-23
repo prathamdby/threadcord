@@ -46,13 +46,9 @@ export async function createApp(): Promise<{
     workspaceTtlDays: config.WORKSPACE_TTL_DAYS,
   });
 
-  void orchestrator
-    .resumeAfterRestart(async (threadId, content) => {
-      await publisher.send(threadId, content);
-    })
-    .catch((error) => {
-      console.error("[threadcord] startup reconciliation failed", error);
-    });
+  void orchestrator.resumeAfterRestart().catch((error) => {
+    console.error("[threadcord] startup reconciliation failed", error);
+  });
 
   const app = new Hono();
 
