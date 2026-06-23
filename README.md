@@ -8,7 +8,7 @@
 
 </div>
 
-> A message in your control channel opens a public thread, clones an allowed GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, running tasks go back to `waiting`.
+> A message in your control channel opens a public thread, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, running tasks go back to `waiting`.
 
 Threadcord is a Discord bot plus a small Hono server. You post a task with `repo`, `branch`, and optionally `model` fields. The bot replies in a thread, clones the repo, and dispatches work to a Flue coding agent. Thread commands handle follow-ups, cancel, and done.
 
@@ -41,7 +41,7 @@ Configuration lives in [`.env.example`](.env.example). Zod validation is in [`sr
 
 ```bash
 cp .env.example .env
-# Discord, GitHub, allowlists, provider keys
+# Discord, GitHub, provider keys
 docker compose build
 docker compose up
 ```
@@ -149,10 +149,6 @@ Thread commands (in a Threadcord-created thread):
 
 Each control-channel message gets its own public thread. Status updates and follow-ups stay in that thread.
 
-### Repo allowlists
-
-`ALLOWED_REPOS` accepts exact names (`owner/repo`) or prefixes (`owner/*`). Tasks outside the list are rejected before clone.
-
 ### Concurrency and follow-ups
 
 `MAX_CONCURRENT_TASKS` caps parallel agent runs. Extra tasks queue. Follow-up messages in a thread queue behind the current turn.
@@ -208,7 +204,7 @@ Instructions and status lines post to your server. [`redact.ts`](src/util/redact
 
 ### GitHub
 
-Clone, push, and PR creation use your `GITHUB_TOKEN`.
+Clone, push, and PR creation use your `GITHUB_TOKEN`. Repo access is bounded by that token's scope. Limit who can post in the control channel accordingly.
 
 ## License
 

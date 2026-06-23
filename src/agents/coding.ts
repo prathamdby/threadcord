@@ -21,7 +21,7 @@ export default createAgent(async ({ id, env }) => {
       timeoutMs: 60 * 60 * 1000,
       maxAttempts: 10,
     },
-    tools: githubToken ? createGitHubTools(githubToken, turn.allowedRepos) : [],
+    tools: githubToken ? createGitHubTools(githubToken) : [],
     instructions: [
       "You are Threadcord, a background coding agent controlled from Discord.",
       `Work only inside ${turn.cwd}. Treat credentials as write-only operational secrets; never print them.`,

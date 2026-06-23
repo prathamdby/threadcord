@@ -221,7 +221,6 @@ export class TaskOrchestrator {
           featureBranch,
           instruction,
         ),
-        allowedRepos: this.config.allowedRepos,
       };
       await dispatch(codingAgent, {
         id: task.flueInstanceId,

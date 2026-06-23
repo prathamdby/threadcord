@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertRepoAllowed,
-  matchesAny,
   targetBranchForTask,
   validateTaskPolicy,
 } from "../src/task/policy.js";
@@ -22,11 +20,9 @@ const config: AppConfig = {
   GITHUB_TOKEN: "github",
   WORKSPACE_ROOT: "/workspaces",
   MAX_CONCURRENT_TASKS: 3,
-  ALLOWED_REPOS: "acme/*",
   PORT: 3583,
   WORKSPACE_TTL_DAYS: 14,
   ANTHROPIC_API_KEY: "anthropic-key",
-  allowedRepos: ["acme/*"],
   anthropicModels: ["claude-sonnet-4-5"],
   openaiModels: [],
   customProviders: [],
@@ -35,20 +31,8 @@ const config: AppConfig = {
 };
 
 describe("validateTaskPolicy", () => {
-  it("allows repos under an owner glob", () => {
+  it("allows a valid request", () => {
     expect(validateTaskPolicy(baseRequest, config)).toEqual({ ok: true });
-  });
-
-  it("rejects repos outside the allowlist", () => {
-    const result = validateTaskPolicy(
-      { ...baseRequest, repo: "other/web" },
-      config,
-    );
-
-    expect(result).toEqual({
-      ok: false,
-      reason: "Repo other/web is not allowed.",
-    });
   });
 
   it("rejects models outside the allowlist", () => {
@@ -103,26 +87,5 @@ describe("targetBranchForTask", () => {
     expect(
       targetBranchForTask("task-abc", { ...baseRequest, pushOverride: "main" }),
     ).toBe("main");
-  });
-});
-
-describe("assertRepoAllowed", () => {
-  it("rejects repos outside the allowlist", () => {
-    expect(() => assertRepoAllowed("other/web", config.allowedRepos)).toThrow(
-      /not allowed/,
-    );
-  });
-
-  it("accepts repos under an owner glob", () => {
-    expect(() =>
-      assertRepoAllowed("acme/web", config.allowedRepos),
-    ).not.toThrow();
-  });
-});
-
-describe("matchesAny", () => {
-  it("matches owner globs", () => {
-    expect(matchesAny("acme/web", ["acme/*"])).toBe(true);
-    expect(matchesAny("other/web", ["acme/*"])).toBe(false);
   });
 });

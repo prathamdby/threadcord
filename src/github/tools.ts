@@ -1,9 +1,8 @@
 import { defineTool } from "@flue/runtime";
 import { Octokit } from "@octokit/rest";
 import * as v from "valibot";
-import { assertRepoAllowed } from "../task/policy.js";
 
-export function createGitHubTools(token: string, allowedRepos: string[]) {
+export function createGitHubTools(token: string) {
   const octokit = new Octokit({
     auth: token,
     userAgent: "threadcord/0.1.0",
@@ -23,8 +22,6 @@ export function createGitHubTools(token: string, allowedRepos: string[]) {
         body: v.optional(v.string()),
       }),
       async execute(input) {
-        const fullRepo = `${input.owner}/${input.repo}`;
-        assertRepoAllowed(fullRepo, allowedRepos);
         const payload = {
           owner: input.owner,
           repo: input.repo,

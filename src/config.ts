@@ -21,7 +21,6 @@ const EnvSchema = z
     GITHUB_TOKEN: z.string().min(1),
     WORKSPACE_ROOT: z.string().min(1).default("/workspaces"),
     MAX_CONCURRENT_TASKS: z.coerce.number().int().positive().default(3),
-    ALLOWED_REPOS: z.string().min(1),
     PORT: z.coerce.number().int().positive().default(3583),
     THREADCORD_HTTP_BEARER: optionalNonEmptyString,
     WORKSPACE_TTL_DAYS: z.coerce.number().int().positive().default(14),
@@ -51,7 +50,6 @@ export interface CustomProviderConfig {
 }
 
 export type AppConfig = z.infer<typeof EnvSchema> & {
-  allowedRepos: string[];
   anthropicModels: string[];
   openaiModels: string[];
   customProviders: CustomProviderConfig[];
@@ -97,7 +95,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const config: AppConfig = {
     ...parsed,
-    allowedRepos: splitCsv(parsed.ALLOWED_REPOS),
     anthropicModels,
     openaiModels,
     customProviders,

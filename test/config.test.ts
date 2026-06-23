@@ -6,7 +6,6 @@ const baseEnv = {
   DISCORD_BOT_TOKEN: "discord",
   DISCORD_CHANNEL_ID: "channel",
   GITHUB_TOKEN: "github",
-  ALLOWED_REPOS: "owner/*",
   ANTHROPIC_API_KEY: "anthropic",
   ANTHROPIC_MODELS: "claude-sonnet-4-5",
 };
@@ -181,7 +180,6 @@ describe("loadConfig", () => {
         DISCORD_BOT_TOKEN: "discord",
         DISCORD_CHANNEL_ID: "channel",
         GITHUB_TOKEN: "github",
-        ALLOWED_REPOS: "owner/*",
       }),
     ).toThrow(/At least one provider model must be configured/);
   });
