@@ -1,9 +1,10 @@
-import { basename, join } from "node:path";
 import { getRuntimeConfig } from "../config.js";
 import { getPool } from "../db.js";
 import { targetBranchForTask } from "./policy.js";
 import { TaskStore } from "./store.js";
-import type { TaskRecord } from "../types.js";
+import { checkoutPathForTask } from "./workspace.js";
+
+export { checkoutPathForTask };
 
 export interface AgentRuntimeContext {
   model: string;
@@ -11,10 +12,6 @@ export interface AgentRuntimeContext {
   repo: string;
   baseBranch: string;
   featureBranch: string;
-}
-
-export function checkoutPathForTask(task: TaskRecord): string {
-  return join(task.workspacePath, basename(task.repo));
 }
 
 export async function resolveAgentRuntimeContext(

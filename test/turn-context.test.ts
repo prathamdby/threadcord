@@ -22,4 +22,10 @@ describe("checkoutPathForTask", () => {
   it("places the repo checkout under the task workspace", () => {
     expect(checkoutPathForTask(task)).toBe("/workspaces/task-1/web");
   });
+
+  it("refuses path-like repository records before deriving a checkout path", () => {
+    expect(() =>
+      checkoutPathForTask({ ...task, repo: "acme/../../outside" }),
+    ).toThrow("Task repository is invalid. Refusing to derive checkout path.");
+  });
 });

@@ -77,6 +77,7 @@ export class TaskOrchestrator {
       await message.reply(`Rejected: ${policy.reason}`);
       return;
     }
+    const admittedRequest = policy.request;
 
     const taskId = randomUUID();
     const { task, created } = await this.store.createTask({
@@ -85,11 +86,13 @@ export class TaskOrchestrator {
       discordThreadId: pendingThreadId(taskId),
       flueInstanceId: pendingThreadId(taskId),
       workspacePath: join(this.config.WORKSPACE_ROOT, taskId),
-      ...request,
+      ...admittedRequest,
     });
     if (!created) return;
 
-    const thread = await message.createThread(threadName(request.repo, taskId));
+    const thread = await message.createThread(
+      threadName(admittedRequest.repo, taskId),
+    );
     const statusMessage = await thread.send("Queued");
     const attached = await this.store.attachDiscordThread(
       task.id,

@@ -1,7 +1,7 @@
 import { mkdir, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
 import { execa } from "./execa.js";
 import { targetBranchForTask } from "./policy.js";
+import { checkoutPathForTask } from "./workspace.js";
 import type { TaskRecord } from "../types.js";
 
 export type BootstrapMode = "initial" | "continue";
@@ -11,8 +11,8 @@ export async function bootstrapWorkspace(
   githubToken: string,
   mode: BootstrapMode,
 ): Promise<string> {
+  const checkoutDir = checkoutPathForTask(task);
   await mkdir(task.workspacePath, { recursive: true });
-  const checkoutDir = join(task.workspacePath, basename(task.repo));
   const featureBranch = targetBranchForTask(task.id, task);
 
   if (!(await exists(checkoutDir))) {
