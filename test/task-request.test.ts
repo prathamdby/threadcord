@@ -56,7 +56,10 @@ describe("task request resolution", () => {
     if (!parsed.ok) return;
 
     const request = resolveTaskRequest(parsed.request, config);
-    expect(validateTaskPolicy(request, config)).toEqual({ ok: true });
+    expect(validateTaskPolicy(request, config)).toEqual({
+      ok: true,
+      request,
+    });
   });
 
   it("rejects an explicit model outside the derived allowlist", () => {

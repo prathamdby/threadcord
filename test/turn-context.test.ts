@@ -22,4 +22,22 @@ describe("checkoutPathForTask", () => {
   it("places the repo checkout under the task workspace", () => {
     expect(checkoutPathForTask(task)).toBe("/workspaces/task-1/web");
   });
+
+  it("preserves the stored repository basename for existing mixed-case tasks", () => {
+    expect(checkoutPathForTask({ ...task, repo: "Acme/Web.UI" })).toBe(
+      "/workspaces/task-1/Web.UI",
+    );
+  });
+
+  it("allows dot-prefixed repository names under the task workspace", () => {
+    expect(checkoutPathForTask({ ...task, repo: "acme/..foo" })).toBe(
+      "/workspaces/task-1/..foo",
+    );
+  });
+
+  it("refuses path-like repository records before deriving a checkout path", () => {
+    expect(() =>
+      checkoutPathForTask({ ...task, repo: "acme/../../outside" }),
+    ).toThrow("Task repository is invalid. Refusing to derive checkout path.");
+  });
 });

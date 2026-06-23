@@ -32,20 +32,56 @@ const config: AppConfig = {
 
 describe("validateTaskPolicy", () => {
   it("allows a valid request", () => {
-    expect(validateTaskPolicy(baseRequest, config)).toEqual({ ok: true });
+    expect(validateTaskPolicy(baseRequest, config)).toEqual({
+      ok: true,
+      request: baseRequest,
+    });
+  });
+
+  it("normalizes accepted repository names", () => {
+    expect(
+      validateTaskPolicy({ ...baseRequest, repo: "Acme/Web.UI" }, config),
+    ).toEqual({
+      ok: true,
+      request: { ...baseRequest, repo: "acme/web.ui" },
+    });
+  });
+
+  it("allows safe branch namespaces", () => {
+    expect(
+      validateTaskPolicy(
+        { ...baseRequest, branch: "release/v1.2.3" },
+        config,
+      ),
+    ).toEqual({
+      ok: true,
+      request: { ...baseRequest, branch: "release/v1.2.3" },
+    });
   });
 
   it("rejects invalid repository formats", () => {
-    const result = validateTaskPolicy(
-      { ...baseRequest, repo: "invalid-repo-format" },
-      config,
-    );
+    const invalidRepos = [
+      "invalid-repo-format",
+      "acme/",
+      "/web",
+      "acme/web/extra",
+      "acme//web",
+      "acme/..",
+      "../web",
+      "bad owner/web",
+      "bad_owner/web",
+      "-bad/web",
+      "bad-/web",
+      "bad--owner/web",
+      "acme/web repo",
+    ];
 
-    expect(result).toEqual({
-      ok: false,
-      reason:
-        "Invalid repository format: invalid-repo-format. Expected 'owner/repo'.",
-    });
+    for (const repo of invalidRepos) {
+      expect(validateTaskPolicy({ ...baseRequest, repo }, config)).toEqual({
+        ok: false,
+        reason: `Invalid repository format: ${repo}. Expected 'owner/repo'.`,
+      });
+    }
   });
 
   it("rejects models outside the allowlist", () => {
@@ -66,7 +102,10 @@ describe("validateTaskPolicy", () => {
       config,
     );
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({
+      ok: true,
+      request: { ...baseRequest, pushOverride: "main" },
+    });
   });
 
   it("allows pushing to an agent branch namespace", () => {
@@ -75,7 +114,10 @@ describe("validateTaskPolicy", () => {
       config,
     );
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({
+      ok: true,
+      request: { ...baseRequest, pushOverride: "agent/task-1" },
+    });
   });
 
   it("rejects push overrides to arbitrary branches", () => {
@@ -87,6 +129,53 @@ describe("validateTaskPolicy", () => {
     expect(result).toEqual({
       ok: false,
       reason: "Push override production is not allowed for branch main.",
+    });
+  });
+
+  it("rejects unsafe base branch names", () => {
+    const invalidBranches = [
+      "",
+      " ",
+      "-main",
+      "+main",
+      "../main",
+      "feature/../main",
+      "feature//main",
+      "main.lock",
+      "feature/main.lock",
+      "main.",
+      "feature~main",
+      "feature^main",
+      "feature:main",
+      "feature?main",
+      "feature*main",
+      "feature[main",
+      "feature\\main",
+      "feature@{1}",
+      "@",
+      "HEAD",
+      "refs/heads/main",
+      "pull/1/head",
+    ];
+
+    for (const branch of invalidBranches) {
+      expect(validateTaskPolicy({ ...baseRequest, branch }, config)).toEqual({
+        ok: false,
+        reason: `Invalid branch format: ${branch}. Expected a branch name like 'main' or 'agent/task-1'.`,
+      });
+    }
+  });
+
+  it("rejects unsafe push override names before product policy", () => {
+    const result = validateTaskPolicy(
+      { ...baseRequest, pushOverride: "-main" },
+      config,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason:
+        "Invalid push override format: -main. Expected a branch name like 'main' or 'agent/task-1'.",
     });
   });
 });
