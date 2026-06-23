@@ -1,4 +1,4 @@
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseGitHubRepository } from "./policy.js";
 import type { TaskRecord } from "../types.js";
 
@@ -10,7 +10,7 @@ export function checkoutPathForTask(task: TaskRecord): string {
     );
   }
 
-  const checkoutPath = join(task.workspacePath, repo.name);
+  const checkoutPath = join(task.workspacePath, basename(task.repo));
   if (!isPathInside(task.workspacePath, checkoutPath)) {
     throw new Error("Checkout path must stay inside the task workspace.");
   }
@@ -22,6 +22,8 @@ function isPathInside(parentPath: string, childPath: string): boolean {
   const fromParent = relative(resolve(parentPath), resolve(childPath));
   return (
     fromParent === "" ||
-    (!fromParent.startsWith("..") && !isAbsolute(fromParent))
+    (fromParent !== ".." &&
+      !fromParent.startsWith(`..${sep}`) &&
+      !isAbsolute(fromParent))
   );
 }

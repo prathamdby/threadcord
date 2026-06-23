@@ -88,6 +88,7 @@ function isSafeBranchName(branch: string): boolean {
   if (!branch || branch.trim() !== branch) return false;
   if (INVALID_BRANCH_CHARACTERS.test(branch)) return false;
   if (branch.startsWith("-")) return false;
+  if (branch.startsWith("+")) return false;
   if (branch.startsWith("/") || branch.endsWith("/")) return false;
   if (branch.startsWith("refs/") || branch.startsWith("pull/")) return false;
   if (branch.includes("//") || branch.includes("..")) return false;

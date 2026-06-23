@@ -137,6 +137,7 @@ describe("validateTaskPolicy", () => {
       "",
       " ",
       "-main",
+      "+main",
       "../main",
       "feature/../main",
       "feature//main",
