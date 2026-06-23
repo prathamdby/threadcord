@@ -122,21 +122,32 @@ export type BranchRefResult =
  * Rules are derived from `git check-ref-format` and Threadcord's own safety
  * requirements:
  *  - Not empty or whitespace-only.
- *  - No leading or trailing slash.
+ *  - No leading or trailing slash, whitespace, or dot.
  *  - No consecutive slashes (empty components).
  *  - No component starting with `-` (option-like) or `.`.
- *  - No component ending with `.lock`.
+ *  - No component ending with `.lock` or `.` (dot).
  *  - No `..` (path traversal).
  *  - No `@{` (Git special syntax).
  *  - No control characters, space, or characters Git treats as special:
  *    `~`, `^`, `:`, `?`, `*`, `[`, `\`.
  */
 export function validateBranchRef(input: string): BranchRefResult {
-  if (typeof input !== "string" || input.trim().length === 0) {
+  if (typeof input !== "string" || input.length === 0) {
     return { ok: false, reason: "Branch ref must not be empty." };
   }
 
-  const ref = input.trim();
+  // Reject whitespace-only and leading/trailing whitespace outright
+  if (/^\s+$/.test(input)) {
+    return { ok: false, reason: "Branch ref must not be empty." };
+  }
+  if (/^[\s]/.test(input) || /[\s]$/.test(input)) {
+    return {
+      ok: false,
+      reason: "Branch ref must not start or end with whitespace.",
+    };
+  }
+
+  const ref = input;
 
   // Control characters (0x00-0x1F, 0x7F DEL)
   if (/[\x00-\x1F\x7F]/.test(ref)) {
@@ -151,6 +162,11 @@ export function validateBranchRef(input: string): BranchRefResult {
   // Leading or trailing slash
   if (ref.startsWith("/") || ref.endsWith("/")) {
     return { ok: false, reason: "Branch ref must not start or end with a slash." };
+  }
+
+  // Leading or trailing dot
+  if (ref.endsWith(".")) {
+    return { ok: false, reason: "Branch ref must not end with a dot." };
   }
 
   // Consecutive slashes (empty component)

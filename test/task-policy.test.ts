@@ -183,6 +183,18 @@ describe("validateBranchRef", () => {
     if (!result.ok) expect(result.reason).toContain("empty");
   });
 
+  it("rejects leading whitespace", () => {
+    const result = validateBranchRef(" main");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("whitespace");
+  });
+
+  it("rejects trailing whitespace", () => {
+    const result = validateBranchRef("main ");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("whitespace");
+  });
+
   it("rejects control characters", () => {
     const result = validateBranchRef("main\x00branch");
     expect(result.ok).toBe(false);
@@ -217,6 +229,12 @@ describe("validateBranchRef", () => {
     const result = validateBranchRef("main/");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("slash");
+  });
+
+  it("rejects a trailing dot", () => {
+    const result = validateBranchRef("main.");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("dot");
   });
 
   it("rejects consecutive slashes", () => {
@@ -384,6 +402,19 @@ describe("validateTaskPolicy", () => {
     expect(result).toEqual({
       ok: false,
       reason: "Invalid branch: Branch ref must not be empty.",
+    });
+  });
+
+  it("rejects a base branch with trailing whitespace", () => {
+    const result = validateTaskPolicy(
+      { ...baseRequest, branch: "main " },
+      config,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason:
+        "Invalid branch: Branch ref must not start or end with whitespace.",
     });
   });
 

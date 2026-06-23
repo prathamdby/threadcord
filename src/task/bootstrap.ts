@@ -1,5 +1,5 @@
-import { mkdir, stat } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
+import { mkdir, realpath as fsRealpath, stat } from "node:fs/promises";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { execa } from "./execa.js";
 import { targetBranchForTask } from "./policy.js";
 import type { TaskRecord } from "../types.js";
@@ -18,7 +18,7 @@ export async function bootstrapWorkspace(
   // Path containment guard: ensure the derived checkout directory remains
   // inside the task's designated workspace. This is a safety net in case
   // a task record with a manipulated repo name reaches bootstrap.
-  assertPathInsideWorkspace(checkoutDir, task.workspacePath);
+  await assertPathInsideWorkspace(checkoutDir, task.workspacePath);
 
   if (!(await exists(checkoutDir))) {
     await cloneRepo(task, githubToken, checkoutDir);
@@ -48,23 +48,52 @@ export async function bootstrapWorkspace(
 }
 
 /**
+ * Like `fs.realpath()` but falls back to `resolve()` if the path does not
+ * exist. Non-existent paths cannot host symlinks, so the safe fallback is
+ * correct while keeping the guard usable in unit tests without creating
+ * every test path on disk.
+ */
+async function safeRealpath(path: string): Promise<string> {
+  try {
+    return await fsRealpath(path);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return resolve(path);
+    }
+    throw error;
+  }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+/**
  * Assert that the resolved checkout path is strictly inside the workspace
  * root. Fail closed with a redacted error if the invariant is violated.
+ *
+ * Uses `fs.realpath()` to resolve symlinks when the path exists, closing
+ * the symlink-escape vector. Falls back to `resolve` for non-existent
+ * paths (which cannot host symlinks).
  */
-export function assertPathInsideWorkspace(
+export async function assertPathInsideWorkspace(
   checkoutPath: string,
   workspaceRoot: string,
-): void {
-  const resolvedCheckout = resolve(checkoutPath);
-  const resolvedRoot = resolve(workspaceRoot);
+): Promise<void> {
+  const resolvedCheckout = await safeRealpath(resolve(checkoutPath));
+  const resolvedRoot = await safeRealpath(resolve(workspaceRoot));
 
-  // Normalise both to their canonical forms.
   const rel = relative(resolvedRoot, resolvedCheckout);
 
   // A relative path that starts with ".." means the checkout escaped the
-  // workspace root.  An absolute relative path (empty string is identity)
-  // is also not allowed — the checkout must be a *descendant*.
-  if (rel === "" || rel.startsWith("..")) {
+  // workspace root. An empty string means identity — the checkout must be a
+  // *descendant*. On Windows, if the two paths are on different drives,
+  // `relative` returns an absolute path, so we check `isAbsolute` too.
+  if (
+    rel === "" ||
+    rel.startsWith("..") ||
+    isAbsolute(rel)
+  ) {
     throw new Error(
       "Workspace checkout path escaped the task workspace. This incident will be logged.",
     );
