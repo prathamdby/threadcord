@@ -25,7 +25,7 @@ services:
       DATABASE_URL: postgres://threadcord:threadcord@postgres:5432/threadcord
       WORKSPACE_ROOT: /workspaces
       # Host env overrides .env, and no development default is injected. Production must set a private value.
-      THREADCORD_HTTP_BEARER: ${THREADCORD_HTTP_BEARER}
+      THREADCORD_HTTP_BEARER: ${THREADCORD_HTTP_BEARER:-}
     ports:
       - "3583:3583"
     volumes:
