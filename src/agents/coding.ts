@@ -1,9 +1,9 @@
-import { createAgent } from "@flue/runtime";
+import { defineAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
 import { createGitHubTools } from "../github/tools.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
 
-export default createAgent(async ({ id, env }) => {
+export default defineAgent(async ({ id, env }) => {
   const githubToken = stringEnv(env, "GITHUB_TOKEN", "");
   const turn = await resolveAgentRuntimeContext(id, env);
 
