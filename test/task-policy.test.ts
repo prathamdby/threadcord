@@ -35,6 +35,19 @@ describe("validateTaskPolicy", () => {
     expect(validateTaskPolicy(baseRequest, config)).toEqual({ ok: true });
   });
 
+  it("rejects invalid repository formats", () => {
+    const result = validateTaskPolicy(
+      { ...baseRequest, repo: "invalid-repo-format" },
+      config,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason:
+        "Invalid repository format: invalid-repo-format. Expected 'owner/repo'.",
+    });
+  });
+
   it("rejects models outside the allowlist", () => {
     const result = validateTaskPolicy(
       { ...baseRequest, model: "openai/gpt-5" },
