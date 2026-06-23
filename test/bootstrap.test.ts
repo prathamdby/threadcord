@@ -38,7 +38,7 @@ describe("assertPathInsideWorkspace", () => {
     ).rejects.toThrow("escaped");
   });
 
-  it("rejets a path that is a sibling of the workspace root", async () => {
+  it("rejects a path that is a sibling of the workspace root", async () => {
     await expect(
       assertPathInsideWorkspace(
         "/workspaces/other-task/web",

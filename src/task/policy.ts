@@ -138,7 +138,7 @@ export function validateBranchRef(input: string): BranchRefResult {
 
   // Reject whitespace-only and leading/trailing whitespace outright
   if (/^\s+$/.test(input)) {
-    return { ok: false, reason: "Branch ref must not be empty." };
+    return { ok: false, reason: "Branch ref must not be whitespace-only." };
   }
   if (/^[\s]/.test(input) || /[\s]$/.test(input)) {
     return {

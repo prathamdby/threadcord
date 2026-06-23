@@ -180,7 +180,7 @@ describe("validateBranchRef", () => {
   it("rejects whitespace-only", () => {
     const result = validateBranchRef("   ");
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("empty");
+    if (!result.ok) expect(result.reason).toContain("whitespace-only");
   });
 
   it("rejects leading whitespace", () => {
