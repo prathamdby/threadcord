@@ -202,8 +202,10 @@ export class TaskOrchestrator {
     const task = await this.store.getByInstanceId(instanceId);
     if (!task) return;
 
-    if (task.status === "running") {
-      await this.store.transition(task.id, "running", "waiting");
+    // Act on the authoritative transition result, not the status read above. A
+    // cancel can land between the read and the transition, so the store, not
+    // the stale snapshot, decides which path this turn end takes.
+    if (await this.store.transition(task.id, "running", "waiting")) {
       await this.post(
         task.discordThreadId,
         "Turn completed. Waiting for the next instruction.",
@@ -212,10 +214,7 @@ export class TaskOrchestrator {
       return;
     }
 
-    if (task.status === "cancelling") {
-      // The active turn has ended, so cancellation is now real. Finalize the
-      // terminal state and only then free the slot it was holding.
-      await this.store.transition(task.id, "cancelling", "cancelled");
+    if (await this.store.transition(task.id, "cancelling", "cancelled")) {
       await this.post(
         task.discordThreadId,
         "Cancellation complete. The task has stopped. Start a new task in the control channel to continue.",
@@ -224,9 +223,8 @@ export class TaskOrchestrator {
       return;
     }
 
-    if (task.status === "cancelled" || task.status === "failed") {
-      await this.fillConcurrencySlots();
-    }
+    // Already terminal. Free any slot the turn may have still been counted for.
+    await this.fillConcurrencySlots();
   }
 
   private async scheduleAfterTurn(taskId: string): Promise<void> {
@@ -294,6 +292,10 @@ export class TaskOrchestrator {
           await this.post(
             task.discordThreadId,
             "Cancellation complete. The task has stopped.",
+          );
+        } else {
+          console.error(
+            `[threadcord] turn dispatch failed for already-inactive task ${task.id}: ${summary}`,
           );
         }
       }
