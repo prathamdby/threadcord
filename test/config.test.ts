@@ -69,6 +69,16 @@ describe("loadConfig", () => {
     expect(config.THREADCORD_HTTP_BEARER).toBe("prod-bearer-0123456789abcdef");
   });
 
+  it("stores the trimmed THREADCORD_HTTP_BEARER so validation and auth agree", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      NODE_ENV: "production",
+      THREADCORD_HTTP_BEARER: "  prod-bearer-0123456789abcdef  ",
+    });
+
+    expect(config.THREADCORD_HTTP_BEARER).toBe("prod-bearer-0123456789abcdef");
+  });
+
   it("accepts the development default THREADCORD_HTTP_BEARER outside production", () => {
     const config = loadConfig({
       ...baseEnv,

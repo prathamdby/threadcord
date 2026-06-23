@@ -1,11 +1,11 @@
 import { z } from "zod";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
 
-const optionalNonEmptyString = z.preprocess(
-  (value) =>
-    typeof value === "string" && value.trim() === "" ? undefined : value,
-  z.string().min(1).optional(),
-);
+const optionalNonEmptyString = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}, z.string().min(1).optional());
 
 const optionalCsvString = z.preprocess(
   (value) =>
@@ -38,7 +38,7 @@ const EnvSchema = z
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production") {
-      const bearer = env.THREADCORD_HTTP_BEARER?.trim();
+      const bearer = env.THREADCORD_HTTP_BEARER;
       if (!bearer) {
         ctx.addIssue({
           code: "custom",
