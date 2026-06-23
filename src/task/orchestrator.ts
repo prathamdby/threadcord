@@ -20,6 +20,7 @@ import type {
   DispatchAgentInput,
   TaskRecord,
   ThreadMessage,
+  ThreadRef,
 } from "../types.js";
 
 /** Sends one dispatched agent turn. Injectable so tests can fake the runtime. */
@@ -78,6 +79,9 @@ export class TaskOrchestrator {
       message.channelId !== this.config.DISCORD_CHANNEL_ID
     )
       return;
+    // Any existing record for this message id, draft or complete, means the
+    // message is already owned. Returning here keeps a duplicate delivery from
+    // creating a second thread or a second task.
     if (await this.store.getByMessageId(message.id)) return;
 
     const parsed = parseTaskMessage(message.content);
@@ -94,7 +98,7 @@ export class TaskOrchestrator {
     const admittedRequest = policy.request;
 
     const taskId = randomUUID();
-    const { task, created } = await this.store.createTask({
+    const { task, created } = await this.store.createDraft({
       id: taskId,
       discordMessageId: message.id,
       discordThreadId: pendingThreadId(taskId),
@@ -102,18 +106,38 @@ export class TaskOrchestrator {
       workspacePath: join(this.config.WORKSPACE_ROOT, taskId),
       ...admittedRequest,
     });
+    // A concurrent delivery won the insert and owns the attach. Bail so only
+    // one delivery creates the thread.
     if (!created) return;
 
-    const thread = await message.createThread(
-      threadName(admittedRequest.repo, taskId),
-    );
-    const statusMessage = await thread.send("Queued");
-    const attached = await this.store.attachDiscordThread(
+    let thread: ThreadRef;
+    let statusMessageId: string;
+    try {
+      thread = await message.createThread(
+        threadName(admittedRequest.repo, taskId),
+      );
+      statusMessageId = (await thread.send("Queued")).id;
+    } catch (error) {
+      // Thread or status message creation failed. The draft is non-schedulable,
+      // so failing it leaves no placeholder work on the scheduler.
+      const summary = summarizeError(error);
+      await this.store.markDraftFailed(task.id, summary);
+      await this.replySafely(
+        message,
+        `Could not create a thread for this task: ${summary}`,
+      );
+      return;
+    }
+
+    const attached = await this.store.attachAndPromote(
       task.id,
       thread.id,
       toFlueInstanceId(thread.id),
-      statusMessage.id,
+      statusMessageId,
     );
+    // The draft was already advanced or failed by another path. Do not schedule
+    // off a stale snapshot.
+    if (!attached) return;
 
     const claimed = await this.store.claimNextTurn(attached.id);
     if (claimed) {
@@ -304,6 +328,20 @@ export class TaskOrchestrator {
         }
       }
       await this.fillConcurrencySlots();
+    }
+  }
+
+  private async replySafely(
+    message: ChannelMessage,
+    content: string,
+  ): Promise<void> {
+    // The control-channel reply is best effort. If Discord is the thing that
+    // just failed, the reply may fail too. Log and move on rather than masking
+    // the original failure with a second one.
+    try {
+      await message.reply(content);
+    } catch (error) {
+      console.error("[threadcord] control-channel reply failed", error);
     }
   }
 
