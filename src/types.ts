@@ -2,11 +2,30 @@ export const TASK_STATUSES = [
   "queued",
   "running",
   "waiting",
+  "cancelling",
   "completed",
   "failed",
   "cancelled",
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/**
+ * Statuses that consume a concurrency slot. `cancelling` stays here on purpose.
+ * A cancelled-but-still-running turn keeps its slot until the runtime confirms
+ * the turn ended, so the configured limit never overcommits the host.
+ */
+export const ACTIVE_STATUSES = ["running", "cancelling"] as const;
+
+/**
+ * Result of a cancel request, modelling the lifecycle the user sees.
+ * `terminal` stopped a task with no active turn (queued or waiting).
+ * `requested` flagged a running task; its turn is still winding down.
+ * `noop` means the task was already cancelling or in a terminal state.
+ */
+export type CancelOutcome =
+  | { kind: "terminal"; task: TaskRecord }
+  | { kind: "requested"; task: TaskRecord }
+  | { kind: "noop"; task: TaskRecord };
 
 export interface ParsedTaskRequest {
   instruction: string;

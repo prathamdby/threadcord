@@ -8,7 +8,7 @@
 
 </div>
 
-> A message in your control channel opens a public thread, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, running tasks go back to `waiting`.
+> A message in your control channel opens a public thread, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, running tasks go back to `waiting`, while tasks already cancelling are finalized to `cancelled` rather than resurrected.
 
 Threadcord is a Discord bot plus a small Hono server. You post a task with `repo`, `branch`, and optionally `model` fields. The bot replies in a thread, clones the repo, and dispatches work to a Flue coding agent. Thread commands handle follow-ups, cancel, and done.
 
@@ -140,8 +140,12 @@ Only `agent/*` branches and the task base branch are allowed as push targets.
 Thread commands (in a Threadcord-created thread):
 
 - `status` prints the current task status.
-- `cancel` stops further dispatches and frees a concurrency slot.
+- `cancel` stops future work immediately. A queued or waiting task ends right away. A running task is marked `cancelling`. No new turns or follow-ups are scheduled, but it keeps its concurrency slot until the active turn ends, then becomes `cancelled`.
 - `done` marks a `waiting` or `queued` task complete.
+
+### Honest cancellation
+
+Cancellation is a control-plane action, not a status label. The Flue runtime exposes no safe way to interrupt a dispatched durable turn, so Threadcord fails closed. A running task counts against `MAX_CONCURRENT_TASKS` until its turn actually ends, so the limit never overcommits the host while a cancelled turn is still alive. If a future runtime adds a safe interruption call, it plugs into the `cancel` command path in [`orchestrator.ts`](src/task/orchestrator.ts) where the running-task branch posts the cancellation-requested reply.
 
 ## Why use Threadcord?
 
@@ -164,7 +168,7 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 | New task   | Control channel | Thread created, repo cloned, first turn queued     |
 | Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`    |
 | `status`   | Task thread     | Replies with current task status                   |
-| `cancel`   | Task thread     | Stops further dispatches, frees a concurrency slot |
+| `cancel`   | Task thread     | Stops future work; running tasks hold the slot until the turn ends |
 | `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`  |
 | Open PR    | Agent tool      | `create_github_pull_request` after push            |
 
