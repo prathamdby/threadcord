@@ -12,7 +12,7 @@ import {
 import { bootstrapWorkspace } from "./bootstrap.js";
 import { parseTaskMessage } from "./parser.js";
 import { targetBranchForTask, validateTaskPolicy } from "./policy.js";
-import type { TaskStore } from "./store.js";
+import type { TaskStorePort } from "./store.js";
 import { summarizeError } from "../util/redact.js";
 import type {
   ChannelMessage,
@@ -29,12 +29,31 @@ const TERMINAL_STATUSES = new Set<TaskStatus>([
   "cancelled",
 ]);
 
+/** Sends one dispatched agent turn. Injectable so tests can fake the runtime. */
+export type DispatchTurn = (
+  instanceId: string,
+  input: DispatchAgentInput,
+) => Promise<void>;
+
+/** Prepares a turn's workspace checkout. Injectable so tests can skip git. */
+export type BootstrapTurn = (
+  task: TaskRecord,
+  githubToken: string,
+  mode: "initial" | "continue",
+) => Promise<string>;
+
+const defaultDispatchTurn: DispatchTurn = async (instanceId, input) => {
+  await dispatch(codingAgent, { id: instanceId, input });
+};
+
 export class TaskOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
 
   constructor(
     private readonly config: AppConfig,
-    private readonly store: TaskStore,
+    private readonly store: TaskStorePort,
+    private readonly dispatchTurn: DispatchTurn = defaultDispatchTurn,
+    private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
   ) {}
 
   setMilestonePublisher(
@@ -46,12 +65,20 @@ export class TaskOrchestrator {
   async resumeAfterRestart(
     notifyThread: (threadId: string, content: string) => Promise<void>,
   ): Promise<void> {
-    const released = await this.store.releaseRunningAfterRestart();
-    for (const task of released) {
+    const { resumed, cancelled } = await this.store.reconcileAfterRestart();
+    for (const task of resumed) {
       if (!isPendingThreadId(task.discordThreadId)) {
         await notifyThread(
           task.discordThreadId,
           "Resumed after restart. Ready for the next instruction.",
+        );
+      }
+    }
+    for (const task of cancelled) {
+      if (!isPendingThreadId(task.discordThreadId)) {
+        await notifyThread(
+          task.discordThreadId,
+          "Cancellation complete after restart. The task has stopped.",
         );
       }
     }
@@ -122,15 +149,25 @@ export class TaskOrchestrator {
       return;
     }
     if (command === "cancel") {
-      const cancelled = await this.store.cancelTask(task.id);
-      if (!cancelled) {
-        await message.reply(`Task is already ${task.status}.`);
+      const outcome = await this.store.requestCancel(task.id);
+      if (outcome.kind === "terminal") {
+        await message.reply(
+          "Cancelled. No further turns will be dispatched for this task.",
+        );
+        await this.fillConcurrencySlots();
         return;
       }
-      await message.reply(
-        "Cancelled. No further turns will be dispatched for this task.",
-      );
-      await this.fillConcurrencySlots();
+      if (outcome.kind === "requested") {
+        // Fail closed. The Flue runtime exposes no safe way to interrupt a
+        // dispatched durable turn, so the slot stays held until agent end
+        // rather than claiming the limit is free while the turn runs on. A
+        // future runtime interruption call would go here, before this reply.
+        await message.reply(
+          "Cancellation requested. No new turns or follow-ups will be scheduled. The current turn is still winding down. A final message will post when it stops.",
+        );
+        return;
+      }
+      await message.reply(`Task is already ${outcome.task.status}.`);
       return;
     }
     if (command === "done") {
@@ -144,6 +181,12 @@ export class TaskOrchestrator {
         return;
       }
       await message.reply("Task marked complete.");
+      return;
+    }
+    if (task.status === "cancelling") {
+      await message.reply(
+        "Cancellation is in progress. No further turns will be scheduled for this task.",
+      );
       return;
     }
     if (TERMINAL_STATUSES.has(task.status)) {
@@ -180,6 +223,18 @@ export class TaskOrchestrator {
       return;
     }
 
+    if (task.status === "cancelling") {
+      // The active turn has ended, so cancellation is now real. Finalize the
+      // terminal state and only then free the slot it was holding.
+      await this.store.transition(task.id, "cancelling", "cancelled");
+      await this.post(
+        task.discordThreadId,
+        "Cancellation complete. The task has stopped. Start a new task in the control channel to continue.",
+      );
+      await this.fillConcurrencySlots();
+      return;
+    }
+
     if (task.status === "cancelled" || task.status === "failed") {
       await this.fillConcurrencySlots();
     }
@@ -205,7 +260,7 @@ export class TaskOrchestrator {
   private async runTurn(claimed: ClaimedTurn): Promise<void> {
     const { task, instruction, source } = claimed;
     try {
-      const checkoutPath = await bootstrapWorkspace(
+      const checkoutPath = await this.bootstrap(
         task,
         this.config.GITHUB_TOKEN,
         source === "initial" ? "initial" : "continue",
@@ -225,20 +280,34 @@ export class TaskOrchestrator {
           instruction,
         ),
       };
-      await dispatch(codingAgent, {
-        id: task.flueInstanceId,
-        input,
-      });
+      await this.dispatchTurn(task.flueInstanceId, input);
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {
       const summary = summarizeError(error);
-      await this.store.transition(
+      const failed = await this.store.transition(
         task.id,
         ["queued", "waiting", "running"],
         "failed",
         summary,
       );
-      await this.post(task.discordThreadId, `Failed: ${summary}`);
+      if (failed) {
+        await this.post(task.discordThreadId, `Failed: ${summary}`);
+      } else {
+        // The turn was already cancellation-requested when dispatch failed.
+        // Finalize cancellation rather than reporting a failure that the user
+        // did not cause.
+        const cancelled = await this.store.transition(
+          task.id,
+          "cancelling",
+          "cancelled",
+        );
+        if (cancelled) {
+          await this.post(
+            task.discordThreadId,
+            "Cancellation complete. The task has stopped.",
+          );
+        }
+      }
       await this.fillConcurrencySlots();
     }
   }

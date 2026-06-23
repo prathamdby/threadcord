@@ -1,15 +1,59 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type {
+  CancelOutcome,
   ClaimedTurn,
   NewTaskRecord,
   TaskRecord,
   TaskStatus,
 } from "../types.js";
-import { TASK_STATUSES } from "../types.js";
+import { ACTIVE_STATUSES, TASK_STATUSES } from "../types.js";
 
 const SCHEDULER_LOCK_KEY = 8675309;
 
-export class TaskStore {
+/** Outcome of restart reconciliation, split by what each task became. */
+export interface RestartReconciliation {
+  /** Running turns lost to the restart, returned to `waiting`. */
+  resumed: TaskRecord[];
+  /** Cancellation-requested turns finalized to terminal `cancelled`. */
+  cancelled: TaskRecord[];
+}
+
+/**
+ * Store surface the orchestrator depends on. Declaring it lets tests drive the
+ * cancellation lifecycle through an in-memory implementation with a fake
+ * dispatch layer, exercising visible state rather than SQL text.
+ */
+export interface TaskStorePort {
+  getByMessageId(messageId: string): Promise<TaskRecord | undefined>;
+  getByThreadId(threadId: string): Promise<TaskRecord | undefined>;
+  getByInstanceId(instanceId: string): Promise<TaskRecord | undefined>;
+  createTask(
+    task: NewTaskRecord,
+  ): Promise<{ task: TaskRecord; created: boolean }>;
+  attachDiscordThread(
+    taskId: string,
+    threadId: string,
+    flueInstanceId: string,
+    statusMessageId: string,
+  ): Promise<TaskRecord>;
+  claimNextTurn(preferTaskId?: string): Promise<ClaimedTurn | undefined>;
+  queuePosition(taskId: string): Promise<number>;
+  transition(
+    taskId: string,
+    from: TaskStatus | TaskStatus[],
+    to: TaskStatus,
+    errorSummary?: string,
+  ): Promise<TaskRecord | undefined>;
+  requestCancel(taskId: string): Promise<CancelOutcome>;
+  reconcileAfterRestart(): Promise<RestartReconciliation>;
+  enqueueFollowup(
+    taskId: string,
+    discordMessageId: string,
+    instruction: string,
+  ): Promise<number>;
+}
+
+export class TaskStore implements TaskStorePort {
   constructor(
     private readonly pool: Pool,
     private readonly maxConcurrentTasks: number,
@@ -45,7 +89,7 @@ export class TaskStore {
     `);
     await this.pool.query(`
       ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
-      CHECK (status IN ('queued', 'running', 'waiting', 'completed', 'failed', 'cancelled'))
+      CHECK (status IN ('queued', 'running', 'waiting', 'cancelling', 'completed', 'failed', 'cancelled'))
     `);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS task_followups (
@@ -168,10 +212,11 @@ export class TaskStore {
         SCHEDULER_LOCK_KEY,
       ]);
 
-      const running = await client.query(
-        "SELECT COUNT(*)::int AS count FROM tasks WHERE status = 'running'",
+      const active = await client.query(
+        "SELECT COUNT(*)::int AS count FROM tasks WHERE status = ANY($1::text[])",
+        [[...ACTIVE_STATUSES]],
       );
-      if (Number(singleRow(running.rows).count) >= this.maxConcurrentTasks) {
+      if (Number(singleRow(active.rows).count) >= this.maxConcurrentTasks) {
         await client.query("ROLLBACK");
         return undefined;
       }
@@ -238,24 +283,54 @@ export class TaskStore {
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
 
-  async cancelTask(taskId: string): Promise<TaskRecord | undefined> {
+  /**
+   * Move a task toward cancellation honestly. Queued and waiting tasks have no
+   * active turn, so they go straight to terminal `cancelled`. A running task
+   * only reaches `cancelling`: its turn keeps a concurrency slot until the
+   * runtime reports the turn ended. Pending follow-ups are dropped in both
+   * cases so no new turn can be scheduled.
+   */
+  async requestCancel(taskId: string): Promise<CancelOutcome> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const result = await client.query(
+
+      const terminal = await client.query(
         `
           UPDATE tasks
           SET status = 'cancelled', updated_at = now()
-          WHERE id = $1 AND status IN ('queued', 'waiting', 'running')
+          WHERE id = $1 AND status IN ('queued', 'waiting')
           RETURNING *
         `,
         [taskId],
       );
-      await client.query("DELETE FROM task_followups WHERE task_id = $1", [
-        taskId,
-      ]);
+      if (terminal.rows[0]) {
+        await dropFollowups(client, taskId);
+        await client.query("COMMIT");
+        return { kind: "terminal", task: rowToTask(terminal.rows[0]) };
+      }
+
+      const requested = await client.query(
+        `
+          UPDATE tasks
+          SET status = 'cancelling', updated_at = now()
+          WHERE id = $1 AND status = 'running'
+          RETURNING *
+        `,
+        [taskId],
+      );
+      if (requested.rows[0]) {
+        await dropFollowups(client, taskId);
+        await client.query("COMMIT");
+        return { kind: "requested", task: rowToTask(requested.rows[0]) };
+      }
+
+      const current = await client.query(
+        "SELECT * FROM tasks WHERE id = $1",
+        [taskId],
+      );
       await client.query("COMMIT");
-      return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
+      return { kind: "noop", task: rowToTask(singleRow(current.rows)) };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -264,8 +339,14 @@ export class TaskStore {
     }
   }
 
-  async releaseRunningAfterRestart(): Promise<TaskRecord[]> {
-    const result = await this.pool.query(
+  /**
+   * Settle in-flight state after a process restart. A running turn cannot
+   * survive the restart, so it returns to `waiting` and can claim again. A
+   * cancellation-requested turn is finalized to terminal `cancelled` instead of
+   * resurrected, so a restart never reopens work the user already stopped.
+   */
+  async reconcileAfterRestart(): Promise<RestartReconciliation> {
+    const resumed = await this.pool.query(
       `
         UPDATE tasks
         SET status = 'waiting', updated_at = now()
@@ -273,7 +354,18 @@ export class TaskStore {
         RETURNING *
       `,
     );
-    return result.rows.map(rowToTask);
+    const cancelled = await this.pool.query(
+      `
+        UPDATE tasks
+        SET status = 'cancelled', updated_at = now()
+        WHERE status = 'cancelling'
+        RETURNING *
+      `,
+    );
+    return {
+      resumed: resumed.rows.map(rowToTask),
+      cancelled: cancelled.rows.map(rowToTask),
+    };
   }
 
   async enqueueFollowup(
@@ -392,6 +484,10 @@ export class TaskStore {
     const task = rowToTask(row);
     return { task, instruction: row.run_instruction, source: "followup" };
   }
+}
+
+function dropFollowups(client: PoolClient, taskId: string): Promise<unknown> {
+  return client.query("DELETE FROM task_followups WHERE task_id = $1", [taskId]);
 }
 
 function singleRow<T extends QueryResultRow>(rows: T[]): T {
