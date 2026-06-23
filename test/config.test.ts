@@ -59,14 +59,13 @@ describe("loadConfig", () => {
     ).toThrow(/THREADCORD_HTTP_BEARER/);
   });
 
-  it("enforces production rules for NODE_ENV regardless of casing or whitespace", () => {
+  it("rejects non-standard NODE_ENV values so the runtime agrees on the mode", () => {
     expect(() =>
       loadConfig({
         ...baseEnv,
         NODE_ENV: "  Production  ",
-        THREADCORD_HTTP_BEARER: "threadcord-dev-bearer",
       }),
-    ).toThrow(/THREADCORD_HTTP_BEARER/);
+    ).toThrow(/NODE_ENV/);
   });
 
   it("rejects a trivially short THREADCORD_HTTP_BEARER in production", () => {

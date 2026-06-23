@@ -34,7 +34,7 @@ const EnvSchema = z
     OPENAI_API_KEY: optionalNonEmptyString,
     OPENAI_MODELS: optionalCsvString,
     PROVIDERS: optionalCsvString,
-    NODE_ENV: z.string().trim().toLowerCase().optional(),
+    NODE_ENV: z.enum(["production", "development", "test"]).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production") {
