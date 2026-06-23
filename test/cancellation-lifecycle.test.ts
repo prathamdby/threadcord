@@ -65,20 +65,20 @@ class InMemoryStore implements TaskStorePort {
   }
 
   async getByMessageId(messageId: string): Promise<TaskRecord | undefined> {
-    return [...this.tasks.values()].find(
-      (t) => t.discordMessageId === messageId,
+    return clone(
+      [...this.tasks.values()].find((t) => t.discordMessageId === messageId),
     );
   }
 
   async getByThreadId(threadId: string): Promise<TaskRecord | undefined> {
-    return [...this.tasks.values()].find(
-      (t) => t.discordThreadId === threadId,
+    return clone(
+      [...this.tasks.values()].find((t) => t.discordThreadId === threadId),
     );
   }
 
   async getByInstanceId(instanceId: string): Promise<TaskRecord | undefined> {
-    return [...this.tasks.values()].find(
-      (t) => t.flueInstanceId === instanceId,
+    return clone(
+      [...this.tasks.values()].find((t) => t.flueInstanceId === instanceId),
     );
   }
 
@@ -106,7 +106,7 @@ class InMemoryStore implements TaskStorePort {
       updatedAt: now,
     };
     this.tasks.set(record.id, record);
-    return { task: record, created: true };
+    return { task: clone(record), created: true };
   }
 
   async attachDiscordThread(
@@ -120,7 +120,7 @@ class InMemoryStore implements TaskStorePort {
     task.discordThreadId = threadId;
     task.flueInstanceId = flueInstanceId;
     task.statusMessageId = statusMessageId;
-    return task;
+    return clone(task);
   }
 
   async claimNextTurn(preferTaskId?: string): Promise<ClaimedTurn | undefined> {
@@ -155,7 +155,7 @@ class InMemoryStore implements TaskStorePort {
     if (!task || !fromList.includes(task.status)) return undefined;
     task.status = to;
     if (errorSummary !== undefined) task.errorSummary = errorSummary;
-    return task;
+    return clone(task);
   }
 
   async requestCancel(taskId: string): Promise<CancelOutcome> {
@@ -164,14 +164,14 @@ class InMemoryStore implements TaskStorePort {
     if (task.status === "queued" || task.status === "waiting") {
       task.status = "cancelled";
       this.dropFollowups(taskId);
-      return { kind: "terminal", task };
+      return { kind: "terminal", task: clone(task) };
     }
     if (task.status === "running") {
       task.status = "cancelling";
       this.dropFollowups(taskId);
-      return { kind: "requested", task };
+      return { kind: "requested", task: clone(task) };
     }
-    return { kind: "noop", task };
+    return { kind: "noop", task: clone(task) };
   }
 
   async reconcileAfterRestart(): Promise<RestartReconciliation> {
@@ -180,10 +180,10 @@ class InMemoryStore implements TaskStorePort {
     for (const task of this.tasks.values()) {
       if (task.status === "running") {
         task.status = "waiting";
-        resumed.push(task);
+        resumed.push(clone(task));
       } else if (task.status === "cancelling") {
         task.status = "cancelled";
-        cancelled.push(task);
+        cancelled.push(clone(task));
       }
     }
     return { resumed, cancelled };
@@ -213,7 +213,7 @@ class InMemoryStore implements TaskStorePort {
     const position = this.followups.filter(
       (f) => f.taskId === taskId && target && f.seq <= target.seq,
     ).length;
-    return { ok: true, position };
+    return { ok: true, position, status: task.status };
   }
 
   private claimInitial(preferTaskId?: string): ClaimedTurn | undefined {
@@ -228,7 +228,7 @@ class InMemoryStore implements TaskStorePort {
     candidate.status = "running";
     candidate.initialTurnStarted = true;
     return {
-      task: candidate,
+      task: clone(candidate),
       instruction: candidate.instruction,
       source: "initial",
     };
@@ -249,12 +249,20 @@ class InMemoryStore implements TaskStorePort {
     this.followups = this.followups.filter((f) => f.seq !== followup.seq);
     const task = this.tasks.get(followup.taskId)!;
     task.status = "running";
-    return { task, instruction: followup.instruction, source: "followup" };
+    return {
+      task: clone(task),
+      instruction: followup.instruction,
+      source: "followup",
+    };
   }
 
   private dropFollowups(taskId: string): void {
     this.followups = this.followups.filter((f) => f.taskId !== taskId);
   }
+}
+
+function clone<T extends TaskRecord | undefined>(task: T): T {
+  return (task ? { ...task } : task) as T;
 }
 
 function byCreatedThenId(a: TaskRecord, b: TaskRecord): number {

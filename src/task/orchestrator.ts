@@ -192,7 +192,7 @@ export class TaskOrchestrator {
     }
     await message.reply(`Queued follow-up - position ${enqueued.position}`);
 
-    if (task.status === "waiting") {
+    if (enqueued.status === "waiting") {
       const claimed = await this.store.claimNextTurn(task.id);
       if (claimed) void this.runTurn(claimed);
     }
@@ -223,7 +223,11 @@ export class TaskOrchestrator {
       return;
     }
 
-    // Already terminal. Free any slot the turn may have still been counted for.
+    // Already terminal, or a duplicate end event. Free any slot the turn may
+    // still be counted for, and record the unexpected state for diagnosis.
+    console.warn(
+      `[threadcord] agent end for task ${task.id} with no active turn to finalize (status ${task.status})`,
+    );
     await this.fillConcurrencySlots();
   }
 

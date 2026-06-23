@@ -22,11 +22,12 @@ export interface RestartReconciliation {
 }
 
 /**
- * Result of enqueuing a follow-up. `ok` carries the queue position; otherwise
- * the task's current status explains why it was rejected.
+ * Result of enqueuing a follow-up. On success it carries the queue position and
+ * the task's locked-in status so callers can decide scheduling from authoritative
+ * state; on rejection the status explains why.
  */
 export type FollowupResult =
-  | { ok: true; position: number }
+  | { ok: true; position: number; status: TaskStatus }
   | { ok: false; status: TaskStatus };
 
 /**
@@ -305,49 +306,48 @@ export class TaskStore implements TaskStorePort {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-
-      const terminal = await client.query(
-        `
-          UPDATE tasks
-          SET status = 'cancelled', updated_at = now()
-          WHERE id = $1 AND status IN ('queued', 'waiting')
-          RETURNING *
-        `,
+      // Lock the task row first so a concurrent enqueueFollowup (which also
+      // locks it FOR UPDATE) cannot interleave with the status change and its
+      // follow-up cleanup.
+      const locked = await client.query(
+        "SELECT * FROM tasks WHERE id = $1 FOR UPDATE",
         [taskId],
       );
-      if (terminal.rows[0]) {
-        await dropFollowups(client, taskId);
+      const row = singleRow(locked.rows);
+      const status = parseTaskStatus(row.status);
+
+      if (status === "queued" || status === "waiting") {
+        const updated = await this.finalizeCancel(client, taskId, "cancelled");
         await client.query("COMMIT");
-        return { kind: "terminal", task: rowToTask(terminal.rows[0]) };
+        return { kind: "terminal", task: updated };
+      }
+      if (status === "running") {
+        const updated = await this.finalizeCancel(client, taskId, "cancelling");
+        await client.query("COMMIT");
+        return { kind: "requested", task: updated };
       }
 
-      const requested = await client.query(
-        `
-          UPDATE tasks
-          SET status = 'cancelling', updated_at = now()
-          WHERE id = $1 AND status = 'running'
-          RETURNING *
-        `,
-        [taskId],
-      );
-      if (requested.rows[0]) {
-        await dropFollowups(client, taskId);
-        await client.query("COMMIT");
-        return { kind: "requested", task: rowToTask(requested.rows[0]) };
-      }
-
-      const current = await client.query(
-        "SELECT * FROM tasks WHERE id = $1",
-        [taskId],
-      );
       await client.query("COMMIT");
-      return { kind: "noop", task: rowToTask(singleRow(current.rows)) };
+      return { kind: "noop", task: rowToTask(row) };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
     }
+  }
+
+  private async finalizeCancel(
+    client: PoolClient,
+    taskId: string,
+    to: "cancelled" | "cancelling",
+  ): Promise<TaskRecord> {
+    const updated = await client.query(
+      "UPDATE tasks SET status = $2, updated_at = now() WHERE id = $1 RETURNING *",
+      [taskId, to],
+    );
+    await dropFollowups(client, taskId);
+    return rowToTask(singleRow(updated.rows));
   }
 
   /**
@@ -434,7 +434,11 @@ export class TaskStore implements TaskStorePort {
         [taskId, insert.rows[0]?.id ?? null, discordMessageId],
       );
       await client.query("COMMIT");
-      return { ok: true, position: Number(singleRow(result.rows).position) };
+      return {
+        ok: true,
+        position: Number(singleRow(result.rows).position),
+        status,
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
