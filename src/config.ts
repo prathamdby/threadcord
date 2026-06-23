@@ -13,6 +13,11 @@ const optionalCsvString = z.preprocess(
   z.string().optional(),
 );
 
+const MIN_PRODUCTION_BEARER_LENGTH = 16;
+const FORBIDDEN_PRODUCTION_BEARERS: ReadonlySet<string> = new Set([
+  "threadcord-dev-bearer",
+]);
+
 const EnvSchema = z
   .object({
     DATABASE_URL: z.string().min(1),
@@ -32,12 +37,29 @@ const EnvSchema = z
     NODE_ENV: z.string().optional(),
   })
   .superRefine((env, ctx) => {
-    if (env.NODE_ENV === "production" && !env.THREADCORD_HTTP_BEARER) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["THREADCORD_HTTP_BEARER"],
-        message: "THREADCORD_HTTP_BEARER is required when NODE_ENV=production",
-      });
+    if (env.NODE_ENV === "production") {
+      const bearer = env.THREADCORD_HTTP_BEARER?.trim();
+      if (!bearer) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["THREADCORD_HTTP_BEARER"],
+          message:
+            "THREADCORD_HTTP_BEARER is required when NODE_ENV=production. Provide a private bearer token through secret management.",
+        });
+      } else if (FORBIDDEN_PRODUCTION_BEARERS.has(bearer)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["THREADCORD_HTTP_BEARER"],
+          message:
+            "THREADCORD_HTTP_BEARER must not be a known development default when NODE_ENV=production. Provide a private bearer token through secret management.",
+        });
+      } else if (bearer.length < MIN_PRODUCTION_BEARER_LENGTH) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["THREADCORD_HTTP_BEARER"],
+          message: `THREADCORD_HTTP_BEARER must be at least ${MIN_PRODUCTION_BEARER_LENGTH} characters when NODE_ENV=production. Provide a private bearer token through secret management.`,
+        });
+      }
     }
   });
 
