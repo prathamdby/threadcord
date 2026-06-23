@@ -13,7 +13,7 @@ export function createGitHubTools(token: string) {
       name: "create_github_pull_request",
       description:
         "Create a GitHub pull request for the already-pushed task branch.",
-      parameters: v.object({
+      input: v.object({
         owner: v.pipe(v.string(), v.minLength(1)),
         repo: v.pipe(v.string(), v.minLength(1)),
         title: v.pipe(v.string(), v.minLength(1)),
@@ -21,7 +21,12 @@ export function createGitHubTools(token: string) {
         base: v.pipe(v.string(), v.minLength(1)),
         body: v.optional(v.string()),
       }),
-      async execute(input) {
+      output: v.object({
+        number: v.number(),
+        url: v.string(),
+        state: v.string(),
+      }),
+      async run({ input }) {
         const payload = {
           owner: input.owner,
           repo: input.repo,
@@ -31,11 +36,11 @@ export function createGitHubTools(token: string) {
           ...(input.body ? { body: input.body } : {}),
         };
         const response = await octokit.rest.pulls.create(payload);
-        return JSON.stringify({
+        return {
           number: response.data.number,
           url: response.data.html_url,
           state: response.data.state,
-        });
+        };
       },
     }),
   ];
