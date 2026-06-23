@@ -1,17 +1,22 @@
 import { z } from "zod";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
 
-const optionalNonEmptyString = z.preprocess(
-  (value) =>
-    typeof value === "string" && value.trim() === "" ? undefined : value,
-  z.string().min(1).optional(),
-);
+const optionalNonEmptyString = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}, z.string().min(1).optional());
 
 const optionalCsvString = z.preprocess(
   (value) =>
     typeof value === "string" && value.trim() === "" ? undefined : value,
   z.string().optional(),
 );
+
+const MIN_PRODUCTION_BEARER_LENGTH = 16;
+const FORBIDDEN_PRODUCTION_BEARERS: ReadonlySet<string> = new Set([
+  "threadcord-dev-bearer",
+]);
 
 const EnvSchema = z
   .object({
@@ -29,15 +34,32 @@ const EnvSchema = z
     OPENAI_API_KEY: optionalNonEmptyString,
     OPENAI_MODELS: optionalCsvString,
     PROVIDERS: optionalCsvString,
-    NODE_ENV: z.string().optional(),
+    NODE_ENV: z.enum(["production", "development", "test"]).optional(),
   })
   .superRefine((env, ctx) => {
-    if (env.NODE_ENV === "production" && !env.THREADCORD_HTTP_BEARER) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["THREADCORD_HTTP_BEARER"],
-        message: "THREADCORD_HTTP_BEARER is required when NODE_ENV=production",
-      });
+    if (env.NODE_ENV === "production") {
+      const bearer = env.THREADCORD_HTTP_BEARER;
+      if (!bearer) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["THREADCORD_HTTP_BEARER"],
+          message:
+            "THREADCORD_HTTP_BEARER is required when NODE_ENV=production. Provide a private bearer token through secret management.",
+        });
+      } else if (FORBIDDEN_PRODUCTION_BEARERS.has(bearer.toLowerCase())) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["THREADCORD_HTTP_BEARER"],
+          message:
+            "THREADCORD_HTTP_BEARER must not be a known development default when NODE_ENV=production. Provide a private bearer token through secret management.",
+        });
+      } else if (bearer.length < MIN_PRODUCTION_BEARER_LENGTH) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["THREADCORD_HTTP_BEARER"],
+          message: `THREADCORD_HTTP_BEARER must be at least ${MIN_PRODUCTION_BEARER_LENGTH} characters when NODE_ENV=production. Provide a private bearer token through secret management.`,
+        });
+      }
     }
   });
 

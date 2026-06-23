@@ -30,14 +30,81 @@ describe("loadConfig", () => {
     ).toThrow(/THREADCORD_HTTP_BEARER/);
   });
 
+  it("rejects a missing THREADCORD_HTTP_BEARER in production", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv,
+        NODE_ENV: "production",
+      }),
+    ).toThrow(/THREADCORD_HTTP_BEARER/);
+  });
+
+  it("rejects the development default THREADCORD_HTTP_BEARER in production", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv,
+        NODE_ENV: "production",
+        THREADCORD_HTTP_BEARER: "threadcord-dev-bearer",
+      }),
+    ).toThrow(/THREADCORD_HTTP_BEARER/);
+  });
+
+  it("rejects a cased variant of the development default in production", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv,
+        NODE_ENV: "production",
+        THREADCORD_HTTP_BEARER: "Threadcord-Dev-Bearer",
+      }),
+    ).toThrow(/THREADCORD_HTTP_BEARER/);
+  });
+
+  it("rejects non-standard NODE_ENV values so the runtime agrees on the mode", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv,
+        NODE_ENV: "  Production  ",
+      }),
+    ).toThrow(/NODE_ENV/);
+  });
+
+  it("rejects a trivially short THREADCORD_HTTP_BEARER in production", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv,
+        NODE_ENV: "production",
+        THREADCORD_HTTP_BEARER: "short-token",
+      }),
+    ).toThrow(/THREADCORD_HTTP_BEARER/);
+  });
+
   it("accepts THREADCORD_HTTP_BEARER in production", () => {
     const config = loadConfig({
       ...baseEnv,
       NODE_ENV: "production",
-      THREADCORD_HTTP_BEARER: "secret",
+      THREADCORD_HTTP_BEARER: "prod-bearer-0123456789abcdef",
     });
 
-    expect(config.THREADCORD_HTTP_BEARER).toBe("secret");
+    expect(config.THREADCORD_HTTP_BEARER).toBe("prod-bearer-0123456789abcdef");
+  });
+
+  it("stores the trimmed THREADCORD_HTTP_BEARER so validation and auth agree", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      NODE_ENV: "production",
+      THREADCORD_HTTP_BEARER: "  prod-bearer-0123456789abcdef  ",
+    });
+
+    expect(config.THREADCORD_HTTP_BEARER).toBe("prod-bearer-0123456789abcdef");
+  });
+
+  it("accepts the development default THREADCORD_HTTP_BEARER outside production", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      THREADCORD_HTTP_BEARER: "threadcord-dev-bearer",
+    });
+
+    expect(config.THREADCORD_HTTP_BEARER).toBe("threadcord-dev-bearer");
   });
 
   it("derives allowedModels from built-in anthropic config", () => {

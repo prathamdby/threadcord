@@ -46,12 +46,12 @@ docker compose build
 docker compose up
 ```
 
-Compose sets `THREADCORD_HTTP_BEARER` to `threadcord-dev-bearer` when `.env` leaves it blank. Change it before any network-exposed deploy.
+The bearer token comes from `.env`, copied from `.env.example`, which carries the dev default for local use, or from a host environment variable of the same name that Compose passes through. Compose no longer injects the development default over a missing value. Change it before any network-exposed deploy.
 
 - `GET /health` returns 200 when Postgres is up and the Discord client is ready.
 - `GET /health/live` checks Postgres only.
 - Default port is `3583`.
-- Set `THREADCORD_HTTP_BEARER` before exposing the service. Required when `NODE_ENV=production`.
+- In production (`NODE_ENV=production`) Threadcord fails startup if `THREADCORD_HTTP_BEARER` is missing, blank, the development default, or shorter than 16 characters. Production must provide a private bearer token via secret management. Health and liveness routes stay public. Bearer auth covers the Flue `/agents`, `/workflows`, and `/runs` routes.
 
 Health check:
 
