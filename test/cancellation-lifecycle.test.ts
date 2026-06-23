@@ -5,7 +5,6 @@ import type {
   RestartReconciliation,
   TaskStorePort,
 } from "../src/task/store.js";
-import { toFlueInstanceId } from "../src/ids.js";
 import type { AppConfig } from "../src/config.js";
 import {
   ACTIVE_STATUSES,
