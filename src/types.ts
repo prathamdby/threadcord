@@ -1,4 +1,5 @@
 export const TASK_STATUSES = [
+  "draft",
   "queued",
   "running",
   "waiting",
@@ -8,6 +9,14 @@ export const TASK_STATUSES = [
   "cancelled",
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/**
+ * A task is only schedulable once it carries a real Discord thread and status
+ * message. `draft` is the pre-attachment state. It is excluded from every
+ * scheduler claim and from restart reconciliation by construction, so a task
+ * that failed thread creation can never consume agent capacity. Promotion to
+ * `queued` happens in one statement that also writes the thread identity.
+ */
 
 /**
  * Statuses that consume a concurrency slot. `cancelling` stays here on purpose.
@@ -64,7 +73,6 @@ export interface NewTaskRecord extends TaskRequest {
   discordThreadId: string;
   flueInstanceId: string;
   workspacePath: string;
-  statusMessageId?: string;
 }
 
 export interface ChannelMessage {

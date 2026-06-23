@@ -39,15 +39,19 @@ export interface TaskStorePort {
   getByMessageId(messageId: string): Promise<TaskRecord | undefined>;
   getByThreadId(threadId: string): Promise<TaskRecord | undefined>;
   getByInstanceId(instanceId: string): Promise<TaskRecord | undefined>;
-  createTask(
+  createDraft(
     task: NewTaskRecord,
   ): Promise<{ task: TaskRecord; created: boolean }>;
-  attachDiscordThread(
+  attachAndPromote(
     taskId: string,
     threadId: string,
     flueInstanceId: string,
     statusMessageId: string,
-  ): Promise<TaskRecord>;
+  ): Promise<TaskRecord | undefined>;
+  markDraftFailed(
+    taskId: string,
+    errorSummary: string,
+  ): Promise<TaskRecord | undefined>;
   claimNextTurn(preferTaskId?: string): Promise<ClaimedTurn | undefined>;
   queuePosition(taskId: string): Promise<number>;
   transition(
@@ -101,7 +105,28 @@ export class TaskStore implements TaskStorePort {
     `);
     await this.pool.query(`
       ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
-      CHECK (status IN ('queued', 'running', 'waiting', 'cancelling', 'completed', 'failed', 'cancelled'))
+      CHECK (status IN ('draft', 'queued', 'running', 'waiting', 'cancelling', 'completed', 'failed', 'cancelled'))
+    `);
+    // Neutralize any pre-existing orphan: a non-draft task that never got a
+    // status message is exactly the bug this migration closes. Fail it before
+    // adding the invariant so the constraint can be validated, and so the
+    // scheduler never claims a legacy placeholder task on the next boot.
+    await this.pool.query(`
+      UPDATE tasks
+      SET status = 'failed',
+          error_summary = COALESCE(error_summary, 'Unattached task failed by schema migration'),
+          updated_at = now()
+      WHERE status <> 'draft' AND status_message_id IS NULL
+    `);
+    // Schema-level guarantee that unattached work cannot be scheduled. Only a
+    // draft may lack a status message; every other status implies the Discord
+    // thread and status message were attached at promotion time.
+    await this.pool.query(`
+      ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_attached_unless_draft_check
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks ADD CONSTRAINT tasks_attached_unless_draft_check
+      CHECK (status = 'draft' OR status_message_id IS NOT NULL)
     `);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS task_followups (
@@ -114,16 +139,23 @@ export class TaskStore implements TaskStorePort {
     `);
   }
 
-  async createTask(
+  /**
+   * Insert a non-schedulable draft keyed on the Discord message id. The draft
+   * is the idempotency anchor written before any Discord side effect, so a
+   * duplicate delivery loses the insert race (`created === false`) and never
+   * creates a second thread. The scheduler ignores drafts, so a draft that is
+   * never promoted cannot consume agent capacity.
+   */
+  async createDraft(
     task: NewTaskRecord,
   ): Promise<{ task: TaskRecord; created: boolean }> {
     const insert = await this.pool.query(
       `
         INSERT INTO tasks (
           id, discord_message_id, discord_thread_id, flue_instance_id, workspace_path,
-          repo, branch, model, instruction, push_override, status, status_message_id
+          repo, branch, model, instruction, push_override, status
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'queued', $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft')
         ON CONFLICT (discord_message_id) DO NOTHING
         RETURNING *
       `,
@@ -138,7 +170,6 @@ export class TaskStore implements TaskStorePort {
         task.model,
         task.instruction,
         task.pushOverride ?? null,
-        task.statusMessageId ?? null,
       ],
     );
     if (insert.rows[0]) {
@@ -150,25 +181,54 @@ export class TaskStore implements TaskStorePort {
     return { task: existing, created: false };
   }
 
-  async attachDiscordThread(
+  /**
+   * Attach the real Discord identity and promote `draft` to `queued` in one
+   * statement. Guarding on `status = 'draft'` keeps the promotion idempotent
+   * under a retry and prevents clobbering a task that already advanced. Returns
+   * undefined when the row was not a draft to promote.
+   */
+  async attachAndPromote(
     taskId: string,
     threadId: string,
     flueInstanceId: string,
     statusMessageId: string,
-  ): Promise<TaskRecord> {
+  ): Promise<TaskRecord | undefined> {
     const result = await this.pool.query(
       `
         UPDATE tasks
         SET discord_thread_id = $2,
             flue_instance_id = $3,
             status_message_id = $4,
+            status = 'queued',
             updated_at = now()
-        WHERE id = $1
+        WHERE id = $1 AND status = 'draft'
         RETURNING *
       `,
       [taskId, threadId, flueInstanceId, statusMessageId],
     );
-    return rowToTask(singleRow(result.rows));
+    return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
+  }
+
+  /**
+   * Mark a draft terminally failed after Discord thread creation failed. The
+   * task stays non-schedulable, so a partial side effect never becomes queued
+   * work, and a later duplicate of the same message converges deterministically
+   * on the failed record instead of retrying.
+   */
+  async markDraftFailed(
+    taskId: string,
+    errorSummary: string,
+  ): Promise<TaskRecord | undefined> {
+    const result = await this.pool.query(
+      `
+        UPDATE tasks
+        SET status = 'failed', error_summary = $2, updated_at = now()
+        WHERE id = $1 AND status = 'draft'
+        RETURNING *
+      `,
+      [taskId, errorSummary],
+    );
+    return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
 
   async getByThreadId(threadId: string): Promise<TaskRecord | undefined> {
@@ -354,7 +414,10 @@ export class TaskStore implements TaskStorePort {
    * Settle in-flight state after a process restart. A running turn cannot
    * survive the restart, so it returns to `waiting` and can claim again. A
    * cancellation-requested turn is finalized to terminal `cancelled` instead of
-   * resurrected, so a restart never reopens work the user already stopped.
+   * resurrected, so a restart never reopens work the user already stopped. A
+   * draft is an admission that never finished attaching its Discord thread, so
+   * it is failed rather than promoted, keeping unattached work off the
+   * scheduler after a crash.
    */
   async reconcileAfterRestart(): Promise<RestartReconciliation> {
     const client = await this.pool.connect();
@@ -374,6 +437,15 @@ export class TaskStore implements TaskStorePort {
           SET status = 'cancelled', updated_at = now()
           WHERE status = 'cancelling'
           RETURNING *
+        `,
+      );
+      await client.query(
+        `
+          UPDATE tasks
+          SET status = 'failed',
+              error_summary = COALESCE(error_summary, 'Draft abandoned before thread attachment, failed on restart'),
+              updated_at = now()
+          WHERE status = 'draft'
         `,
       );
       await client.query("COMMIT");
