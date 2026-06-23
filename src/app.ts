@@ -3,7 +3,7 @@ import { flue } from "@flue/runtime/routing";
 import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 import type { AppConfig } from "./config.js";
-import { loadConfig } from "./config.js";
+import { cacheConfig, loadConfig } from "./config.js";
 import { initializeDatabase } from "./db.js";
 import { startDiscordGateway } from "./discord/gateway.js";
 import { registerObserveBridge } from "./discord/observe-bridge.js";
@@ -18,8 +18,9 @@ export async function createApp(): Promise<{
   shutdown: () => Promise<void>;
 }> {
   const config = loadConfig();
+  cacheConfig(config);
   const pool = initializeDatabase(config.DATABASE_URL);
-  registerCustomProviders(config);
+  registerProviders(config);
 
   const store = new TaskStore(pool, config.MAX_CONCURRENT_TASKS);
   await store.migrate();
@@ -108,7 +109,13 @@ function bearerAuth(token: string): MiddlewareHandler {
   };
 }
 
-function registerCustomProviders(config: AppConfig): void {
+function registerProviders(config: AppConfig): void {
+  if (config.ANTHROPIC_API_KEY) {
+    registerProvider("anthropic", { apiKey: config.ANTHROPIC_API_KEY });
+  }
+  if (config.OPENAI_API_KEY) {
+    registerProvider("openai", { apiKey: config.OPENAI_API_KEY });
+  }
   for (const provider of config.customProviders) {
     registerProvider(provider.id, {
       api: provider.api,

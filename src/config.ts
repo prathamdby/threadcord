@@ -69,6 +69,19 @@ export function resolveTaskRequest(
   };
 }
 
+let runtimeConfig: AppConfig | undefined;
+
+export function cacheConfig(config: AppConfig): void {
+  runtimeConfig = config;
+}
+
+export function getRuntimeConfig(): AppConfig {
+  if (!runtimeConfig) {
+    runtimeConfig = loadConfig();
+  }
+  return runtimeConfig;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = EnvSchema.parse(env);
   const anthropicModels = splitCsv(parsed.ANTHROPIC_MODELS);
@@ -156,7 +169,7 @@ export function parseCustomProviders(
   env: NodeJS.ProcessEnv,
   providersCsv?: string,
 ): CustomProviderConfig[] {
-  const ids = splitCsv(providersCsv);
+  const ids = [...new Set(splitCsv(providersCsv))];
   return ids.map((id) => parseCustomProvider(env, id));
 }
 
@@ -173,9 +186,7 @@ function parseCustomProvider(
   const api = requiredEnv(env, `${prefix}_API`, id);
   const models = splitCsv(requiredEnv(env, `${prefix}_MODELS`, id));
   if (models.length === 0) {
-    throw new Error(
-      `PROVIDER_${providerEnvSuffix(id)}_MODELS must not be empty`,
-    );
+    throw new Error(`${prefix}_MODELS must not be empty`);
   }
 
   const apiKey = optionalEnv(env[`${prefix}_API_KEY`]);
@@ -198,10 +209,6 @@ function requiredEnv(
     throw new Error(`${key} is required for provider "${providerId}"`);
   }
   return value;
-}
-
-function providerEnvSuffix(id: string): string {
-  return id.replace(/-/g, "_").toUpperCase();
 }
 
 function optionalEnv(value: string | undefined): string | undefined {

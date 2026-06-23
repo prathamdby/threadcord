@@ -96,6 +96,20 @@ describe("parseCustomProviders", () => {
       },
     ]);
   });
+
+  it("deduplicates repeated provider ids", () => {
+    const providers = parseCustomProviders(
+      {
+        PROVIDER_OLLAMA_BASE_URL: "http://localhost:11434/v1",
+        PROVIDER_OLLAMA_API: "openai-completions",
+        PROVIDER_OLLAMA_MODELS: "llama3.1:8b",
+      },
+      "ollama,ollama",
+    );
+
+    expect(providers).toHaveLength(1);
+    expect(providers[0]?.id).toBe("ollama");
+  });
 });
 
 describe("loadConfig defaultModel", () => {
