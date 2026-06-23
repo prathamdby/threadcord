@@ -46,7 +46,7 @@ const EnvSchema = z
           message:
             "THREADCORD_HTTP_BEARER is required when NODE_ENV=production. Provide a private bearer token through secret management.",
         });
-      } else if (FORBIDDEN_PRODUCTION_BEARERS.has(bearer)) {
+      } else if (FORBIDDEN_PRODUCTION_BEARERS.has(bearer.toLowerCase())) {
         ctx.addIssue({
           code: "custom",
           path: ["THREADCORD_HTTP_BEARER"],

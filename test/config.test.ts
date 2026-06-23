@@ -49,6 +49,16 @@ describe("loadConfig", () => {
     ).toThrow(/THREADCORD_HTTP_BEARER/);
   });
 
+  it("rejects a cased variant of the development default in production", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv,
+        NODE_ENV: "production",
+        THREADCORD_HTTP_BEARER: "Threadcord-Dev-Bearer",
+      }),
+    ).toThrow(/THREADCORD_HTTP_BEARER/);
+  });
+
   it("enforces production rules for NODE_ENV regardless of casing or whitespace", () => {
     expect(() =>
       loadConfig({
