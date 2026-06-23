@@ -66,8 +66,29 @@ describe("parseTaskMessage", () => {
 
     expect(result).toEqual({
       ok: false,
-      message: "Missing required fields: branch, model",
+      message: "Missing required field: branch",
     });
+  });
+
+  it("accepts messages without model when repo and branch are present", () => {
+    const result = parseTaskMessage(
+      [
+        "Fix the failing auth test and open a PR.",
+        "",
+        "repo: acme/web",
+        "branch: main",
+      ].join("\n"),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      request: {
+        instruction: "Fix the failing auth test and open a PR.",
+        repo: "acme/web",
+        branch: "main",
+      },
+    });
+    expect(result.ok && result.request.model).toBeUndefined();
   });
 
   it("keeps prose with colons when the key is not a known metadata field", () => {

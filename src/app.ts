@@ -19,7 +19,7 @@ export async function createApp(): Promise<{
 }> {
   const config = loadConfig();
   const pool = initializeDatabase(config.DATABASE_URL);
-  registerCatalogProviders(config);
+  registerCustomProviders(config);
 
   const store = new TaskStore(pool, config.MAX_CONCURRENT_TASKS);
   await store.migrate();
@@ -108,20 +108,12 @@ function bearerAuth(token: string): MiddlewareHandler {
   };
 }
 
-function registerCatalogProviders(config: AppConfig): void {
-  if (config.ANTHROPIC_API_KEY) {
-    registerProvider("anthropic", { apiKey: config.ANTHROPIC_API_KEY });
-  }
-  if (config.OPENAI_API_KEY) {
-    registerProvider("openai", { apiKey: config.OPENAI_API_KEY });
-  }
-  if (config.OPENCODE_GO_BASE_URL) {
-    registerProvider("opencode-go", {
-      api: "openai-completions",
-      baseUrl: config.OPENCODE_GO_BASE_URL,
-      ...(config.OPENCODE_GO_API_KEY
-        ? { apiKey: config.OPENCODE_GO_API_KEY }
-        : {}),
+function registerCustomProviders(config: AppConfig): void {
+  for (const provider of config.customProviders) {
+    registerProvider(provider.id, {
+      api: provider.api,
+      baseUrl: provider.baseUrl,
+      ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
     });
   }
 }

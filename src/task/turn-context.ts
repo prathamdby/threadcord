@@ -1,4 +1,5 @@
 import { basename, join } from "node:path";
+import { loadConfig } from "../config.js";
 import { getPool } from "../db.js";
 import { targetBranchForTask } from "./policy.js";
 import { TaskStore } from "./store.js";
@@ -29,11 +30,7 @@ export async function resolveAgentRuntimeContext(
     );
   }
 
-  const defaultModel = stringEnv(
-    env,
-    "THREADCORD_DEFAULT_MODEL",
-    "anthropic/claude-sonnet-4-5",
-  );
+  const defaultModel = loadConfig().defaultModel;
   const allowedRepos = parseAllowedRepos(env.ALLOWED_REPOS);
 
   return {
@@ -44,15 +41,6 @@ export async function resolveAgentRuntimeContext(
     featureBranch: targetBranchForTask(task.id, task),
     allowedRepos,
   };
-}
-
-function stringEnv(
-  env: Record<string, unknown>,
-  key: string,
-  fallback: string,
-): string {
-  const value = env[key];
-  return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
 function parseAllowedRepos(value: unknown): string[] {

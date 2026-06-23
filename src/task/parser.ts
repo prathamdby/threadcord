@@ -1,12 +1,12 @@
-import type { TaskRequest } from "../types.js";
+import type { ParsedTaskRequest, TaskRequest } from "../types.js";
 
-const REQUIRED_KEYS = ["repo", "branch", "model"] as const;
-const OPTIONAL_KEYS = ["push"] as const;
+const REQUIRED_KEYS = ["repo", "branch"] as const;
+const OPTIONAL_KEYS = ["push", "model"] as const;
 const METADATA_KEYS = new Set<string>([...REQUIRED_KEYS, ...OPTIONAL_KEYS]);
 type RequiredKey = (typeof REQUIRED_KEYS)[number];
 
 export type ParseResult =
-  | { ok: true; request: TaskRequest }
+  | { ok: true; request: ParsedTaskRequest }
   | { ok: false; message: string };
 
 export function parseTaskMessage(content: string): ParseResult {
@@ -46,12 +46,13 @@ export function parseTaskMessage(content: string): ParseResult {
     };
   }
 
-  const request: TaskRequest = {
+  const request: ParsedTaskRequest = {
     instruction,
     repo: requiredField(fields, "repo"),
     branch: requiredField(fields, "branch"),
-    model: requiredField(fields, "model"),
   };
+  const model = fields.get("model");
+  if (model) request.model = model;
   const pushOverride = fields.get("push");
   if (pushOverride) request.pushOverride = pushOverride;
   return { ok: true, request };
