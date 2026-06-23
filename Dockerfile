@@ -5,8 +5,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git ripgrep ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package.json
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
 RUN npm run build
@@ -21,8 +21,8 @@ RUN apt-get update \
   && mkdir -p /workspaces \
   && chown -R threadcord:threadcord /workspaces /app
 
-COPY package.json package.json
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

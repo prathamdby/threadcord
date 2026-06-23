@@ -46,6 +46,8 @@ docker compose build
 docker compose up
 ```
 
+The image installs dependencies from the checked-in `package-lock.json` with `npm ci`, so the container matches the reviewed dependency graph and the build fails if the lock and `package.json` disagree. Run `docker build .` to verify the container build as a release gate.
+
 The bearer token comes from `.env`, copied from `.env.example`, which carries the dev default for local use, or from a host environment variable of the same name that Compose passes through. Compose no longer injects the development default over a missing value. Change it before any network-exposed deploy.
 
 - `GET /health` returns 200 when Postgres is up and the Discord client is ready.
