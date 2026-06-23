@@ -8,6 +8,14 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export interface ParsedTaskRequest {
+  instruction: string;
+  repo: string;
+  branch: string;
+  model?: string;
+  pushOverride?: string;
+}
+
 export interface TaskRequest {
   instruction: string;
   repo: string;
@@ -16,12 +24,13 @@ export interface TaskRequest {
   pushOverride?: string;
 }
 
-export interface TaskRecord extends TaskRequest {
+export interface TaskRecord extends Omit<TaskRequest, "model"> {
   id: string;
   discordMessageId: string;
   discordThreadId: string;
   flueInstanceId: string;
   workspacePath: string;
+  model: string;
   status: TaskStatus;
   initialTurnStarted: boolean;
   statusMessageId?: string;

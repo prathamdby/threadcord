@@ -10,7 +10,7 @@
 
 > A message in your control channel opens a public thread, clones an allowed GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, running tasks go back to `waiting`.
 
-Threadcord is a Discord bot plus a small Hono server. You post a task with `repo`, `branch`, and `model` fields. The bot replies in a thread, clones the repo, and dispatches work to a Flue coding agent. Thread commands handle follow-ups, cancel, and done.
+Threadcord is a Discord bot plus a small Hono server. You post a task with `repo`, `branch`, and optionally `model` fields. The bot replies in a thread, clones the repo, and dispatches work to a Flue coding agent. Thread commands handle follow-ups, cancel, and done.
 
 Configuration lives in [`.env.example`](.env.example). Zod validation is in [`src/config.ts`](src/config.ts).
 
@@ -80,35 +80,40 @@ npm run build
 
 ## Configure model providers
 
-| Provider    | Example model                 | Credentials                                            |
-| ----------- | ----------------------------- | ------------------------------------------------------ |
-| anthropic   | `anthropic/claude-sonnet-4-5` | `ANTHROPIC_API_KEY`                                    |
-| openai      | `openai/gpt-5-codex`          | `OPENAI_API_KEY`                                       |
-| opencode-go | `opencode-go/gpt-5-codex`     | `OPENCODE_GO_BASE_URL`, optional `OPENCODE_GO_API_KEY` |
+Models are allowed when their provider is configured in `.env`. Discord tasks use `model: <provider>/<model-id>`.
 
-List allowed models in `ALLOWED_MODELS`. Startup checks that each provider has its key set ([`assertProviderKeysForModels`](src/config.ts)).
+### Built-in providers
 
-### OpenCode Go
+| Provider  | Env vars                                | Discord example                      |
+| --------- | --------------------------------------- | ------------------------------------ |
+| anthropic | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODELS` | `model: anthropic/claude-sonnet-4-5` |
+| openai    | `OPENAI_API_KEY`, `OPENAI_MODELS`       | `model: openai/gpt-5-codex`          |
 
-Threadcord registers an OpenAI-compatible provider named `opencode-go` when `OPENCODE_GO_BASE_URL` is set.
+Flue resolves these from its catalog. Set the API key and a comma-separated model list. No extra registration code is needed.
+
+### Custom providers
+
+1. Add the provider ID to `PROVIDERS` (comma-separated for multiple).
+2. Set `PROVIDER_<ID>_BASE_URL`, `PROVIDER_<ID>_API`, and `PROVIDER_<ID>_MODELS`. Optional `PROVIDER_<ID>_API_KEY`.
+3. Normalise the ID for env var names: `my-gateway` becomes `PROVIDER_MY_GATEWAY_*`.
+4. Use `model: <id>/<model-id>` in Discord, where `<model-id>` comes from `_MODELS`.
+
+Example (local Ollama via OpenAI-compatible endpoint):
 
 ```env
-OPENCODE_GO_BASE_URL=http://host.docker.internal:4096/v1
-OPENCODE_GO_API_KEY=
-ALLOWED_MODELS=opencode-go/gpt-5-codex
+PROVIDERS=ollama
+PROVIDER_OLLAMA_BASE_URL=http://localhost:11434/v1
+PROVIDER_OLLAMA_API=openai-completions
+PROVIDER_OLLAMA_MODELS=llama3.1:8b
 ```
 
-Use that model in Discord:
+Common `api` values: `openai-completions`, `openai-responses`, `anthropic-messages`. See the [Flue Provider API](https://github.com/withastro/flue/blob/main/apps/docs/src/content/docs/api/provider-api.md) for the full list.
 
-```text
-Fix the issue and make a PR.
+To route a catalog provider through a proxy, list its ID in `PROVIDERS` and set `PROVIDER_<ID>_BASE_URL` (for example `PROVIDERS=anthropic` with `PROVIDER_ANTHROPIC_BASE_URL=...`). Flue layers your transport on the catalog.
 
-repo: owner/name
-branch: main
-model: opencode-go/gpt-5-codex
-```
+Inside Docker Compose, `localhost` in a provider URL points at the container, not your host. Use `host.docker.internal`, a Compose service name, or host networking.
 
-For OpenCode Go inside Docker, `localhost` points at the container, not your host. Use `host.docker.internal`, a Compose service name, or host networking.
+Allowed models are derived at startup from these provider blocks. When a Discord task omits `model:`, the first configured model is used.
 
 ## Message format
 
@@ -121,6 +126,8 @@ repo: owner/name
 branch: main
 model: anthropic/claude-sonnet-4-5
 ```
+
+`model` is optional. If omitted, Threadcord uses the first model from your provider configuration (for example the first entry in `ANTHROPIC_MODELS` when Anthropic is configured first).
 
 Optional push override:
 

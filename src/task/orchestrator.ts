@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dispatch } from "@flue/runtime";
 import type { AppConfig } from "../config.js";
+import { resolveTaskRequest } from "../config.js";
 import codingAgent from "../agents/coding.js";
 import {
   isPendingThreadId,
@@ -70,7 +71,8 @@ export class TaskOrchestrator {
       await message.reply(`Rejected: ${parsed.message}`);
       return;
     }
-    const policy = validateTaskPolicy(parsed.request, this.config);
+    const request = resolveTaskRequest(parsed.request, this.config);
+    const policy = validateTaskPolicy(request, this.config);
     if (!policy.ok) {
       await message.reply(`Rejected: ${policy.reason}`);
       return;
@@ -83,13 +85,11 @@ export class TaskOrchestrator {
       discordThreadId: pendingThreadId(taskId),
       flueInstanceId: pendingThreadId(taskId),
       workspacePath: join(this.config.WORKSPACE_ROOT, taskId),
-      ...parsed.request,
+      ...request,
     });
     if (!created) return;
 
-    const thread = await message.createThread(
-      threadName(parsed.request.repo, taskId),
-    );
+    const thread = await message.createThread(threadName(request.repo, taskId));
     const statusMessage = await thread.send("Queued");
     const attached = await this.store.attachDiscordThread(
       task.id,

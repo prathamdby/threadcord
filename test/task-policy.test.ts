@@ -23,12 +23,15 @@ const config: AppConfig = {
   WORKSPACE_ROOT: "/workspaces",
   MAX_CONCURRENT_TASKS: 3,
   ALLOWED_REPOS: "acme/*",
-  ALLOWED_MODELS: "anthropic/claude-sonnet-4-5",
   PORT: 3583,
   WORKSPACE_TTL_DAYS: 14,
   ANTHROPIC_API_KEY: "anthropic-key",
   allowedRepos: ["acme/*"],
+  anthropicModels: ["claude-sonnet-4-5"],
+  openaiModels: [],
+  customProviders: [],
   allowedModels: ["anthropic/claude-sonnet-4-5"],
+  defaultModel: "anthropic/claude-sonnet-4-5",
 };
 
 describe("validateTaskPolicy", () => {
