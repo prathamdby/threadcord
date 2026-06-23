@@ -46,7 +46,7 @@ docker compose build
 docker compose up
 ```
 
-The bearer token now comes from `.env`, copied from `.env.example`, which carries the dev default for local use. Compose no longer injects a default over a missing value. Change it before any network-exposed deploy.
+The bearer token comes from `.env`, copied from `.env.example`, which carries the dev default for local use, or from a host environment variable of the same name that Compose passes through. Compose no longer injects the development default over a missing value. Change it before any network-exposed deploy.
 
 - `GET /health` returns 200 when Postgres is up and the Discord client is ready.
 - `GET /health/live` checks Postgres only.
