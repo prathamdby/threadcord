@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM node:22-slim AS build
 
 WORKDIR /app
@@ -6,7 +7,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY . .
 RUN npm run build
@@ -22,7 +23,7 @@ RUN apt-get update \
   && chown -R threadcord:threadcord /workspaces /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
