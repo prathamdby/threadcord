@@ -8,7 +8,6 @@ const env = {
   DISCORD_BOT_TOKEN: "discord",
   DISCORD_CHANNEL_ID: "channel",
   GITHUB_TOKEN: "github",
-  ALLOWED_REPOS: "acme/*",
   ANTHROPIC_API_KEY: "anthropic",
   ANTHROPIC_MODELS: "claude-sonnet-4-5,claude-opus-4-1",
   OPENAI_API_KEY: "openai",

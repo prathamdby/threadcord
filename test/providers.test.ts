@@ -11,7 +11,6 @@ const requiredEnv = {
   DISCORD_BOT_TOKEN: "discord",
   DISCORD_CHANNEL_ID: "channel",
   GITHUB_TOKEN: "github",
-  ALLOWED_REPOS: "owner/*",
 };
 
 describe("providerEnvPrefix", () => {

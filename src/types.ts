@@ -80,7 +80,6 @@ export interface DispatchAgentInput {
   baseBranch: string;
   featureBranch: string;
   instruction: string;
-  allowedRepos: string[];
 }
 
 export interface ClaimedTurn {

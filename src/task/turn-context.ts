@@ -11,7 +11,6 @@ export interface AgentRuntimeContext {
   repo: string;
   baseBranch: string;
   featureBranch: string;
-  allowedRepos: string[];
 }
 
 export function checkoutPathForTask(task: TaskRecord): string {
@@ -38,6 +37,5 @@ export async function resolveAgentRuntimeContext(
     repo: task.repo,
     baseBranch: task.branch,
     featureBranch: targetBranchForTask(task.id, task),
-    allowedRepos: config.allowedRepos,
   };
 }
