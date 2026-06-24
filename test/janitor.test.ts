@@ -30,6 +30,30 @@ describe("cleanupExpiredWorkspaces", () => {
     return root;
   }
 
+  it("deletes a valid expired workspace when WORKSPACE_ROOT is relative", async () => {
+    const base = await makeRoot();
+    const previousCwd = process.cwd();
+    try {
+      process.chdir(base);
+      const workspaceRoot = "./workspaces";
+      await mkdir(workspaceRoot, { recursive: true });
+      const taskId = "550e8400-e29b-41d4-a716-446655440009";
+      const storedPath = join(workspaceRoot, taskId);
+      await mkdir(storedPath, { recursive: true });
+      await writeFile(join(storedPath, "artifact.txt"), "data");
+
+      await cleanupExpiredWorkspaces(
+        new FakeJanitorStore([storedPath]),
+        workspaceRoot,
+        14,
+      );
+
+      await expect(writeFile(join(storedPath, "probe"), "x")).rejects.toThrow();
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
   it("deletes a valid expired workspace under the root", async () => {
     const root = await makeRoot();
     const taskId = "550e8400-e29b-41d4-a716-446655440000";

@@ -34,7 +34,7 @@ export function hasTaskWorkspaceShape(
   candidatePath: string,
 ): boolean {
   const resolvedRoot = resolve(workspaceRoot);
-  const resolvedCandidate = resolveCandidatePath(workspaceRoot, candidatePath);
+  const resolvedCandidate = resolveCandidatePath(candidatePath);
   const fromRoot = relative(resolvedRoot, resolvedCandidate);
   if (
     fromRoot === "" ||
@@ -48,11 +48,8 @@ export function hasTaskWorkspaceShape(
   return segments.length === 1 && segments[0]!.length > 0;
 }
 
-function resolveCandidatePath(
-  workspaceRoot: string,
-  candidatePath: string,
-): string {
-  return resolve(workspaceRoot, candidatePath);
+function resolveCandidatePath(candidatePath: string): string {
+  return resolve(candidatePath);
 }
 
 export type WorkspaceDeletionDecision =
@@ -64,7 +61,7 @@ export async function decideWorkspaceDeletion(
   workspaceRoot: string,
 ): Promise<WorkspaceDeletionDecision> {
   const resolvedRoot = resolve(workspaceRoot);
-  const resolvedCandidate = resolveCandidatePath(workspaceRoot, candidatePath);
+  const resolvedCandidate = resolveCandidatePath(candidatePath);
 
   if (resolvedCandidate === resolvedRoot) {
     return { action: "skip", reason: "workspace root cannot be deleted" };
