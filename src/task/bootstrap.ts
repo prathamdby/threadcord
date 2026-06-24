@@ -50,6 +50,7 @@ export async function runSetupInstall(
   await execa("bash", ["-lc", installCommand], {
     cwd: checkoutDir,
     env: gitEnv(githubToken),
+    timeout: 600_000,
   });
 }
 
