@@ -156,13 +156,13 @@ describe("verifySetupEnvironment", () => {
   });
 
   it("redacts token-shaped output in failures", async () => {
-    const token = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
+    const secret = "api_key=not-for-discord";
     const result = await verify(
-      baseEnvironment({ install: `echo ${token} >&2; exit 1` }),
+      baseEnvironment({ install: `echo ${secret} >&2; exit 1` }),
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.failures[0]?.output).not.toContain(token);
+      expect(result.failures[0]?.output).not.toContain("not-for-discord");
       expect(result.failures[0]?.output).toContain("[redacted]");
     }
   });

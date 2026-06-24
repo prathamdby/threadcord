@@ -90,6 +90,8 @@ async function probeStartCommand(input: {
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let killedByProbe = false;
+    let killTimer: NodeJS.Timeout | undefined;
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -104,13 +106,14 @@ async function probeStartCommand(input: {
       if (settled) return;
       settled = true;
       clearTimeout(probeTimer);
+      if (killTimer) clearTimeout(killTimer);
       resolve(failure);
     };
 
     const killChild = () => {
       if (child.killed || child.exitCode !== null) return;
       child.kill("SIGTERM");
-      setTimeout(() => {
+      killTimer = setTimeout(() => {
         if (child.exitCode === null && !child.killed) {
           child.kill("SIGKILL");
         }
@@ -128,6 +131,10 @@ async function probeStartCommand(input: {
 
     child.on("close", (code) => {
       if (settled) return;
+      if (killedByProbe) {
+        finish(undefined);
+        return;
+      }
       if (code === 0) {
         finish(undefined);
         return;
@@ -140,8 +147,8 @@ async function probeStartCommand(input: {
     });
 
     const probeTimer = setTimeout(() => {
+      killedByProbe = true;
       killChild();
-      finish(undefined);
     }, input.probeMs);
   });
 }
@@ -215,9 +222,11 @@ export function formatSetupVerifyError(
     const prefix = `${failure.name}: ${failure.command}\n`;
     const budget = Math.max(0, remaining - prefix.length);
     const output =
-      failure.output.length <= budget
-        ? failure.output
-        : failure.output.slice(-budget);
+      budget <= 0
+        ? ""
+        : failure.output.length <= budget
+          ? failure.output
+          : failure.output.slice(-budget);
     const block = `${prefix}${output}`;
     lines.push(block);
     remaining -= block.length + 1;
