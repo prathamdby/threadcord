@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  targetBranchForTask,
-  validateTaskPolicy,
-} from "../src/task/policy.js";
+import { validateTaskPolicy } from "../src/task/policy.js";
 import type { AppConfig } from "../src/config.js";
 import type { TaskRequest } from "../src/types.js";
 
@@ -81,13 +78,37 @@ describe("validateTaskPolicy", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it("allows pushing to an agent branch namespace", () => {
+  it("allows pushing to a threadcord branch namespace", () => {
+    const result = validateTaskPolicy(
+      { ...baseRequest, pushOverride: "threadcord/chore/task-1" },
+      config,
+    );
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("rejects bare threadcord branch namespace push overrides", () => {
+    const result = validateTaskPolicy(
+      { ...baseRequest, pushOverride: "threadcord/" },
+      config,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Push override threadcord/ is not allowed for branch main.",
+    });
+  });
+
+  it("rejects agent branch namespace push overrides", () => {
     const result = validateTaskPolicy(
       { ...baseRequest, pushOverride: "agent/task-1" },
       config,
     );
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({
+      ok: false,
+      reason: "Push override agent/task-1 is not allowed for branch main.",
+    });
   });
 
   it("rejects push overrides to arbitrary branches", () => {
@@ -100,17 +121,5 @@ describe("validateTaskPolicy", () => {
       ok: false,
       reason: "Push override production is not allowed for branch main.",
     });
-  });
-});
-
-describe("targetBranchForTask", () => {
-  it("defaults to an isolated agent branch per task", () => {
-    expect(targetBranchForTask("task-abc", baseRequest)).toBe("agent/task-abc");
-  });
-
-  it("honors an explicit push override", () => {
-    expect(
-      targetBranchForTask("task-abc", { ...baseRequest, pushOverride: "main" }),
-    ).toBe("main");
   });
 });
