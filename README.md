@@ -174,6 +174,13 @@ on the initial task turn, so setup profiles can use project-specific bootstrap
 commands and shell pipelines. Setup install uses the same non-login shell behavior
 as agent commands, so workspace-local npm globals remain on `PATH`.
 
+`/setup create` and `/setup update` promote a profile only after the save tool
+verifies `install`, every stored `checks` command, and non-empty `start` smoke
+behavior in the setup workspace. `checks` are commands that passed in that clean
+workspace. If a useful command needs missing secrets or services, record the
+names in `requiredEnv`, `requiredServices`, and memory instead of saving a
+failing check unless you can make it pass during setup.
+
 Threadcord scopes each setup and task workspace with its own `HOME`, npm global prefix, and cache directory. Commands such as `npm install -g <tool>` install into that workspace and put the workspace-local `bin` directory on `PATH`. Deleting the workspace deletes those globals.
 
 Setup commands:
@@ -181,7 +188,7 @@ Setup commands:
 | Command | Purpose |
 | ------- | ------- |
 | `/setup create repo:<owner/repo> branch:<branch>` | Clone a setup workspace and dispatch the setup agent. |
-| `/setup update repo:<owner/repo> branch:<branch>` | Re-run setup and promote the result only if it succeeds. |
+| `/setup update repo:<owner/repo> branch:<branch>` | Re-run setup and promote only after verified commands succeed. |
 | `/setup status repo:<owner/repo> branch:<branch>` | Show profile status, revision, and last run state. |
 | `/setup view repo:<owner/repo> branch:<branch>` | View the active profile privately in Discord. |
 | `/setup edit repo:<owner/repo> branch:<branch>` | Open a private draft editor with buttons and modals. |
@@ -190,7 +197,7 @@ Setup commands:
 
 Draft edits are isolated from the active profile. Applying a draft increments the profile revision only if the active profile still matches the draft base revision. If someone changed the profile first, Threadcord reports a conflict and leaves the active profile unchanged.
 
-Setup profiles store required environment variable names only. They must not contain secret values. Threadcord validates setup JSON and memory before saving, importing, or applying a draft.
+Setup profiles store required environment variable names only. They must not contain secret values. Threadcord validates setup JSON and memory before saving, importing, or applying a draft. Draft `import` and `apply` perform structural validation only. They do not re-run commands because the setup workspace is gone.
 
 ## Why use Threadcord?
 
