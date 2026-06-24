@@ -1,9 +1,6 @@
 import { defineAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
-import {
-  bindingFromAgentRuntimeContext,
-  createGitHubTools,
-} from "../github/tools.js";
+import { resolveAgentGitHubTools } from "../github/tools.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
 
 export default defineAgent(async ({ id, env }) => {
@@ -24,12 +21,7 @@ export default defineAgent(async ({ id, env }) => {
       timeoutMs: 60 * 60 * 1000,
       maxAttempts: 10,
     },
-    tools: githubToken
-      ? createGitHubTools(
-          githubToken,
-          bindingFromAgentRuntimeContext(turn),
-        )
-      : [],
+    tools: resolveAgentGitHubTools(githubToken, turn),
     instructions: [
       "You are Threadcord, a background coding agent controlled from Discord.",
       `Work only inside ${turn.cwd}. Treat credentials as write-only operational secrets; never print them.`,

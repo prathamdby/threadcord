@@ -24,8 +24,13 @@ export type CreatePullRequest = (
   payload: CreatePullRequestPayload,
 ) => Promise<{ number: number; url: string; state: string }>;
 
+export type IsFeatureBranchPushed = (
+  binding: GitHubTaskBinding,
+) => Promise<boolean>;
+
 export interface GitHubToolsDeps {
   createPullRequest?: CreatePullRequest;
+  isFeatureBranchPushed?: IsFeatureBranchPushed;
 }
 
 export function bindingFromAgentRuntimeContext(
@@ -67,6 +72,40 @@ export function assertGitHubTaskBinding(
   return binding;
 }
 
+export function resolveAgentGitHubTools(
+  githubToken: string,
+  turn: AgentRuntimeContext,
+) {
+  return githubToken
+    ? createGitHubTools(githubToken, bindingFromAgentRuntimeContext(turn))
+    : [];
+}
+
+function defaultIsFeatureBranchPushed(
+  octokit: Octokit,
+): IsFeatureBranchPushed {
+  return async (binding) => {
+    try {
+      await octokit.rest.repos.getBranch({
+        owner: binding.owner,
+        repo: binding.repo,
+        branch: binding.featureBranch,
+      });
+      return true;
+    } catch (error: unknown) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "status" in error &&
+        error.status === 404
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  };
+}
+
 export function createGitHubTools(
   token: string,
   binding: GitHubTaskBinding,
@@ -77,6 +116,8 @@ export function createGitHubTools(
     auth: token,
     userAgent: "threadcord/0.1.0",
   });
+  const isFeatureBranchPushed =
+    deps.isFeatureBranchPushed ?? defaultIsFeatureBranchPushed(octokit);
   const createPullRequest =
     deps.createPullRequest ??
     (async (payload) => {
@@ -92,7 +133,7 @@ export function createGitHubTools(
     defineTool({
       name: "create_github_pull_request",
       description:
-        "Create a GitHub pull request for the active task. Repository, base branch, and feature branch are fixed to the task. Provide title and optional body only.",
+        "Create a GitHub pull request for the active task. Repository, base branch, and feature branch are fixed to the task. Provide title and optional body only. The feature branch must already be pushed.",
       input: v.strictObject({
         title: v.pipe(v.string(), v.minLength(1)),
         body: v.optional(v.string()),
@@ -103,6 +144,12 @@ export function createGitHubTools(
         state: v.string(),
       }),
       async run({ input }) {
+        const pushed = await isFeatureBranchPushed(bound);
+        if (!pushed) {
+          throw new Error(
+            `Task branch ${bound.featureBranch} has not been pushed to ${bound.owner}/${bound.repo}. Push the branch before opening a pull request.`,
+          );
+        }
         return createPullRequest({
           owner: bound.owner,
           repo: bound.repo,

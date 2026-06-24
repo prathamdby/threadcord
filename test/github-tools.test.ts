@@ -112,9 +112,25 @@ describe("createGitHubTools", () => {
     expect(() => v.parse(tool!.input, { title: "" })).toThrow();
   });
 
+  it("refuses to create a PR when the feature branch is not pushed", async () => {
+    const [tool] = createGitHubTools("fake-token", binding, {
+      isFeatureBranchPushed: async () => false,
+      createPullRequest: async () => {
+        throw new Error("createPullRequest should not be called");
+      },
+    });
+
+    await expect(
+      tool!.run({ input: { title: "Add feature" } }),
+    ).rejects.toThrow(
+      "Task branch agent/task-1 has not been pushed to acme/web. Push the branch before opening a pull request.",
+    );
+  });
+
   it("calls GitHub with task-bound repository and branches", async () => {
     let captured: CreatePullRequestPayload | undefined;
     const [tool] = createGitHubTools("fake-token", binding, {
+      isFeatureBranchPushed: async () => true,
       createPullRequest: async (payload) => {
         captured = payload;
         return {
@@ -146,6 +162,7 @@ describe("createGitHubTools", () => {
 
   it("returns only safe PR metadata", async () => {
     const [tool] = createGitHubTools("fake-token", binding, {
+      isFeatureBranchPushed: async () => true,
       createPullRequest: async () => ({
         number: 9,
         url: "https://github.com/acme/web/pull/9",
