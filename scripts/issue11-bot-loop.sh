@@ -10,10 +10,13 @@ current_head_sha() {
 }
 
 count_zeus_findings() {
-  local body head
-  head=$(current_head_sha)
-  body=$(gh api "repos/{owner}/{repo}/pulls/${PR}/reviews" --paginate \
+  local body
+  body=$(gh api "repos/{owner}/{repo}/pulls/${PR}/reviews" \
     --jq '[.[] | select(.user.login == "zeus-review[bot]") | .body] | last // ""')
+  if [[ -z "$body" || "$body" == *"View the updated review"* ]]; then
+    body=$(gh api "repos/{owner}/{repo}/issues/${PR}/comments" \
+      --jq '[.[] | select(.user.login == "zeus-review[bot]") | .body] | last // ""')
+  fi
   if [[ -z "$body" || "$body" == *"Review in progress"* ]]; then
     echo "pending"
     return
@@ -22,8 +25,7 @@ count_zeus_findings() {
     echo 0
     return
   fi
-  gh api "repos/{owner}/{repo}/pulls/${PR}/comments" \
-    --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\") | select(.body | contains(\"**P1**\"))] | length"
+  (grep -oE 'P1 · c[0-9]' <<<"$body" || true) | wc -l | tr -d ' '
 }
 
 count_gemini_findings() {

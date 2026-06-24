@@ -39,6 +39,14 @@ case "${1:-}" in
       echo "--- git log main..HEAD ---"
       git log main..HEAD --oneline
       test -n "$(git log main..HEAD --oneline)"
+      commit_count=$(git log main..HEAD --oneline | wc -l | tr -d " ")
+      if [[ "$commit_count" -ne 1 ]]; then
+        echo "FAIL: expected exactly 1 commit on feature branch, got $commit_count" >&2
+        exit 1
+      fi
+      echo "--- git diff 1b641ba..HEAD --stat (full #11 impl) ---"
+      git diff 1b641ba..HEAD --stat
+      git diff 1b641ba..HEAD --stat | grep -qE "src/github/tools.ts|src/agents/coding.ts"
     '
     ;;
   2|inspect)
