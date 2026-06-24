@@ -22,14 +22,14 @@ count_zeus_findings() {
     echo 0
     return
   fi
-  gh api "repos/{owner}/{repo}/pulls/${PR}/comments" --paginate \
+  gh api "repos/{owner}/{repo}/pulls/${PR}/comments" \
     --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\")] | length"
 }
 
 count_gemini_findings() {
   local head
   head=$(current_head_sha)
-  gh api "repos/{owner}/{repo}/pulls/${PR}/comments" --paginate \
+  gh api "repos/{owner}/{repo}/pulls/${PR}/comments" \
     --jq "[.[] | select(.user.login == \"gemini-code-assist[bot]\") | select(.commit_id == \"${head}\")] | length"
 }
 
