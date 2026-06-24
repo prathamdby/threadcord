@@ -46,10 +46,14 @@ export async function bootstrapWorkspace(
 export async function runSetupInstall(
   checkoutDir: string,
   installCommand: string,
+  githubToken: string,
 ): Promise<void> {
   const parsed = parseSetupInstallCommand(installCommand);
   if (!parsed.ok) throw new Error(parsed.message);
-  await execa(parsed.value.command, parsed.value.args, { cwd: checkoutDir });
+  await execa(parsed.value.command, parsed.value.args, {
+    cwd: checkoutDir,
+    env: gitEnv(githubToken),
+  });
 }
 
 async function cloneRepo(

@@ -235,7 +235,11 @@ export class TaskOrchestrator {
           `Missing ready setup profile for ${task.repo} on ${task.branch}`,
         );
       }
-      await runSetupInstall(checkoutPath, setupProfile.environment.install);
+      await runSetupInstall(
+        checkoutPath,
+        setupProfile.environment.install,
+        this.config.GITHUB_TOKEN,
+      );
       const featureBranch = targetBranchForTask(task.id, task);
       const input: DispatchAgentInput = {
         kind: "threadcord.turn",

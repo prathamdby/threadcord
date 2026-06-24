@@ -37,7 +37,14 @@ export function createSetupTools(runId: string) {
           memoryMarkdown: parsed.value.memoryMarkdown,
         });
         if (run) {
-          await rm(run.workspacePath, { recursive: true, force: true });
+          await rm(run.workspacePath, { recursive: true, force: true }).catch(
+            (error) => {
+              console.warn(
+                `[threadcord] Failed to remove setup workspace ${run.workspacePath}`,
+                error,
+              );
+            },
+          );
         }
         return JSON.stringify({
           status: "saved",
