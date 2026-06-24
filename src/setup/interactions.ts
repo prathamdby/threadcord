@@ -348,36 +348,50 @@ async function handleSetupButton(
   }
   if (parsed.action === "validate") {
     await interaction.deferUpdate();
-    const validation = validateSetupProfilePayload({
-      environment: draft.environment,
-      memoryMarkdown: draft.memoryMarkdown,
-    });
-    const updated = await store.updateDraft({
-      draftId: draft.id,
-      validationStatus: validation.ok ? "valid" : "invalid",
-      validationMessage: validation.ok ? "Draft is valid." : validation.message,
-    });
-    await interaction.editReply({
-      content: renderDraft(updated).content,
-      components: draftComponents(updated),
-    });
+    try {
+      const validation = validateSetupProfilePayload({
+        environment: draft.environment,
+        memoryMarkdown: draft.memoryMarkdown,
+      });
+      const updated = await store.updateDraft({
+        draftId: draft.id,
+        validationStatus: validation.ok ? "valid" : "invalid",
+        validationMessage: validation.ok ? "Draft is valid." : validation.message,
+      });
+      await interaction.editReply({
+        content: renderDraft(updated).content,
+        components: draftComponents(updated),
+      });
+    } catch (error) {
+      await interaction.editReply({
+        content: `Setup action failed: ${summarizeError(error)}`,
+        components: [],
+      });
+    }
     return;
   }
   if (parsed.action === "apply") {
     await interaction.deferUpdate();
-    const result = await store.applyDraft(draft.id);
-    if (result.ok) {
+    try {
+      const result = await store.applyDraft(draft.id);
+      if (result.ok) {
+        await interaction.editReply({
+          content: renderSetupProfile(result.profile).content,
+          components: [],
+        });
+        return;
+      }
+      const message =
+        result.reason === "conflict"
+          ? "Profile changed since this draft was opened. Reopen the editor."
+          : `Draft could not be applied: ${result.reason}`;
+      await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+    } catch (error) {
       await interaction.editReply({
-        content: renderSetupProfile(result.profile).content,
+        content: `Setup action failed: ${summarizeError(error)}`,
         components: [],
       });
-      return;
     }
-    const message =
-      result.reason === "conflict"
-        ? "Profile changed since this draft was opened. Reopen the editor."
-        : `Draft could not be applied: ${result.reason}`;
-    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
     return;
   }
   if (parsed.action === "discard") {
@@ -438,18 +452,25 @@ async function handleSetupModal(
     memoryMarkdown,
   });
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const updated = await store.updateDraft({
-    draftId: draft.id,
-    ...(parsedPayload.ok
-      ? {
-          environment: parsedPayload.value.environment,
-          memoryMarkdown: parsedPayload.value.memoryMarkdown,
-        }
-      : {}),
-    validationStatus: parsedPayload.ok ? "valid" : "invalid",
-    validationMessage: parsedPayload.ok ? "Draft is valid." : parsedPayload.message,
-  });
-  await respondWithDraft(interaction, updated);
+  try {
+    const updated = await store.updateDraft({
+      draftId: draft.id,
+      ...(parsedPayload.ok
+        ? {
+            environment: parsedPayload.value.environment,
+            memoryMarkdown: parsedPayload.value.memoryMarkdown,
+          }
+        : {}),
+      validationStatus: parsedPayload.ok ? "valid" : "invalid",
+      validationMessage: parsedPayload.ok ? "Draft is valid." : parsedPayload.message,
+    });
+    await respondWithDraft(interaction, updated);
+  } catch (error) {
+    await interaction.editReply({
+      content: `Failed to save: ${summarizeError(error)}`,
+      components: [],
+    });
+  }
 }
 
 async function respondWithDraft(

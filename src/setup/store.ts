@@ -241,6 +241,7 @@ export class SetupStore {
               error_summary = NULL,
               updated_at = now()
           WHERE id = $1
+            AND status IN ('running', 'updating')
           RETURNING *
         `,
         [
