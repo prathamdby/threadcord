@@ -23,13 +23,13 @@ count_zeus_findings() {
     return
   fi
   gh api "repos/{owner}/{repo}/pulls/${PR}/comments" \
-    --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\") | select(.body | test(\"P[12]\"))] | length"
+    --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\") | select(.body | test(\"\\*\\*P1\\*\\*\"))] | length"
 }
 
 count_gemini_findings() {
   local head committed_at
   head=$(current_head_sha)
-  committed_at=$(gh api "repos/{owner}/{repo}/commits/${head}" --jq -r .commit.committer.date)
+  committed_at=$(gh api "repos/{owner}/{repo}/commits/${head}" --jq .commit.committer.date)
   gh api "repos/{owner}/{repo}/pulls/${PR}/comments" \
     --jq "[.[] | select(.user.login == \"gemini-code-assist[bot]\") | select(.commit_id == \"${head}\") | select(.created_at > \"${committed_at}\") | select(.body | test(\"high-priority|medium-priority\"))] | length"
 }
