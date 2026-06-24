@@ -23,8 +23,11 @@ export function workspaceEnv(
   extra: NodeJS.ProcessEnv = {},
 ): NodeJS.ProcessEnv {
   const paths = workspacePaths(workspaceRoot);
+  const inheritedPath = process.env.PATH;
   return {
-    PATH: `${paths.npmBin}:${process.env.PATH ?? ""}`,
+    PATH: inheritedPath
+      ? `${paths.npmBin}:${inheritedPath}`
+      : paths.npmBin,
     HOME: paths.home,
     NPM_CONFIG_PREFIX: paths.npmPrefix,
     XDG_CACHE_HOME: paths.cache,

@@ -53,6 +53,13 @@ describe("workspaceEnv", () => {
     workspaceEnv("/tmp/ws");
     expect(process.env).toEqual(before);
   });
+
+  it("handles undefined PATH without a trailing colon", () => {
+    delete process.env.PATH;
+    const env = workspaceEnv("/tmp/ws");
+    expect(env.PATH).toBe("/tmp/ws/.npm-global/bin");
+    expect(env.PATH?.endsWith(":")).toBe(false);
+  });
 });
 
 describe("ensureWorkspaceDirs", () => {
