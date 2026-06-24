@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runSetupInstall } from "../src/task/bootstrap.js";
 import { workspacePaths } from "../src/task/workspace-env.js";
@@ -28,7 +28,7 @@ describe("runSetupInstall", () => {
     );
 
     const capturedPath = await readFile(join(checkoutDir, "path.txt"), "utf8");
-    expect(capturedPath.split(delimiter)[0]).toBe(
+    expect(capturedPath.split(":")[0]).toBe(
       workspacePaths(workspaceRoot).npmBin,
     );
   });
