@@ -23,7 +23,7 @@ count_zeus_findings() {
     return
   fi
   gh api "repos/{owner}/{repo}/pulls/${PR}/comments" \
-    --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\") | select(.body | test(\"\\*\\*P1\\*\\*\"))] | length"
+    --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\") | select(.body | contains(\"**P1**\"))] | length"
 }
 
 count_gemini_findings() {
