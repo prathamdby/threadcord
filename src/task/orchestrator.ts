@@ -42,6 +42,7 @@ export type BootstrapTurn = (
 
 /** Runs setup install on the initial turn. Injectable so tests can skip shell. */
 export type RunSetupInstallTurn = (
+  workspaceRoot: string,
   checkoutDir: string,
   installCommand: string,
   githubToken: string,
@@ -294,6 +295,7 @@ export class TaskOrchestrator {
       }
       if (source === "initial") {
         await this.runSetupInstallTurn(
+          task.workspacePath,
           checkoutPath,
           setupProfile.environment.install,
           this.config.GITHUB_TOKEN,

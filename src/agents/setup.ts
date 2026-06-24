@@ -4,6 +4,7 @@ import { local } from "@flue/runtime/node";
 import { getPool } from "../db.js";
 import { createSetupTools } from "../setup/tools.js";
 import { SetupStore } from "../setup/store.js";
+import { workspaceEnv } from "../task/workspace-env.js";
 
 export default createAgent(async ({ id }) => {
   const store = new SetupStore(getPool());
@@ -16,10 +17,10 @@ export default createAgent(async ({ id }) => {
     cwd: checkoutPath,
     sandbox: local({
       cwd: checkoutPath,
-      env: {
+      env: workspaceEnv(run.workspacePath, {
         GITHUB_TOKEN: process.env.GITHUB_TOKEN ?? "",
         GH_TOKEN: process.env.GITHUB_TOKEN ?? "",
-      },
+      }),
     }),
     durability: {
       timeoutMs: 60 * 60 * 1000,

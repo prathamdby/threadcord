@@ -2,6 +2,7 @@ import { mkdir, rm, stat, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { execa } from "./execa.js";
 import type { TaskRecord } from "../types.js";
+import { ensureWorkspaceDirs, workspaceEnv } from "./workspace-env.js";
 
 export type BootstrapMode = "initial" | "continue";
 
@@ -11,6 +12,7 @@ export async function bootstrapWorkspace(
   mode: BootstrapMode,
 ): Promise<string> {
   await mkdir(task.workspacePath, { recursive: true });
+  await ensureWorkspaceDirs(task.workspacePath);
   const checkoutDir = join(task.workspacePath, basename(task.repo));
 
   await ensureCheckoutDir(task, githubToken, checkoutDir);
@@ -19,14 +21,14 @@ export async function bootstrapWorkspace(
   if (mode === "initial") {
     await execa("git", ["fetch", "origin", task.branch], {
       cwd: checkoutDir,
-      env: gitEnv(githubToken),
+      env: scopedGitEnv(task.workspacePath, githubToken),
     });
     await execa(
       "git",
       ["checkout", "-B", task.branch, `origin/${task.branch}`],
       {
         cwd: checkoutDir,
-        env: gitEnv(githubToken),
+        env: scopedGitEnv(task.workspacePath, githubToken),
       },
     );
   }
@@ -35,13 +37,14 @@ export async function bootstrapWorkspace(
 }
 
 export async function runSetupInstall(
+  workspaceRoot: string,
   checkoutDir: string,
   installCommand: string,
   githubToken: string,
 ): Promise<void> {
   await execa("bash", ["-lc", installCommand], {
     cwd: checkoutDir,
-    env: gitEnv(githubToken),
+    env: scopedGitEnv(workspaceRoot, githubToken),
     timeout: 600_000,
   });
 }
@@ -75,7 +78,10 @@ async function cloneRepo(
   await execa(
     "git",
     ["clone", "--branch", task.branch, "--single-branch", repoUrl, checkoutDir],
-    { cwd: task.workspacePath, env: gitEnv(githubToken) },
+    {
+      cwd: task.workspacePath,
+      env: scopedGitEnv(task.workspacePath, githubToken),
+    },
   );
 }
 
@@ -88,12 +94,13 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-function gitEnv(token: string): NodeJS.ProcessEnv {
-  return {
-    PATH: process.env.PATH,
-    HOME: process.env.HOME,
+function scopedGitEnv(
+  workspaceRoot: string,
+  token: string,
+): NodeJS.ProcessEnv {
+  return workspaceEnv(workspaceRoot, {
     GIT_TERMINAL_PROMPT: "0",
     GITHUB_TOKEN: token,
     GH_TOKEN: token,
-  };
+  });
 }
