@@ -43,6 +43,7 @@ export async function createApp(): Promise<{
 
   const janitor = startWorkspaceJanitor({
     store,
+    workspaceRoot: config.WORKSPACE_ROOT,
     workspaceTtlDays: config.WORKSPACE_TTL_DAYS,
   });
 
