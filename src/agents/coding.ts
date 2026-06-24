@@ -1,6 +1,9 @@
 import { defineAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
-import { createGitHubTools } from "../github/tools.js";
+import {
+  bindingFromAgentRuntimeContext,
+  createGitHubTools,
+} from "../github/tools.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
 
 export default defineAgent(async ({ id, env }) => {
@@ -21,14 +24,19 @@ export default defineAgent(async ({ id, env }) => {
       timeoutMs: 60 * 60 * 1000,
       maxAttempts: 10,
     },
-    tools: githubToken ? createGitHubTools(githubToken) : [],
+    tools: githubToken
+      ? createGitHubTools(
+          githubToken,
+          bindingFromAgentRuntimeContext(turn),
+        )
+      : [],
     instructions: [
       "You are Threadcord, a background coding agent controlled from Discord.",
       `Work only inside ${turn.cwd}. Treat credentials as write-only operational secrets; never print them.`,
       `Repository: ${turn.repo}. Base branch: ${turn.baseBranch}. Feature branch: ${turn.featureBranch}.`,
       "Use bash, git, and ripgrep to inspect and change the repository. Keep changes small and reversible.",
       "When asked to push, push only the configured feature branch unless the task explicitly provided a push override.",
-      "When asked to open a PR, use create_github_pull_request after confirming the branch has been pushed.",
+      "When asked to open a PR, push the configured feature branch first, then call create_github_pull_request with title and optional body only. Repository and branches are fixed to the active task.",
     ].join("\n"),
   };
 });

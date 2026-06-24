@@ -172,7 +172,7 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 | `status`   | Task thread     | Replies with current task status                   |
 | `cancel`   | Task thread     | Stops future work; running tasks hold the slot until the turn ends |
 | `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`  |
-| Open PR    | Agent tool      | `create_github_pull_request` after push            |
+| Open PR    | Agent tool      | `create_github_pull_request` (task-bound repo/branches; title/body only) after push |
 
 ## How it works
 
