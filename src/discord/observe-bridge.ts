@@ -15,7 +15,13 @@ export function registerObserveBridge(args: {
 
   observe((event) => {
     const instanceId = "instanceId" in event ? event.instanceId : undefined;
-    if (!instanceId || !isThreadcordInstance(instanceId)) return;
+    if (!instanceId) return;
+    const isSetupInstance = instanceId.startsWith("setup:");
+    const isTaskInstance = isThreadcordInstance(instanceId);
+    if (event.type === "agent_end" && (isTaskInstance || isSetupInstance)) {
+      void args.onAgentEnd(instanceId);
+    }
+    if (!isTaskInstance) return;
     const line = eventSummary(event);
     if (!line) return;
 
@@ -33,9 +39,6 @@ export function registerObserveBridge(args: {
       }, 2500),
     );
 
-    if (event.type === "agent_end") {
-      void args.onAgentEnd(instanceId);
-    }
   });
 }
 

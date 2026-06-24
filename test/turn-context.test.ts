@@ -14,6 +14,7 @@ const task: TaskRecord = {
   instruction: "Fix it",
   status: "running",
   initialTurnStarted: true,
+  setupProfileRevision: 1,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

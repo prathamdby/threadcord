@@ -23,6 +23,7 @@ Configuration lives in [`.env.example`](.env.example). Zod validation is in [`sr
 - [Getting started](#getting-started)
 - [Configure model providers](#configure-model-providers)
 - [Message format](#message-format)
+- [Setup profiles](#setup-profiles)
 - [Why use Threadcord?](#why-use-threadcord)
 - [Features](#features)
 - [How it works](#how-it-works)
@@ -142,6 +143,47 @@ Thread commands (in a Threadcord-created thread):
 - `status` prints the current task status.
 - `cancel` stops further dispatches and frees a concurrency slot.
 - `done` marks a `waiting` or `queued` task complete.
+
+## Setup profiles
+
+Threadcord stores durable setup profiles in its own Postgres database. A profile belongs to one normalized GitHub repository and one base branch. It contains an environment JSON recipe and Markdown memory for future coding agents.
+
+Normal coding tasks require a ready setup profile. If a task targets a repository and branch without one, Threadcord rejects the task and tells the user to run setup first. Task workspaces can still expire. Setup profile data stays in Postgres.
+
+Target repositories do not need Threadcord files. Setup does not require `.cursor`, `.threadcord`, `THREADCORD_SETUP.md`, `AGENTS.md`, or any committed compatibility file.
+
+Setup environment JSON:
+
+```json
+{
+  "install": "npm ci",
+  "start": "",
+  "checks": {
+    "build": "npm run build",
+    "test": "npm test",
+    "lint": "npm run lint",
+    "typecheck": "npm run check"
+  },
+  "requiredEnv": ["DATABASE_URL"],
+  "requiredServices": ["postgres"]
+}
+```
+
+Setup commands:
+
+| Command | Purpose |
+| ------- | ------- |
+| `/setup create repo:<owner/repo> branch:<branch>` | Clone a setup workspace and dispatch the setup agent. |
+| `/setup update repo:<owner/repo> branch:<branch>` | Re-run setup and promote the result only if it succeeds. |
+| `/setup status repo:<owner/repo> branch:<branch>` | Show profile status, revision, and last run state. |
+| `/setup view repo:<owner/repo> branch:<branch>` | View the active profile privately in Discord. |
+| `/setup edit repo:<owner/repo> branch:<branch>` | Open a private draft editor with buttons and modals. |
+| `/setup export repo:<owner/repo> branch:<branch>` | Export environment JSON and memory Markdown as private attachments. |
+| `/setup import repo:<owner/repo> branch:<branch>` | Import JSON or Markdown attachments into a draft. |
+
+Draft edits are isolated from the active profile. Applying a draft increments the profile revision only if the active profile still matches the draft base revision. If someone changed the profile first, Threadcord reports a conflict and leaves the active profile unchanged.
+
+Setup profiles store required environment variable names only. They must not contain secret values. Threadcord validates setup JSON and memory before saving, importing, or applying a draft.
 
 ## Why use Threadcord?
 

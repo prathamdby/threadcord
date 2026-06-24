@@ -32,6 +32,7 @@ export class TaskStore {
         initial_turn_started BOOLEAN NOT NULL DEFAULT false,
         status_message_id TEXT,
         error_summary TEXT,
+        setup_profile_revision INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
@@ -39,6 +40,10 @@ export class TaskStore {
     await this.pool.query(`
       ALTER TABLE tasks
       ADD COLUMN IF NOT EXISTS initial_turn_started BOOLEAN NOT NULL DEFAULT false
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS setup_profile_revision INTEGER NOT NULL DEFAULT 0
     `);
     await this.pool.query(`
       ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check
@@ -65,9 +70,10 @@ export class TaskStore {
       `
         INSERT INTO tasks (
           id, discord_message_id, discord_thread_id, flue_instance_id, workspace_path,
-          repo, branch, model, instruction, push_override, status, status_message_id
+          repo, branch, model, instruction, push_override, status, status_message_id,
+          setup_profile_revision
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'queued', $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'queued', $11, $12)
         ON CONFLICT (discord_message_id) DO NOTHING
         RETURNING *
       `,
@@ -83,6 +89,7 @@ export class TaskStore {
         task.instruction,
         task.pushOverride ?? null,
         task.statusMessageId ?? null,
+        task.setupProfileRevision,
       ],
     );
     if (insert.rows[0]) {
@@ -432,6 +439,7 @@ function rowToTask(row: QueryResultRow): TaskRecord {
     ...(typeof row.error_summary === "string"
       ? { errorSummary: row.error_summary }
       : {}),
+    setupProfileRevision: Number(row.setup_profile_revision),
     createdAt: new Date(String(row.created_at)),
     updatedAt: new Date(String(row.updated_at)),
   };

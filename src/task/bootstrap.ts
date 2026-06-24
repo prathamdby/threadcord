@@ -1,5 +1,6 @@
 import { mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { parseSetupInstallCommand } from "../setup/profile.js";
 import { execa } from "./execa.js";
 import { targetBranchForTask } from "./policy.js";
 import type { TaskRecord } from "../types.js";
@@ -40,6 +41,19 @@ export async function bootstrapWorkspace(
   }
 
   return checkoutDir;
+}
+
+export async function runSetupInstall(
+  checkoutDir: string,
+  installCommand: string,
+  githubToken: string,
+): Promise<void> {
+  const parsed = parseSetupInstallCommand(installCommand);
+  if (!parsed.ok) throw new Error(parsed.message);
+  await execa(parsed.value.command, parsed.value.args, {
+    cwd: checkoutDir,
+    env: gitEnv(githubToken),
+  });
 }
 
 async function cloneRepo(

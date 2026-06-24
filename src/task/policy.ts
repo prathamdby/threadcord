@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config.js";
+import { parseSetupProfileKey } from "../setup/profile.js";
 import type { TaskRequest } from "../types.js";
 
 export type PolicyResult = { ok: true } | { ok: false; reason: string };
@@ -14,6 +15,10 @@ export function validateTaskPolicy(
       ok: false,
       reason: `Invalid repository format: ${request.repo}. Expected 'owner/repo'.`,
     };
+  }
+  const key = parseSetupProfileKey(request.repo, request.branch);
+  if (!key.ok) {
+    return { ok: false, reason: key.message };
   }
   if (!config.allowedModels.includes(request.model)) {
     return { ok: false, reason: `Model ${request.model} is not allowed.` };

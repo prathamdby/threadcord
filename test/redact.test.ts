@@ -13,6 +13,14 @@ describe("redact", () => {
   it("strips assignment-shaped secrets", () => {
     expect(redact("config token=super-secret-value")).toBe("config [redacted]");
   });
+
+  it("strips GitHub token clone URLs", () => {
+    expect(
+      redact(
+        "git clone https://x-access-token:secret-token@github.com/acme/web.git",
+      ),
+    ).toBe("git clone [redacted]/acme/web.git");
+  });
 });
 
 describe("summarizeError", () => {
