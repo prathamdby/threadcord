@@ -25,10 +25,12 @@ export function discoverHomeBinDirs(home: string): string[] {
     return dirs;
   }
   try {
-    for (const entry of readdirSync(home, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        dirs.push(join(home, entry.name, "bin"));
-      }
+    const childDirs = readdirSync(home, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+    for (const name of childDirs) {
+      dirs.push(join(home, name, "bin"));
     }
   } catch {
     // HOME may be unreadable during early bootstrap.
@@ -67,10 +69,17 @@ export function wrapWorkspaceBashCommand(command: string): string {
     "  if [[ -n \"$prefix\" && \"$PATH\" == \"$prefix\"* ]]; then",
     "    rest=\"${PATH#${prefix}:}\"",
     "  fi",
-    "  while IFS= read -r bin; do",
-    "    [[ -z \"$bin\" || \":$PATH:\" == *\":$bin:\"* ]] && continue",
+    "  local reset_nullglob=0 reset_dotglob=0",
+    "  shopt -q nullglob || reset_nullglob=1",
+    "  shopt -q dotglob || reset_dotglob=1",
+    "  shopt -s nullglob dotglob",
+    "  local -a candidates=(\"$HOME/bin\" \"$HOME/.local/bin\" \"$HOME\"/*/bin)",
+    "  (( reset_nullglob )) && shopt -u nullglob",
+    "  (( reset_dotglob )) && shopt -u dotglob",
+    "  for bin in \"${candidates[@]}\"; do",
+    "    [[ -z \"$bin\" || \":$PATH:$additions:\" == *\":$bin:\"* ]] && continue",
     "    additions=\"${additions:+$additions:}$bin\"",
-    "  done < <(printf '%s\\n' \"$HOME/bin\" \"$HOME/.local/bin\"; find \"$HOME\" -mindepth 2 -maxdepth 2 -type d -name bin 2>/dev/null | sort -u)",
+    "  done",
     "  if [[ -n \"$additions\" ]]; then",
     "    if [[ -n \"$prefix\" ]]; then",
     "      export PATH=\"$prefix:$additions${rest:+:$rest}\"",
