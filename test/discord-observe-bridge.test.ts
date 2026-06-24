@@ -5,6 +5,7 @@ import {
   failureDiscordMessage,
   handleObserveEvent,
   submissionFailureSummary,
+  withInstanceEventLock,
   type ObserveBridgeCallbacks,
 } from "../src/discord/observe-bridge.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
@@ -32,6 +33,20 @@ describe("submissionFailureSummary", () => {
           submissionId: "submission-1",
           outcome: "failed",
           error: "Stream ended without finish_reason",
+          instanceId: toFlueInstanceId("thread-1"),
+        }),
+      ),
+    ).toBe("Stream ended without finish_reason");
+  });
+
+  it("detects submission_settled failures when error is an Error object", () => {
+    expect(
+      submissionFailureSummary(
+        taskEvent({
+          type: "submission_settled",
+          submissionId: "submission-1",
+          outcome: "failed",
+          error: new Error("Stream ended without finish_reason"),
           instanceId: toFlueInstanceId("thread-1"),
         }),
       ),
@@ -91,6 +106,79 @@ describe("handleObserveEvent", () => {
       toFlueInstanceId("thread-1"),
       "Stream ended without finish_reason",
     );
+  });
+
+  it("serializes failure handling before agent_end for the same instance", async () => {
+    const order: string[] = [];
+    const instanceId = toFlueInstanceId("thread-1");
+    const sharedState = {
+      buffers: new Map(),
+      timers: new Map(),
+      instanceChains: new Map<string, Promise<void>>(),
+    };
+    const callbacks = {
+      store: { getByInstanceId: async () => undefined },
+      publisher: {
+        edit: async () => {},
+        send: async () => ({ id: "m1" }),
+      },
+      onAgentFailure: async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        order.push("failure");
+      },
+      onAgentEnd: async () => {
+        order.push("end");
+      },
+    } as unknown as ObserveBridgeCallbacks;
+
+    await Promise.all([
+      withInstanceEventLock(
+        taskEvent({
+          type: "turn",
+          turnId: "turn-1",
+          purpose: "agent",
+          durationMs: 12,
+          isError: true,
+          error: "Stream ended without finish_reason",
+          instanceId,
+        }),
+        sharedState,
+        () =>
+          handleObserveEvent(
+            taskEvent({
+              type: "turn",
+              turnId: "turn-1",
+              purpose: "agent",
+              durationMs: 12,
+              isError: true,
+              error: "Stream ended without finish_reason",
+              instanceId,
+            }),
+            callbacks,
+            sharedState,
+          ),
+      ),
+      withInstanceEventLock(
+        taskEvent({
+          type: "agent_end",
+          messages: [],
+          instanceId,
+        }),
+        sharedState,
+        () =>
+          handleObserveEvent(
+            taskEvent({
+              type: "agent_end",
+              messages: [],
+              instanceId,
+            }),
+            callbacks,
+            sharedState,
+          ),
+      ),
+    ]);
+
+    expect(order).toEqual(["failure", "end"]);
   });
 
   it("buffers turn_start status lines", async () => {

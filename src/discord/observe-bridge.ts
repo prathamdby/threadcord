@@ -15,23 +15,47 @@ export interface ObserveBridgeCallbacks {
 interface ObserveBridgeState {
   buffers: Map<string, string[]>;
   timers: Map<string, NodeJS.Timeout>;
+  instanceChains: Map<string, Promise<void>>;
 }
 
 export function registerObserveBridge(args: ObserveBridgeCallbacks): void {
   const state: ObserveBridgeState = {
     buffers: new Map(),
     timers: new Map(),
+    instanceChains: new Map(),
   };
 
   observe((event) => {
-    void handleObserveEvent(event, args, state);
+    void withInstanceEventLock(event, state, () =>
+      handleObserveEvent(event, args, state),
+    );
   });
+}
+
+export async function withInstanceEventLock(
+  event: FlueEvent,
+  state: ObserveBridgeState,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const instanceId = "instanceId" in event ? event.instanceId : undefined;
+  if (!instanceId) {
+    await fn();
+    return;
+  }
+  const previous = state.instanceChains.get(instanceId) ?? Promise.resolve();
+  const next = previous.then(fn).catch(() => {});
+  state.instanceChains.set(instanceId, next);
+  await next;
 }
 
 export async function handleObserveEvent(
   event: FlueEvent,
   args: ObserveBridgeCallbacks,
-  state: ObserveBridgeState = { buffers: new Map(), timers: new Map() },
+  state: ObserveBridgeState = {
+    buffers: new Map(),
+    timers: new Map(),
+    instanceChains: new Map(),
+  },
 ): Promise<void> {
   const instanceId = "instanceId" in event ? event.instanceId : undefined;
   if (!instanceId) return;
@@ -41,11 +65,11 @@ export async function handleObserveEvent(
 
   const failureSummary = submissionFailureSummary(event);
   if (failureSummary && isTaskInstance) {
-    void args.onAgentFailure(instanceId, failureSummary);
+    await args.onAgentFailure(instanceId, failureSummary);
   }
 
   if (event.type === "agent_end" && (isTaskInstance || isSetupInstance)) {
-    void args.onAgentEnd(instanceId);
+    await args.onAgentEnd(instanceId);
   }
   if (!isTaskInstance) return;
 
@@ -83,7 +107,7 @@ async function flush(
 
 export function submissionFailureSummary(event: FlueEvent): string | undefined {
   if (event.type === "submission_settled" && event.outcome === "failed") {
-    return event.error?.trim() || "Submission failed";
+    return formatFlueError(event.error) ?? "Submission failed";
   }
   if (event.type === "turn" && event.isError) {
     return formatFlueError(event.error) ?? "Model turn failed";
