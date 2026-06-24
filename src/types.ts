@@ -1,4 +1,5 @@
 export const TASK_STATUSES = [
+  "draft",
   "queued",
   "running",
   "waiting",
@@ -46,7 +47,6 @@ export interface NewTaskRecord extends TaskRequest {
   discordThreadId: string;
   flueInstanceId: string;
   workspacePath: string;
-  statusMessageId?: string;
   setupProfileRevision: number;
 }
 

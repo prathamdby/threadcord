@@ -1,6 +1,7 @@
 .env
 node_modules/
 dist/
+test/tmp/
 dist-types/
 .flue-vite/
 workspaces/

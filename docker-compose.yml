@@ -15,7 +15,7 @@ services:
 
   threadcord:
     build: .
-    init: true
+    # Dockerfile ENTRYPOINT already runs tini; compose init stacked a second reaper.
     depends_on:
       postgres:
         condition: service_healthy
