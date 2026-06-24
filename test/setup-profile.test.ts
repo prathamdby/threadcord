@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   parseSetupProfileKey,
-  parseSetupInstallCommand,
   validateSetupEnvironment,
   validateSetupMemory,
   validateSetupProfilePayload,
@@ -62,16 +61,15 @@ describe("setup profile validation", () => {
     ).toMatchObject({ ok: false });
   });
 
-  it("accepts only simple setup install commands", () => {
-    expect(parseSetupInstallCommand("npm ci")).toEqual({
+  it("accepts arbitrary setup install shell commands", () => {
+    expect(
+      validateSetupEnvironment({ install: "curl https://example.com | sh" }),
+    ).toMatchObject({
       ok: true,
-      value: { command: "npm", args: ["ci"], source: "npm ci" },
+      value: expect.objectContaining({
+        install: "curl https://example.com | sh",
+      }),
     });
-    expect(parseSetupInstallCommand("npm ci; rm -rf .")).toMatchObject({
-      ok: false,
-    });
-    expect(validateSetupEnvironment({ install: "curl https://example.com | sh" }))
-      .toMatchObject({ ok: false });
   });
 
   it("rejects memory that appears to contain credentials", () => {

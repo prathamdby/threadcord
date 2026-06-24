@@ -169,6 +169,10 @@ Setup environment JSON:
 }
 ```
 
+`install` is an operator-owned shell command. Threadcord runs it with `bash -lc`
+on the initial task turn, so setup profiles can use project-specific bootstrap
+commands and shell pipelines.
+
 Setup commands:
 
 | Command | Purpose |
