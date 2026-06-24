@@ -183,6 +183,14 @@ export class SetupStore {
         );
       }
       const profile = rowToProfile(profileResult.rows[0]);
+      if (
+        profile.lastRunId !== runId ||
+        (profile.status !== "running" && profile.status !== "updating")
+      ) {
+        throw new Error(
+          `Setup profile for ${key.value.repo} on ${key.value.branch} did not start a run.`,
+        );
+      }
       const runResult = await client.query(
         `
           INSERT INTO setup_runs (

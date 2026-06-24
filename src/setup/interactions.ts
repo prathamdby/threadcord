@@ -166,6 +166,7 @@ async function handleSetupCommand(
         update: subcommand === "update",
         ...(model ? { model } : {}),
       });
+      void orchestrator.dispatchSetupAgent(started);
       try {
         await interaction.editReply(
           [
@@ -175,17 +176,10 @@ async function handleSetupCommand(
             `Workspace: ${started.workspacePath}`,
           ].join("\n"),
         );
-        void orchestrator.dispatchSetupAgent(started);
-        return;
       } catch (error) {
-        await orchestrator.failPreparedSetup({
-          runId: started.runId,
-          workspacePath: started.workspacePath,
-          error,
-        });
         await replyWithError(interaction, summarizeError(error));
-        return;
       }
+      return;
     }
     if (subcommand === "status" || subcommand === "view") {
       const profile = await store.getProfile(
@@ -688,13 +682,13 @@ async function readAttachmentText(attachment: Attachment): Promise<string> {
   if (attachment.size > 1024 * 1024) {
     throw new Error(`Attachment ${attachment.name} is too large. Max size is 1MB.`);
   }
-  let lastError: unknown;
+  const errors: string[] = [];
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     let response: Response;
     try {
       response = await fetch(attachment.url);
     } catch (error) {
-      lastError = error;
+      errors.push(`Attempt ${attempt}: ${summarizeError(error)}`);
       if (attempt < 2) await delay(250);
       continue;
     }
@@ -703,12 +697,12 @@ async function readAttachmentText(attachment: Attachment): Promise<string> {
       `Failed to fetch attachment ${attachment.name}. HTTP ${response.status}.`,
     );
     if (response.status < 500 && response.status !== 429) throw error;
-    lastError = error;
+    errors.push(`Attempt ${attempt}: ${error.message}`);
     if (attempt < 2) await delay(250);
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(`Failed to fetch attachment ${attachment.name}.`);
+  throw new Error(
+    `Failed to fetch attachment ${attachment.name}. ${errors.join("; ")}`,
+  );
 }
 
 async function replyWithError(

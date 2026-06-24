@@ -89,15 +89,6 @@ export class SetupOrchestrator {
     }
   }
 
-  async failPreparedSetup(input: {
-    runId: string;
-    workspacePath: string;
-    error: unknown;
-  }): Promise<void> {
-    await rm(input.workspacePath, { recursive: true, force: true });
-    await this.store.failRun(input.runId, summarizeError(input.error));
-  }
-
   async handleAgentEnd(instanceId: string): Promise<boolean> {
     const run = await this.store.getRunByInstanceId(instanceId);
     if (!run) return false;
