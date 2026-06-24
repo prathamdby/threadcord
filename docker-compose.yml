@@ -15,7 +15,6 @@ services:
 
   threadcord:
     build: .
-    init: true
     depends_on:
       postgres:
         condition: service_healthy

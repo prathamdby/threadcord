@@ -10,6 +10,7 @@ import {
   toFlueInstanceId,
 } from "../ids.js";
 import { bootstrapWorkspace, runSetupInstall } from "./bootstrap.js";
+import type { BootstrapMode } from "./bootstrap.js";
 import { parseTaskMessage } from "./parser.js";
 import { validateTaskPolicy } from "./policy.js";
 import type { TaskStore } from "./store.js";
@@ -23,7 +24,32 @@ import type {
   TaskRecord,
   TaskStatus,
   ThreadMessage,
+  ThreadRef,
 } from "../types.js";
+
+/** Sends one dispatched agent turn. Injectable so tests can fake the runtime. */
+export type DispatchTurn = (
+  instanceId: string,
+  input: DispatchAgentInput,
+) => Promise<void>;
+
+/** Prepares a turn workspace checkout. Injectable so tests can skip git. */
+export type BootstrapTurn = (
+  task: TaskRecord,
+  githubToken: string,
+  mode: BootstrapMode,
+) => Promise<string>;
+
+/** Runs setup install on the initial turn. Injectable so tests can skip shell. */
+export type RunSetupInstallTurn = (
+  checkoutDir: string,
+  installCommand: string,
+  githubToken: string,
+) => Promise<void>;
+
+const defaultDispatchTurn: DispatchTurn = async (instanceId, input) => {
+  await dispatch(codingAgent, { id: instanceId, input });
+};
 
 const TERMINAL_STATUSES = new Set<TaskStatus>([
   "completed",
@@ -38,6 +64,9 @@ export class TaskOrchestrator {
     private readonly config: AppConfig,
     private readonly store: TaskStore,
     private readonly setupStore: SetupStore,
+    private readonly dispatchTurn: DispatchTurn = defaultDispatchTurn,
+    private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
+    private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
   ) {}
 
   setMilestonePublisher(
@@ -58,6 +87,7 @@ export class TaskOrchestrator {
         );
       }
     }
+    await this.store.failAbandonedDrafts();
     await this.fillConcurrencySlots();
   }
 
@@ -97,7 +127,7 @@ export class TaskOrchestrator {
     };
 
     const taskId = randomUUID();
-    const { task, created } = await this.store.createTask({
+    const { task, created } = await this.store.createDraft({
       id: taskId,
       discordMessageId: message.id,
       discordThreadId: pendingThreadId(taskId),
@@ -108,14 +138,30 @@ export class TaskOrchestrator {
     });
     if (!created) return;
 
-    const thread = await message.createThread(threadName(taskRequest.repo, taskId));
-    const statusMessage = await thread.send("Queued");
-    const attached = await this.store.attachDiscordThread(
+    let thread: ThreadRef;
+    let statusMessageId: string;
+    try {
+      thread = await message.createThread(
+        threadName(taskRequest.repo, taskId),
+      );
+      statusMessageId = (await thread.send("Queued")).id;
+    } catch (error) {
+      const summary = summarizeError(error);
+      await this.store.markDraftFailed(task.id, summary);
+      await this.replySafely(
+        message,
+        `Could not create a thread for this task: ${summary}`,
+      );
+      return;
+    }
+
+    const attached = await this.store.attachAndPromote(
       task.id,
       thread.id,
       toFlueInstanceId(thread.id),
-      statusMessage.id,
+      statusMessageId,
     );
+    if (!attached) return;
 
     const claimed = await this.store.claimNextTurn(attached.id);
     if (claimed) {
@@ -221,7 +267,7 @@ export class TaskOrchestrator {
   private async runTurn(claimed: ClaimedTurn): Promise<void> {
     const { task, instruction, source } = claimed;
     try {
-      const checkoutPath = await bootstrapWorkspace(
+      const checkoutPath = await this.bootstrap(
         task,
         this.config.GITHUB_TOKEN,
         source === "initial" ? "initial" : "continue",
@@ -236,7 +282,7 @@ export class TaskOrchestrator {
         );
       }
       if (source === "initial") {
-        await runSetupInstall(
+        await this.runSetupInstallTurn(
           checkoutPath,
           setupProfile.environment.install,
           this.config.GITHUB_TOKEN,
@@ -257,10 +303,7 @@ export class TaskOrchestrator {
           instruction,
         ),
       };
-      await dispatch(codingAgent, {
-        id: task.flueInstanceId,
-        input,
-      });
+      await this.dispatchTurn(task.flueInstanceId, input);
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {
       const summary = summarizeError(error);
@@ -272,6 +315,17 @@ export class TaskOrchestrator {
       );
       await this.post(task.discordThreadId, `Failed: ${summary}`);
       await this.fillConcurrencySlots();
+    }
+  }
+
+  private async replySafely(
+    message: ChannelMessage,
+    content: string,
+  ): Promise<void> {
+    try {
+      await message.reply(content);
+    } catch (error) {
+      console.error("[threadcord] control-channel reply failed", error);
     }
   }
 

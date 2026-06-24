@@ -50,7 +50,14 @@ export class TaskStore {
     `);
     await this.pool.query(`
       ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
-      CHECK (status IN ('queued', 'running', 'waiting', 'completed', 'failed', 'cancelled'))
+      CHECK (status IN ('draft', 'queued', 'running', 'waiting', 'completed', 'failed', 'cancelled'))
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_attached_unless_draft_check
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks ADD CONSTRAINT tasks_attached_unless_draft_check
+      CHECK (status = 'draft' OR status_message_id IS NOT NULL)
     `);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS task_followups (
@@ -63,17 +70,16 @@ export class TaskStore {
     `);
   }
 
-  async createTask(
+  async createDraft(
     task: NewTaskRecord,
   ): Promise<{ task: TaskRecord; created: boolean }> {
     const insert = await this.pool.query(
       `
         INSERT INTO tasks (
           id, discord_message_id, discord_thread_id, flue_instance_id, workspace_path,
-          repo, branch, model, instruction, push_override, status, status_message_id,
-          setup_profile_revision
+          repo, branch, model, instruction, push_override, status, setup_profile_revision
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'queued', $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11)
         ON CONFLICT (discord_message_id) DO NOTHING
         RETURNING *
       `,
@@ -88,7 +94,6 @@ export class TaskStore {
         task.model,
         task.instruction,
         task.pushOverride ?? null,
-        task.statusMessageId ?? null,
         task.setupProfileRevision,
       ],
     );
@@ -101,25 +106,63 @@ export class TaskStore {
     return { task: existing, created: false };
   }
 
-  async attachDiscordThread(
+  async attachAndPromote(
     taskId: string,
     threadId: string,
     flueInstanceId: string,
     statusMessageId: string,
-  ): Promise<TaskRecord> {
+  ): Promise<TaskRecord | undefined> {
     const result = await this.pool.query(
       `
         UPDATE tasks
         SET discord_thread_id = $2,
             flue_instance_id = $3,
             status_message_id = $4,
+            status = 'queued',
             updated_at = now()
-        WHERE id = $1
+        WHERE id = $1 AND status = 'draft'
         RETURNING *
       `,
       [taskId, threadId, flueInstanceId, statusMessageId],
     );
-    return rowToTask(singleRow(result.rows));
+    return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
+  }
+
+  async markDraftFailed(
+    taskId: string,
+    errorSummary: string,
+  ): Promise<TaskRecord | undefined> {
+    const result = await this.pool.query(
+      `
+        UPDATE tasks
+        SET status = 'failed',
+            error_summary = $2,
+            status_message_id = COALESCE(status_message_id, 'unattached:' || id),
+            updated_at = now()
+        WHERE id = $1 AND status = 'draft'
+        RETURNING *
+      `,
+      [taskId, errorSummary],
+    );
+    return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
+  }
+
+  async failAbandonedDrafts(): Promise<TaskRecord[]> {
+    const result = await this.pool.query(
+      `
+        UPDATE tasks
+        SET status = 'failed',
+            error_summary = COALESCE(
+              error_summary,
+              'Draft abandoned before thread attachment'
+            ),
+            status_message_id = COALESCE(status_message_id, 'unattached:' || id),
+            updated_at = now()
+        WHERE status = 'draft'
+        RETURNING *
+      `,
+    );
+    return result.rows.map(rowToTask);
   }
 
   async getByThreadId(threadId: string): Promise<TaskRecord | undefined> {
