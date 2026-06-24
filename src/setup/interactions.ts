@@ -253,14 +253,17 @@ async function handleImportCommand(
     await interaction.editReply("Attach environment JSON, memory Markdown, or both.");
     return;
   }
-  const draft = await store.createDraft(profile.id, interaction.user.id);
   const environment = environmentAttachment
     ? await readEnvironmentAttachment(environmentAttachment)
-    : draft.environment;
+    : undefined;
   const memoryMarkdown = memoryAttachment
     ? await readAttachmentText(memoryAttachment)
-    : draft.memoryMarkdown;
-  const parsed = validateSetupProfilePayload({ environment, memoryMarkdown });
+    : undefined;
+  const draft = await store.createDraft(profile.id, interaction.user.id);
+  const parsed = validateSetupProfilePayload({
+    environment: environment ?? draft.environment,
+    memoryMarkdown: memoryMarkdown ?? draft.memoryMarkdown,
+  });
   if (!parsed.ok) {
     const invalidDraft = await store.updateDraft({
       draftId: draft.id,
@@ -425,9 +428,24 @@ async function handleSetupModal(
     validationStatus: parsedPayload.ok ? "valid" : "invalid",
     validationMessage: parsedPayload.ok ? "Draft is valid." : parsedPayload.message,
   });
+  await respondWithDraft(interaction, updated);
+}
+
+async function respondWithDraft(
+  interaction: ModalSubmitInteraction,
+  draft: SetupDraft,
+): Promise<void> {
+  const response = {
+    content: renderDraft(draft).content,
+    components: draftComponents(draft),
+  };
+  if (interaction.message) {
+    await interaction.deferUpdate();
+    await interaction.message.edit(response);
+    return;
+  }
   await interaction.reply({
-    content: renderDraft(updated).content,
-    components: draftComponents(updated),
+    ...response,
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -574,7 +592,10 @@ function checksText(draft: SetupDraft): string {
 
 function parseChecks(value: string): Record<string, string> {
   const checks: Record<string, string> = {};
-  for (const line of parseLines(value)) {
+  for (const line of value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)) {
     const separator = line.indexOf("=");
     if (separator < 1) continue;
     const name = line.slice(0, separator).trim();
@@ -607,6 +628,9 @@ async function readEnvironmentAttachment(
 }
 
 async function readAttachmentText(attachment: Attachment): Promise<string> {
+  if (attachment.size > 1024 * 1024) {
+    throw new Error(`Attachment ${attachment.name} is too large. Max size is 1MB.`);
+  }
   const response = await fetch(attachment.url);
   if (!response.ok) {
     throw new Error(`Failed to fetch attachment ${attachment.name}.`);

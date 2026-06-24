@@ -99,7 +99,7 @@ async function prepareSetupWorkspace(input: {
         "--branch",
         input.branch,
         "--single-branch",
-        `https://github.com/${input.repo}.git`,
+        `https://x-access-token:${input.githubToken}@github.com/${input.repo}.git`,
         checkoutDir,
       ],
       { cwd: input.workspacePath, env: gitEnv },

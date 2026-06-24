@@ -1,4 +1,5 @@
 const TOKEN_PATTERNS = [
+  /https:\/\/x-access-token:[^@\s]+@github\.com/gi,
   /gh[pousr]_[A-Za-z0-9_]{20,}/g,
   /github_pat_[A-Za-z0-9_]{20,}/g,
   /[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{20,}/g,

@@ -266,24 +266,34 @@ export class SetupStore {
   }
 
   async failRun(runId: string, errorSummary: string): Promise<void> {
-    await this.pool.query(
-      `
-        UPDATE setup_runs
-        SET status = 'failed', error_summary = $2, updated_at = now()
-        WHERE id = $1 AND status = 'running'
-      `,
-      [runId, errorSummary],
-    );
-    await this.pool.query(
-      `
-        UPDATE setup_profiles
-        SET status = CASE WHEN revision > 0 THEN 'ready' ELSE 'failed' END,
-            error_summary = $2,
-            updated_at = now()
-        WHERE last_run_id = $1 AND status IN ('running', 'updating')
-      `,
-      [runId, errorSummary],
-    );
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `
+          UPDATE setup_runs
+          SET status = 'failed', error_summary = $2, updated_at = now()
+          WHERE id = $1 AND status = 'running'
+        `,
+        [runId, errorSummary],
+      );
+      await client.query(
+        `
+          UPDATE setup_profiles
+          SET status = CASE WHEN revision > 0 THEN 'ready' ELSE 'failed' END,
+              error_summary = $2,
+              updated_at = now()
+          WHERE last_run_id = $1 AND status IN ('running', 'updating')
+        `,
+        [runId, errorSummary],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async createDraft(
