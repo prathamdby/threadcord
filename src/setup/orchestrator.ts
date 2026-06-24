@@ -20,7 +20,13 @@ export class SetupOrchestrator {
     branch: string;
     model?: string;
     update: boolean;
-  }): Promise<{ runId: string; profileId: string; workspacePath: string }> {
+  }): Promise<{
+    runId: string;
+    profileId: string;
+    repo: string;
+    branch: string;
+    workspacePath: string;
+  }> {
     const key = parseSetupProfileKey(input.repo, input.branch);
     if (!key.ok) throw new Error(key.message);
     const model = input.model ?? this.config.defaultModel;
@@ -47,21 +53,49 @@ export class SetupOrchestrator {
         workspacePath,
         githubToken: this.config.GITHUB_TOKEN,
       });
-      await dispatch(setupAgent, {
-        id: `setup:${run.id}`,
-        input: {
-          kind: "threadcord.setup",
-          repo: key.value.repo,
-          branch: key.value.branch,
-          workspacePath,
-        },
-      });
-      return { runId: run.id, profileId: profile.id, workspacePath };
+      return {
+        runId: run.id,
+        profileId: profile.id,
+        repo: key.value.repo,
+        branch: key.value.branch,
+        workspacePath,
+      };
     } catch (error) {
       await rm(workspacePath, { recursive: true, force: true });
       await this.store.failRun(run.id, summarizeError(error));
       throw error;
     }
+  }
+
+  async dispatchSetupAgent(input: {
+    runId: string;
+    repo: string;
+    branch: string;
+    workspacePath: string;
+  }): Promise<void> {
+    try {
+      await dispatch(setupAgent, {
+        id: `setup:${input.runId}`,
+        input: {
+          kind: "threadcord.setup",
+          repo: input.repo,
+          branch: input.branch,
+          workspacePath: input.workspacePath,
+        },
+      });
+    } catch (error) {
+      await rm(input.workspacePath, { recursive: true, force: true });
+      await this.store.failRun(input.runId, summarizeError(error));
+    }
+  }
+
+  async failPreparedSetup(input: {
+    runId: string;
+    workspacePath: string;
+    error: unknown;
+  }): Promise<void> {
+    await rm(input.workspacePath, { recursive: true, force: true });
+    await this.store.failRun(input.runId, summarizeError(input.error));
   }
 
   async handleAgentEnd(instanceId: string): Promise<boolean> {

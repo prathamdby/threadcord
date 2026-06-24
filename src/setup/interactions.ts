@@ -166,14 +166,24 @@ async function handleSetupCommand(
         update: subcommand === "update",
         ...(model ? { model } : {}),
       });
-      await interaction.editReply(
-        [
-          `Setup ${subcommand} started.`,
-          `Run: ${started.runId}`,
-          `Profile: ${started.profileId}`,
-          `Workspace: ${started.workspacePath}`,
-        ].join("\n"),
-      );
+      try {
+        await interaction.editReply(
+          [
+            `Setup ${subcommand} started.`,
+            `Run: ${started.runId}`,
+            `Profile: ${started.profileId}`,
+            `Workspace: ${started.workspacePath}`,
+          ].join("\n"),
+        );
+      } catch (error) {
+        await orchestrator.failPreparedSetup({
+          runId: started.runId,
+          workspacePath: started.workspacePath,
+          error,
+        });
+        throw error;
+      }
+      void orchestrator.dispatchSetupAgent(started);
       return;
     }
     if (subcommand === "status" || subcommand === "view") {
@@ -385,7 +395,7 @@ async function handleSetupButton(
         result.reason === "conflict"
           ? "Profile changed since this draft was opened. Reopen the editor."
           : `Draft could not be applied: ${result.reason}`;
-      await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: message, components: [] });
     } catch (error) {
       await interaction.editReply({
         content: `Setup action failed: ${summarizeError(error)}`,
@@ -397,7 +407,12 @@ async function handleSetupButton(
   if (parsed.action === "discard") {
     await store.discardDraft(draft.id);
     await interaction.update({ content: "Draft discarded.", components: [] });
+    return;
   }
+  await interaction.reply({
+    content: "Unknown setup action.",
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 async function handleSetupModal(
