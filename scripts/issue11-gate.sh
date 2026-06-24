@@ -42,7 +42,17 @@ case "${1:-}" in
     '
     ;;
   2|inspect)
-    gate 2 inspect "" bash -ec '
+    gate 2 inspect "" env ISSUE11_SCRATCH="$SCRATCH" bash -ec '
+      transcript="${ISSUE11_SCRATCH}/fff-mcp-transcript.jsonl"
+      if [[ ! -s "$transcript" ]]; then
+        echo "FAIL: missing fff MCP transcript at $transcript" >&2
+        exit 1
+      fi
+      if ! grep -q createGitHubTools "$transcript"; then
+        echo "FAIL: transcript lacks createGitHubTools hits" >&2
+        exit 1
+      fi
+      echo "fff MCP transcript: $transcript ($(wc -c <"$transcript") bytes)"
       grep -nE "strictObject|isFeatureBranchPushed|resolveAgentGitHubTools|bindingFromAgentRuntimeContext" \
         src/github/tools.ts src/agents/coding.ts
       if grep -nE "owner: v\\.|head: v\\.|base: v\\." src/github/tools.ts; then
@@ -52,7 +62,7 @@ case "${1:-}" in
     '
     ;;
   3|test)
-    gate 3 test tests.log bash -ec 'npm test -- test/github-tools.test.ts && npm test'
+    gate 3 test tests.log bash -ec 'npm test -- test/github-tools.test.ts test/issue11-acceptance.test.ts && npm test'
     ;;
   4|build)
     gate 4 build build.log bash -ec 'npm run check && npm run build'
