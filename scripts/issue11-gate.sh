@@ -64,22 +64,7 @@ case "${1:-}" in
     '
     ;;
   6|verify-issue)
-    gate 6 verify-issue verify-issue.log bash -ec '
-      npm test -- test/github-tools.test.ts -t "refuses to create a PR" >/dev/null
-      npm test -- test/agent-github-tools.test.ts >/dev/null
-      npm test -- test/github-tools.test.ts -t "accepts title and optional body only" >/dev/null
-      npm test -- test/github-tools.test.ts -t "rejects model-controlled" >/dev/null
-      npm test -- test/github-tools.test.ts -t "calls GitHub with task-bound" >/dev/null
-      cat > "'"$SCRATCH"'/verify-issue.log" <<EOF
-Issue #11 pre-PR verification checklist
-=======================================
-User stories 1-16: PASS (verified via committed tests on feature branch)
-Implementation decisions: PASS (binding, strictObject, push-refusal, resolveAgentGitHubTools)
-Testing decisions: PASS (injectable seams, harness tests, 131-test suite)
-Only proceed if all green: GREEN — safe to open PR
-EOF
-      cat "'"$SCRATCH"'/verify-issue.log"
-    '
+    gate 6 verify-issue verify-issue.log env ISSUE11_SCRATCH="$SCRATCH" ./scripts/issue11-verify-issue.sh
     ;;
   all)
     export ISSUE11_SCRATCH="$SCRATCH"
