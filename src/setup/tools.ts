@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { defineTool } from "@flue/runtime";
 import * as v from "valibot";
 import { getPool } from "../db.js";
@@ -29,11 +30,15 @@ export function createSetupTools(runId: string) {
           throw new Error(parsed.message);
         }
         const store = new SetupStore(getPool());
+        const run = await store.getRunByInstanceId(`setup:${runId}`);
         const profile = await store.promoteRun({
           runId,
           environment: parsed.value.environment,
           memoryMarkdown: parsed.value.memoryMarkdown,
         });
+        if (run) {
+          await rm(run.workspacePath, { recursive: true, force: true });
+        }
         return JSON.stringify({
           status: "saved",
           profileId: profile.id,

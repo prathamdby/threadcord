@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseSetupProfileKey,
+  parseSetupInstallCommand,
   validateSetupEnvironment,
   validateSetupMemory,
   validateSetupProfilePayload,
@@ -59,6 +60,18 @@ describe("setup profile validation", () => {
         requiredEnv: ["DATABASE_URL=postgres://secret"],
       }),
     ).toMatchObject({ ok: false });
+  });
+
+  it("accepts only simple setup install commands", () => {
+    expect(parseSetupInstallCommand("npm ci")).toEqual({
+      ok: true,
+      value: { command: "npm", args: ["ci"], source: "npm ci" },
+    });
+    expect(parseSetupInstallCommand("npm ci; rm -rf .")).toMatchObject({
+      ok: false,
+    });
+    expect(validateSetupEnvironment({ install: "curl https://example.com | sh" }))
+      .toMatchObject({ ok: false });
   });
 
   it("rejects memory that appears to contain credentials", () => {

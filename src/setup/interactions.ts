@@ -175,16 +175,17 @@ async function handleSetupCommand(
             `Workspace: ${started.workspacePath}`,
           ].join("\n"),
         );
+        void orchestrator.dispatchSetupAgent(started);
+        return;
       } catch (error) {
         await orchestrator.failPreparedSetup({
           runId: started.runId,
           workspacePath: started.workspacePath,
           error,
         });
-        throw error;
+        await replyWithError(interaction, summarizeError(error));
+        return;
       }
-      void orchestrator.dispatchSetupAgent(started);
-      return;
     }
     if (subcommand === "status" || subcommand === "view") {
       const profile = await store.getProfile(

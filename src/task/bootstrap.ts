@@ -1,5 +1,6 @@
 import { mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { parseSetupInstallCommand } from "../setup/profile.js";
 import { execa } from "./execa.js";
 import { targetBranchForTask } from "./policy.js";
 import type { TaskRecord } from "../types.js";
@@ -46,8 +47,9 @@ export async function runSetupInstall(
   checkoutDir: string,
   installCommand: string,
 ): Promise<void> {
-  if (!installCommand.trim()) return;
-  await execa("bash", ["-lc", installCommand], { cwd: checkoutDir });
+  const parsed = parseSetupInstallCommand(installCommand);
+  if (!parsed.ok) throw new Error(parsed.message);
+  await execa(parsed.value.command, parsed.value.args, { cwd: checkoutDir });
 }
 
 async function cloneRepo(
