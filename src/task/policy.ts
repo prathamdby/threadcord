@@ -35,17 +35,10 @@ export function validateTaskPolicy(
   return { ok: true };
 }
 
-export function targetBranchForTask(
-  taskId: string,
-  request: TaskRequest,
-): string {
-  return request.pushOverride ?? `agent/${taskId}`;
-}
-
 function isExplicitPushBranchAllowed(
   push: string,
   baseBranch: string,
 ): boolean {
-  if (push.startsWith("agent/")) return true;
+  if (push.startsWith("threadcord/")) return true;
   return push === baseBranch;
 }

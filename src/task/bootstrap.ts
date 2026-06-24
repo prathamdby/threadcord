@@ -1,7 +1,6 @@
 import { mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { execa } from "./execa.js";
-import { targetBranchForTask } from "./policy.js";
 import type { TaskRecord } from "../types.js";
 
 export type BootstrapMode = "initial" | "continue";
@@ -13,7 +12,6 @@ export async function bootstrapWorkspace(
 ): Promise<string> {
   await mkdir(task.workspacePath, { recursive: true });
   const checkoutDir = join(task.workspacePath, basename(task.repo));
-  const featureBranch = targetBranchForTask(task.id, task);
 
   if (!(await exists(checkoutDir))) {
     await cloneRepo(task, githubToken, checkoutDir);
@@ -26,17 +24,12 @@ export async function bootstrapWorkspace(
     });
     await execa(
       "git",
-      ["checkout", "-B", featureBranch, `origin/${task.branch}`],
+      ["checkout", "-B", task.branch, `origin/${task.branch}`],
       {
         cwd: checkoutDir,
         env: gitEnv(githubToken),
       },
     );
-  } else {
-    await execa("git", ["checkout", featureBranch], {
-      cwd: checkoutDir,
-      env: gitEnv(githubToken),
-    });
   }
 
   return checkoutDir;

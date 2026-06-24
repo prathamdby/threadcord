@@ -11,7 +11,7 @@ import {
 } from "../ids.js";
 import { bootstrapWorkspace, runSetupInstall } from "./bootstrap.js";
 import { parseTaskMessage } from "./parser.js";
-import { targetBranchForTask, validateTaskPolicy } from "./policy.js";
+import { validateTaskPolicy } from "./policy.js";
 import type { TaskStore } from "./store.js";
 import type { SetupEnvironment } from "../setup/profile.js";
 import type { SetupStore } from "../setup/store.js";
@@ -242,18 +242,15 @@ export class TaskOrchestrator {
           this.config.GITHUB_TOKEN,
         );
       }
-      const featureBranch = targetBranchForTask(task.id, task);
       const input: DispatchAgentInput = {
         kind: "threadcord.turn",
         workspacePath: checkoutPath,
         model: task.model,
         repo: task.repo,
         baseBranch: task.branch,
-        featureBranch,
         instruction: buildPrompt(
           task,
           checkoutPath,
-          featureBranch,
           setupProfile.revision,
           setupProfile.environment,
           setupProfile.memoryMarkdown,
@@ -287,17 +284,18 @@ export class TaskOrchestrator {
 function buildPrompt(
   task: TaskRecord,
   checkoutPath: string,
-  featureBranch: string,
   activeSetupProfileRevision: number,
   setupEnvironment: SetupEnvironment,
   setupMemoryMarkdown: string,
   instruction: string,
 ): string {
-  return [
+  const lines = [
     `Task id: ${task.id}`,
     `Repository: ${task.repo}`,
     `Base branch: ${task.branch}`,
-    `Feature branch: ${featureBranch}`,
+    ...(task.pushOverride
+      ? [`Push override: ${task.pushOverride}`]
+      : []),
     `Workspace: ${checkoutPath}`,
     `Model: ${task.model}`,
     `Admitted setup profile revision: ${task.setupProfileRevision}`,
@@ -311,7 +309,8 @@ function buildPrompt(
     setupMemoryMarkdown,
     "",
     instruction,
-  ].join("\n");
+  ];
+  return lines.join("\n");
 }
 
 function threadName(repo: string, taskId: string): string {

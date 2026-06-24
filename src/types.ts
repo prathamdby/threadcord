@@ -80,7 +80,6 @@ export interface DispatchAgentInput {
   model: string;
   repo: string;
   baseBranch: string;
-  featureBranch: string;
   instruction: string;
 }
 

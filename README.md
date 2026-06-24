@@ -130,13 +130,13 @@ model: anthropic/claude-sonnet-4-5
 
 `model` is optional. If omitted, Threadcord uses the first model from your provider configuration (for example the first entry in `ANTHROPIC_MODELS` when Anthropic is configured first).
 
-Optional push override:
+Coding agents normally create their own branches named `threadcord/<type>/<meaningful-name>` (for example `threadcord/feat/add-auth`). Optional push override:
 
 ```text
 push: main
 ```
 
-Only `agent/*` branches and the task base branch are allowed as push targets.
+Only the task base branch and explicit `threadcord/*` branches are allowed as push targets. The legacy `agent/*` prefix is no longer accepted.
 
 Thread commands (in a Threadcord-created thread):
 

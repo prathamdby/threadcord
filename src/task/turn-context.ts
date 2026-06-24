@@ -1,7 +1,6 @@
 import { basename, join } from "node:path";
 import { getRuntimeConfig } from "../config.js";
 import { getPool } from "../db.js";
-import { targetBranchForTask } from "./policy.js";
 import { TaskStore } from "./store.js";
 import type { TaskRecord } from "../types.js";
 
@@ -10,7 +9,6 @@ export interface AgentRuntimeContext {
   cwd: string;
   repo: string;
   baseBranch: string;
-  featureBranch: string;
 }
 
 export function checkoutPathForTask(task: TaskRecord): string {
@@ -36,6 +34,5 @@ export async function resolveAgentRuntimeContext(
     cwd: checkoutPathForTask(task),
     repo: task.repo,
     baseBranch: task.branch,
-    featureBranch: targetBranchForTask(task.id, task),
   };
 }
