@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dispatch } from "@flue/runtime";
+import { failureDiscordMessage } from "../discord/observe-bridge.js";
 import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
 import codingAgent from "../agents/coding.js";
@@ -257,6 +258,28 @@ export class TaskOrchestrator {
     if (task.status === "cancelled" || task.status === "failed") {
       await this.fillConcurrencySlots();
     }
+  }
+
+  async handleAgentFailure(
+    instanceId: string,
+    errorSummary: string,
+  ): Promise<void> {
+    const task = await this.store.getByInstanceId(instanceId);
+    if (!task) return;
+
+    const failed = await this.store.transition(
+      task.id,
+      "running",
+      "failed",
+      summarizeError(new Error(errorSummary)),
+    );
+    if (!failed) return;
+
+    await this.post(
+      task.discordThreadId,
+      failureDiscordMessage(failed.errorSummary ?? errorSummary),
+    );
+    await this.fillConcurrencySlots();
   }
 
   private async scheduleAfterTurn(taskId: string): Promise<void> {

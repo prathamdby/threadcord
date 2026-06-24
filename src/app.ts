@@ -49,6 +49,9 @@ export async function createApp(): Promise<{
       if (await setupOrchestrator.handleAgentEnd(instanceId)) return;
       await orchestrator.handleAgentEnd(instanceId);
     },
+    onAgentFailure: async (instanceId, errorSummary) => {
+      await orchestrator.handleAgentFailure(instanceId, errorSummary);
+    },
   });
 
   const janitor = startWorkspaceJanitor({
