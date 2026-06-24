@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { execa } from "../task/execa.js";
-import { workspaceEnv } from "../task/workspace-env.js";
+import {
+  workspaceEnv,
+  wrapWorkspaceBashCommand,
+} from "../task/workspace-env.js";
 import { redact } from "../util/redact.js";
 import type { SetupEnvironment } from "./profile.js";
 
@@ -63,7 +66,7 @@ async function runCommand(input: {
   timeoutMs: number;
 }): Promise<SetupCommandFailure | undefined> {
   try {
-    await execa("bash", ["-c", input.command], {
+    await execa("bash", ["-c", wrapWorkspaceBashCommand(input.command)], {
       cwd: input.cwd,
       env: input.env,
       timeout: input.timeoutMs,
@@ -86,7 +89,7 @@ async function probeStartCommand(input: {
   probeMs: number;
 }): Promise<SetupCommandFailure | undefined> {
   return new Promise((resolve) => {
-    const child = spawn("bash", ["-c", input.command], {
+    const child = spawn("bash", ["-c", wrapWorkspaceBashCommand(input.command)], {
       cwd: input.cwd,
       env: input.env,
       stdio: ["ignore", "pipe", "pipe"],
