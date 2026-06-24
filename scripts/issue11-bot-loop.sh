@@ -5,9 +5,14 @@ PR="${1:?usage: $0 <pr-number>}"
 SLEEP="${ISSUE11_BOT_SLEEP:-120}"
 MAX="${ISSUE11_BOT_MAX:-30}"
 
+current_head_sha() {
+  gh pr view "$PR" --json headRefOid --jq .headRefOid
+}
+
 count_zeus_findings() {
-  local body
-  body=$(gh api "repos/{owner}/{repo}/issues/${PR}/comments" --paginate \
+  local body head
+  head=$(current_head_sha)
+  body=$(gh api "repos/{owner}/{repo}/pulls/${PR}/reviews" --paginate \
     --jq '[.[] | select(.user.login == "zeus-review[bot]") | .body] | last // ""')
   if [[ -z "$body" || "$body" == *"Review in progress"* ]]; then
     echo "pending"
@@ -17,14 +22,15 @@ count_zeus_findings() {
     echo 0
     return
   fi
-  (grep -oE 'P[12] ·' <<<"$body" || true) | wc -l | tr -d ' '
+  gh api "repos/{owner}/{repo}/pulls/${PR}/comments" --paginate \
+    --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\")] | length"
 }
 
 count_gemini_findings() {
-  local inline
-  inline=$(gh api "repos/{owner}/{repo}/pulls/${PR}/comments" --paginate \
-    --jq '[.[] | select(.user.login == "gemini-code-assist[bot]")] | length')
-  echo "$inline"
+  local head
+  head=$(current_head_sha)
+  gh api "repos/{owner}/{repo}/pulls/${PR}/comments" --paginate \
+    --jq "[.[] | select(.user.login == \"gemini-code-assist[bot]\") | select(.commit_id == \"${head}\")] | length"
 }
 
 ci_clean() {
