@@ -159,7 +159,8 @@ export class SetupStore {
               last_run_id = $6,
               error_summary = NULL,
               updated_at = now()
-          WHERE $7::boolean OR setup_profiles.status <> 'ready'
+          WHERE ($7::boolean AND setup_profiles.status = 'ready')
+             OR (NOT $7::boolean AND setup_profiles.status = 'failed')
           RETURNING *
         `,
         [
@@ -174,7 +175,7 @@ export class SetupStore {
       );
       if (!profileResult.rows[0]) {
         throw new Error(
-          `Setup profile for ${key.value.repo} on ${key.value.branch} is already ready. Use /setup update to replace it.`,
+          `Setup profile for ${key.value.repo} on ${key.value.branch} is not available for this action.`,
         );
       }
       const profile = rowToProfile(profileResult.rows[0]);
