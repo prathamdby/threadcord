@@ -23,7 +23,7 @@ describe("runSetupInstall", () => {
     await runSetupInstall(
       workspaceRoot,
       checkoutDir,
-      "printf '%s' \"$PATH\" > path.txt",
+      'printf %s "$PATH" > path.txt',
       "token",
     );
 
