@@ -18,19 +18,20 @@ count_zeus_findings() {
     echo "pending"
     return
   fi
-  if [[ "$body" == *"No issues"* ]]; then
+  if [[ "$body" == *"No issues"* || "$body" == *"No bugs found"* ]]; then
     echo 0
     return
   fi
   gh api "repos/{owner}/{repo}/pulls/${PR}/comments" \
-    --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\")] | length"
+    --jq "[.[] | select(.user.login == \"zeus-review[bot]\") | select(.commit_id == \"${head}\") | select(.body | test(\"P[12]\"))] | length"
 }
 
 count_gemini_findings() {
-  local head
+  local head committed_at
   head=$(current_head_sha)
+  committed_at=$(gh api "repos/{owner}/{repo}/commits/${head}" --jq -r .commit.committer.date)
   gh api "repos/{owner}/{repo}/pulls/${PR}/comments" \
-    --jq "[.[] | select(.user.login == \"gemini-code-assist[bot]\") | select(.commit_id == \"${head}\")] | length"
+    --jq "[.[] | select(.user.login == \"gemini-code-assist[bot]\") | select(.commit_id == \"${head}\") | select(.created_at > \"${committed_at}\") | select(.body | test(\"high-priority|medium-priority\"))] | length"
 }
 
 ci_clean() {
