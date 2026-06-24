@@ -1,52 +1,182 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import { createGitHubTools } from "../src/github/tools.js";
+import {
+  assertGitHubTaskBinding,
+  bindingFromAgentRuntimeContext,
+  createGitHubTools,
+  type CreatePullRequestPayload,
+  type GitHubTaskBinding,
+} from "../src/github/tools.js";
+import type { AgentRuntimeContext } from "../src/task/turn-context.js";
+
+const binding: GitHubTaskBinding = {
+  owner: "acme",
+  repo: "web",
+  baseBranch: "main",
+  featureBranch: "agent/task-1",
+};
+
+const runtimeContext: AgentRuntimeContext = {
+  model: "anthropic/claude-sonnet-4-5",
+  cwd: "/workspaces/task-1/web",
+  repo: "acme/web",
+  baseBranch: "main",
+  featureBranch: "agent/task-1",
+};
+
+describe("bindingFromAgentRuntimeContext", () => {
+  it("derives owner, repo, and branches from task context", () => {
+    expect(bindingFromAgentRuntimeContext(runtimeContext)).toEqual(binding);
+  });
+
+  it("fails closed when repository format is invalid", () => {
+    expect(() =>
+      bindingFromAgentRuntimeContext({ ...runtimeContext, repo: "not-valid" }),
+    ).toThrow("Invalid task repository for GitHub PR tool");
+  });
+
+  it("fails closed when branch context is missing", () => {
+    expect(() =>
+      bindingFromAgentRuntimeContext({ ...runtimeContext, featureBranch: "" }),
+    ).toThrow("Task branch context is missing");
+  });
+});
+
+describe("assertGitHubTaskBinding", () => {
+  it("returns the binding when all fields are present", () => {
+    expect(assertGitHubTaskBinding(binding)).toEqual(binding);
+  });
+
+  it("fails closed when a bound field is empty", () => {
+    expect(() =>
+      assertGitHubTaskBinding({ ...binding, owner: "" }),
+    ).toThrow("GitHub task binding is missing owner");
+  });
+
+  it("fails closed when a bound field is completely missing", () => {
+    const incomplete = { ...binding };
+    delete (incomplete as Partial<GitHubTaskBinding>).featureBranch;
+    expect(() => assertGitHubTaskBinding(incomplete as GitHubTaskBinding)).toThrow(
+      "GitHub task binding is missing featureBranch",
+    );
+  });
+});
 
 describe("createGitHubTools", () => {
-  const [tool] = createGitHubTools("fake-token");
-
   it("exposes the create-pull-request tool", () => {
-    expect(createGitHubTools("fake-token")).toHaveLength(1);
+    const [tool] = createGitHubTools("fake-token", binding);
+    expect(createGitHubTools("fake-token", binding)).toHaveLength(1);
     expect(tool?.name).toBe("create_github_pull_request");
     expect(typeof tool?.run).toBe("function");
   });
 
+  it("fails closed when task binding is missing", () => {
+    expect(() =>
+      createGitHubTools("fake-token", { ...binding, repo: "" }),
+    ).toThrow("GitHub task binding is missing repo");
+  });
+
   it("uses the current input/run tool shape, not legacy parameters/execute", () => {
+    const [tool] = createGitHubTools("fake-token", binding);
     expect(tool).toHaveProperty("input");
     expect(tool).not.toHaveProperty("parameters");
     expect(tool).not.toHaveProperty("execute");
   });
 
-  it("accepts a well-formed pull-request request", () => {
+  it("accepts title and optional body only", () => {
+    const [tool] = createGitHubTools("fake-token", binding);
     const parsed = v.parse(tool!.input, {
-      owner: "acme",
-      repo: "web",
       title: "Add feature",
-      head: "feature",
-      base: "main",
+      body: "Details",
     });
-    expect(parsed.owner).toBe("acme");
-    expect(parsed.body).toBeUndefined();
+    expect(parsed.title).toBe("Add feature");
+    expect(parsed.body).toBe("Details");
+    expect(Object.keys(parsed)).toEqual(["title", "body"]);
   });
 
-  it("rejects an empty required field", () => {
+  it("rejects model-controlled repository or branch fields", () => {
+    const [tool] = createGitHubTools("fake-token", binding);
     expect(() =>
       v.parse(tool!.input, {
-        owner: "",
-        repo: "web",
+        owner: "evil",
+        repo: "other",
         title: "Add feature",
-        head: "feature",
+        head: "malicious",
         base: "main",
       }),
     ).toThrow();
   });
 
-  it("validates structured output against the declared schema", () => {
-    const parsed = v.parse(tool!.output, {
+  it("rejects an empty title", () => {
+    const [tool] = createGitHubTools("fake-token", binding);
+    expect(() => v.parse(tool!.input, { title: "" })).toThrow();
+  });
+
+  it("refuses to create a PR when the feature branch is not pushed", async () => {
+    const [tool] = createGitHubTools("fake-token", binding, {
+      isFeatureBranchPushed: async () => false,
+      createPullRequest: async () => {
+        throw new Error("createPullRequest should not be called");
+      },
+    });
+
+    await expect(
+      tool!.run({ input: { title: "Add feature" } }),
+    ).rejects.toThrow(
+      "Task branch agent/task-1 has not been pushed to acme/web. Push the branch before opening a pull request.",
+    );
+  });
+
+  it("calls GitHub with task-bound repository and branches", async () => {
+    let captured: CreatePullRequestPayload | undefined;
+    const [tool] = createGitHubTools("fake-token", binding, {
+      isFeatureBranchPushed: async () => true,
+      createPullRequest: async (payload) => {
+        captured = payload;
+        return {
+          number: 7,
+          url: "https://github.com/acme/web/pull/7",
+          state: "open",
+        };
+      },
+    });
+
+    const result = await tool!.run({
+      input: { title: "Add feature", body: "Summary" },
+    });
+
+    expect(captured).toEqual({
+      owner: "acme",
+      repo: "web",
+      title: "Add feature",
+      head: "agent/task-1",
+      base: "main",
+      body: "Summary",
+    });
+    expect(result).toEqual({
       number: 7,
       url: "https://github.com/acme/web/pull/7",
       state: "open",
     });
-    expect(parsed.number).toBe(7);
+  });
+
+  it("returns only safe PR metadata", async () => {
+    const [tool] = createGitHubTools("fake-token", binding, {
+      isFeatureBranchPushed: async () => true,
+      createPullRequest: async () => ({
+        number: 9,
+        url: "https://github.com/acme/web/pull/9",
+        state: "open",
+      }),
+    });
+
+    const result = await tool!.run({ input: { title: "Add feature" } });
+    const parsed = v.parse(tool!.output, result);
+    expect(parsed).toEqual({
+      number: 9,
+      url: "https://github.com/acme/web/pull/9",
+      state: "open",
+    });
+    expect(Object.keys(parsed)).toEqual(["number", "url", "state"]);
   });
 });
