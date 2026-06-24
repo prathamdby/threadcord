@@ -8,6 +8,8 @@ import { initializeDatabase } from "./db.js";
 import { startDiscordGateway } from "./discord/gateway.js";
 import { registerObserveBridge } from "./discord/observe-bridge.js";
 import { DiscordPublisher } from "./discord/publisher.js";
+import { SetupOrchestrator } from "./setup/orchestrator.js";
+import { SetupStore } from "./setup/store.js";
 import { startWorkspaceJanitor } from "./task/janitor.js";
 import { TaskOrchestrator } from "./task/orchestrator.js";
 import { TaskStore } from "./task/store.js";
@@ -24,11 +26,16 @@ export async function createApp(): Promise<{
 
   const store = new TaskStore(pool, config.MAX_CONCURRENT_TASKS);
   await store.migrate();
+  const setupStore = new SetupStore(pool);
+  await setupStore.migrate();
 
-  const orchestrator = new TaskOrchestrator(config, store);
+  const orchestrator = new TaskOrchestrator(config, store, setupStore);
+  const setupOrchestrator = new SetupOrchestrator(config, setupStore);
   const discordClient = startDiscordGateway(
     config.DISCORD_BOT_TOKEN,
     orchestrator,
+    setupStore,
+    setupOrchestrator,
   );
   const publisher = new DiscordPublisher(discordClient);
   orchestrator.setMilestonePublisher(async (threadId, content) => {
@@ -38,7 +45,10 @@ export async function createApp(): Promise<{
   registerObserveBridge({
     store,
     publisher,
-    onAgentEnd: (instanceId) => orchestrator.handleAgentEnd(instanceId),
+    onAgentEnd: async (instanceId) => {
+      if (await setupOrchestrator.handleAgentEnd(instanceId)) return;
+      await orchestrator.handleAgentEnd(instanceId);
+    },
   });
 
   const janitor = startWorkspaceJanitor({

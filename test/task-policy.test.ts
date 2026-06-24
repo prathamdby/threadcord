@@ -60,6 +60,18 @@ describe("validateTaskPolicy", () => {
     });
   });
 
+  it("rejects unsafe branch names before setup lookup", () => {
+    const result = validateTaskPolicy(
+      { ...baseRequest, branch: "../main" },
+      config,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Invalid branch name: ../main.",
+    });
+  });
+
   it("allows pushing back to the task base branch", () => {
     const result = validateTaskPolicy(
       { ...baseRequest, pushOverride: "main" },

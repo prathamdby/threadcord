@@ -9,10 +9,12 @@ import {
   pendingThreadId,
   toFlueInstanceId,
 } from "../ids.js";
-import { bootstrapWorkspace } from "./bootstrap.js";
+import { bootstrapWorkspace, runSetupInstall } from "./bootstrap.js";
 import { parseTaskMessage } from "./parser.js";
 import { targetBranchForTask, validateTaskPolicy } from "./policy.js";
 import type { TaskStore } from "./store.js";
+import type { SetupEnvironment } from "../setup/profile.js";
+import type { SetupStore } from "../setup/store.js";
 import { summarizeError } from "../util/redact.js";
 import type {
   ChannelMessage,
@@ -35,6 +37,7 @@ export class TaskOrchestrator {
   constructor(
     private readonly config: AppConfig,
     private readonly store: TaskStore,
+    private readonly setupStore: SetupStore,
   ) {}
 
   setMilestonePublisher(
@@ -77,6 +80,21 @@ export class TaskOrchestrator {
       await message.reply(`Rejected: ${policy.reason}`);
       return;
     }
+    const setupProfile = await this.setupStore.getReadyProfile(
+      request.repo,
+      request.branch,
+    );
+    if (!setupProfile) {
+      await message.reply(
+        `Rejected: Missing ready setup profile for ${request.repo} on ${request.branch}. Run /setup create repo:${request.repo} branch:${request.branch} first.`,
+      );
+      return;
+    }
+    const taskRequest = {
+      ...request,
+      repo: setupProfile.repo,
+      branch: setupProfile.branch,
+    };
 
     const taskId = randomUUID();
     const { task, created } = await this.store.createTask({
@@ -85,11 +103,12 @@ export class TaskOrchestrator {
       discordThreadId: pendingThreadId(taskId),
       flueInstanceId: pendingThreadId(taskId),
       workspacePath: join(this.config.WORKSPACE_ROOT, taskId),
-      ...request,
+      setupProfileRevision: setupProfile.revision,
+      ...taskRequest,
     });
     if (!created) return;
 
-    const thread = await message.createThread(threadName(request.repo, taskId));
+    const thread = await message.createThread(threadName(taskRequest.repo, taskId));
     const statusMessage = await thread.send("Queued");
     const attached = await this.store.attachDiscordThread(
       task.id,
@@ -207,6 +226,16 @@ export class TaskOrchestrator {
         this.config.GITHUB_TOKEN,
         source === "initial" ? "initial" : "continue",
       );
+      const setupProfile = await this.setupStore.getReadyProfile(
+        task.repo,
+        task.branch,
+      );
+      if (!setupProfile) {
+        throw new Error(
+          `Missing ready setup profile for ${task.repo} on ${task.branch}`,
+        );
+      }
+      await runSetupInstall(checkoutPath, setupProfile.environment.install);
       const featureBranch = targetBranchForTask(task.id, task);
       const input: DispatchAgentInput = {
         kind: "threadcord.turn",
@@ -219,6 +248,9 @@ export class TaskOrchestrator {
           task,
           checkoutPath,
           featureBranch,
+          setupProfile.revision,
+          setupProfile.environment,
+          setupProfile.memoryMarkdown,
           instruction,
         ),
       };
@@ -250,6 +282,9 @@ function buildPrompt(
   task: TaskRecord,
   checkoutPath: string,
   featureBranch: string,
+  activeSetupProfileRevision: number,
+  setupEnvironment: SetupEnvironment,
+  setupMemoryMarkdown: string,
   instruction: string,
 ): string {
   return [
@@ -259,6 +294,15 @@ function buildPrompt(
     `Feature branch: ${featureBranch}`,
     `Workspace: ${checkoutPath}`,
     `Model: ${task.model}`,
+    `Admitted setup profile revision: ${task.setupProfileRevision}`,
+    `Active setup profile revision: ${activeSetupProfileRevision}`,
+    `Setup install command: ${setupEnvironment.install}`,
+    `Setup checks: ${formatChecks(setupEnvironment.checks)}`,
+    `Required env: ${setupEnvironment.requiredEnv.join(", ") || "none"}`,
+    `Required services: ${setupEnvironment.requiredServices.join(", ") || "none"}`,
+    "",
+    "Setup profile memory:",
+    setupMemoryMarkdown,
     "",
     instruction,
   ].join("\n");
@@ -269,4 +313,10 @@ function threadName(repo: string, taskId: string): string {
     0,
     90,
   );
+}
+
+function formatChecks(checks: Record<string, string>): string {
+  const entries = Object.entries(checks);
+  if (entries.length === 0) return "none";
+  return entries.map(([name, command]) => `${name}=${command}`).join("; ");
 }

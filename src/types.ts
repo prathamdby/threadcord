@@ -35,6 +35,7 @@ export interface TaskRecord extends Omit<TaskRequest, "model"> {
   initialTurnStarted: boolean;
   statusMessageId?: string;
   errorSummary?: string;
+  setupProfileRevision: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +47,7 @@ export interface NewTaskRecord extends TaskRequest {
   flueInstanceId: string;
   workspacePath: string;
   statusMessageId?: string;
+  setupProfileRevision: number;
 }
 
 export interface ChannelMessage {

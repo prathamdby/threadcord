@@ -3,15 +3,24 @@ import {
   Events,
   GatewayIntentBits,
   Partials,
+  type Interaction,
   ThreadAutoArchiveDuration,
   type Message,
 } from "discord.js";
+import {
+  handleSetupInteraction,
+  registerSetupCommands,
+} from "../setup/interactions.js";
+import type { SetupOrchestrator } from "../setup/orchestrator.js";
+import type { SetupStore } from "../setup/store.js";
 import type { TaskOrchestrator } from "../task/orchestrator.js";
 import type { ChannelMessage, ThreadMessage, ThreadRef } from "../types.js";
 
 export function startDiscordGateway(
   token: string,
   orchestrator: TaskOrchestrator,
+  setupStore: SetupStore,
+  setupOrchestrator: SetupOrchestrator,
 ): Client {
   const client = new Client({
     intents: [
@@ -24,14 +33,33 @@ export function startDiscordGateway(
 
   client.once(Events.ClientReady, (ready) => {
     console.log(`[threadcord] Discord ready as ${ready.user.tag}`);
+    void registerSetupCommands(client).catch((error) => {
+      console.error("[threadcord] setup command registration failed", error);
+    });
   });
 
   client.on(Events.MessageCreate, (message) => {
     void routeMessage(message, orchestrator);
   });
 
+  client.on(Events.InteractionCreate, (interaction) => {
+    void routeInteraction(interaction, setupStore, setupOrchestrator);
+  });
+
   void client.login(token);
   return client;
+}
+
+async function routeInteraction(
+  interaction: Interaction,
+  setupStore: SetupStore,
+  setupOrchestrator: SetupOrchestrator,
+): Promise<void> {
+  await handleSetupInteraction({
+    interaction,
+    store: setupStore,
+    orchestrator: setupOrchestrator,
+  });
 }
 
 async function routeMessage(

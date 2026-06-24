@@ -42,6 +42,14 @@ export async function bootstrapWorkspace(
   return checkoutDir;
 }
 
+export async function runSetupInstall(
+  checkoutDir: string,
+  installCommand: string,
+): Promise<void> {
+  if (!installCommand.trim()) return;
+  await execa("bash", ["-lc", installCommand], { cwd: checkoutDir });
+}
+
 async function cloneRepo(
   task: TaskRecord,
   githubToken: string,
