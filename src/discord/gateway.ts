@@ -8,6 +8,7 @@ import {
 } from "discord.js";
 import type { TaskOrchestrator } from "../task/orchestrator.js";
 import type { ChannelMessage, ThreadMessage, ThreadRef } from "../types.js";
+import { redact } from "../util/redact.js";
 
 export function startDiscordGateway(
   token: string,
@@ -62,7 +63,7 @@ function toChannelMessage(message: Message): ChannelMessage {
         }),
       ),
     reply: async (content) => {
-      await message.reply(content);
+      await message.reply(redact(content));
     },
   };
 }
@@ -74,7 +75,7 @@ function toThreadMessage(message: Message): ThreadMessage {
     authorBot: message.author.bot,
     channelId: message.channelId,
     reply: async (content) => {
-      await message.reply(content);
+      await message.reply(redact(content));
     },
   };
 }
@@ -85,12 +86,12 @@ function toThreadRef(
   return {
     id: thread.id,
     send: async (content) => {
-      const message = await thread.send(content);
+      const message = await thread.send(redact(content));
       return { id: message.id };
     },
     editMessage: async (messageId, content) => {
       const message = await thread.messages.fetch(messageId);
-      await message.edit(content);
+      await message.edit(redact(content));
     },
   };
 }
