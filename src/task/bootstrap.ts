@@ -42,7 +42,7 @@ export async function runSetupInstall(
   installCommand: string,
   githubToken: string,
 ): Promise<void> {
-  await execa("bash", ["-lc", installCommand], {
+  await execa("bash", ["-c", installCommand], {
     cwd: checkoutDir,
     env: scopedGitEnv(workspaceRoot, githubToken),
     timeout: 600_000,

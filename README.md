@@ -169,9 +169,10 @@ Setup environment JSON:
 }
 ```
 
-`install` is an operator-owned shell command. Threadcord runs it with `bash -lc`
+`install` is an operator-owned shell command. Threadcord runs it with `bash -c`
 on the initial task turn, so setup profiles can use project-specific bootstrap
-commands and shell pipelines.
+commands and shell pipelines. Setup install uses the same non-login shell behavior
+as agent commands, so workspace-local npm globals remain on `PATH`.
 
 Threadcord scopes each setup and task workspace with its own `HOME`, npm global prefix, and cache directory. Commands such as `npm install -g <tool>` install into that workspace and put the workspace-local `bin` directory on `PATH`. Deleting the workspace deletes those globals.
 
