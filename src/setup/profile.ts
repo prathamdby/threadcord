@@ -77,17 +77,10 @@ export interface SetupProfileKey {
   branch: string;
 }
 
-export interface SetupInstallCommand {
-  command: string;
-  args: string[];
-  source: string;
-}
-
 const REPO_FORMAT = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const BRANCH_FORMAT =
   /^(?!\/)(?!.*(?:^|\/)\.)(?!.*\.\.)(?!.*\/\/)(?!.*@{)(?!.*\\)(?!.*\s)(?!.*\.lock$)[A-Za-z0-9._/-]+(?<!\/)(?<!\.)$/;
 const ENV_NAME_FORMAT = /^[A-Z_][A-Z0-9_]*$/;
-const INSTALL_TOKEN_FORMAT = /^[A-Za-z0-9_./:@+=,-]+$/;
 const SECRET_VALUE_HINT =
   /(api[_-]?key|token|authorization|password|secret)\s*[:=]|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}/i;
 
@@ -127,8 +120,6 @@ export function validateSetupEnvironment(
   if (!install.value.trim()) {
     return { ok: false, message: "Environment install command is required." };
   }
-  const installCommand = parseSetupInstallCommand(install.value);
-  if (!installCommand.ok) return installCommand;
   const start = optionalStringField(value, "start");
   if (!start.ok) return start;
   const checks = checksField(value.checks);
@@ -157,7 +148,7 @@ export function validateSetupEnvironment(
   return {
     ok: true,
     value: {
-      install: installCommand.value.source,
+      install: install.value.trim(),
       start: start.value.trim(),
       checks: checks.value,
       requiredEnv: [...new Set(requiredEnv.value.map((name) => name.trim()))],
@@ -166,59 +157,6 @@ export function validateSetupEnvironment(
       ],
     },
   };
-}
-
-export function parseSetupInstallCommand(
-  value: string,
-): ValidationResult<SetupInstallCommand> {
-  const source = value.trim();
-  if (!source) {
-    return { ok: false, message: "Environment install command is required." };
-  }
-  const tokens = source.split(/\s+/);
-  if (!tokens.every((token) => INSTALL_TOKEN_FORMAT.test(token))) {
-    return {
-      ok: false,
-      message:
-        "Environment install command must be a simple package-manager install command.",
-    };
-  }
-  const [command, ...args] = tokens;
-  if (!command || !allowedInstallCommand(command, args)) {
-    return {
-      ok: false,
-      message:
-        "Environment install command must use an allowed package-manager install form.",
-    };
-  }
-  return { ok: true, value: { command, args, source } };
-}
-
-function allowedInstallCommand(command: string, args: string[]): boolean {
-  const first = args[0];
-  if (command === "true") return args.length === 0;
-  if (command === "npm") {
-    return first === "ci" || first === "install" || first === "i";
-  }
-  if (command === "pnpm") return first === "install" || first === "i";
-  if (command === "yarn") return !first || first === "install";
-  if (command === "bun") return first === "install";
-  if (command === "pip" || command === "pip3") {
-    return first === "install" && args[1] === "-r" && typeof args[2] === "string";
-  }
-  if (command === "python" || command === "python3") {
-    return args[0] === "-m" && args[1] === "pip" && args[2] === "install";
-  }
-  if (command === "poetry") return first === "install";
-  if (command === "uv") {
-    return first === "sync" || (first === "pip" && args[1] === "install");
-  }
-  if (command === "cargo") return first === "fetch";
-  if (command === "go") return args[0] === "mod" && args[1] === "download";
-  if (command === "composer") return first === "install";
-  if (command === "bundle") return first === "install";
-  if (command === "mix") return first === "deps.get";
-  return false;
 }
 
 export function validateSetupMemory(
