@@ -30,6 +30,10 @@ const DEFAULT_START_PROBE_MS = 10_000;
 const OUTPUT_MAX_CHARS = 2000;
 const START_KILL_GRACE_MS = 500;
 
+function isProbeKillExit(code: number | null): boolean {
+  return code === null || code === 0 || code === 143 || code === 137;
+}
+
 function commandEnv(
   workspaceRoot: string,
   githubToken: string,
@@ -132,7 +136,15 @@ async function probeStartCommand(input: {
     child.on("close", (code) => {
       if (settled) return;
       if (killedByProbe) {
-        finish(undefined);
+        if (isProbeKillExit(code)) {
+          finish(undefined);
+          return;
+        }
+        finish({
+          name: "start",
+          command: redact(input.command),
+          output: formatFailureOutput(stdout, stderr),
+        });
         return;
       }
       if (code === 0) {

@@ -44,6 +44,7 @@ export function createSetupTools(runId: string) {
           githubToken: process.env.GITHUB_TOKEN ?? "",
         });
         if (!verification.ok) {
+          // Keep workspace so the setup agent can adjust commands and retry save.
           throw new Error(formatSetupVerifyError(verification));
         }
         const profile = await store.promoteRun({
