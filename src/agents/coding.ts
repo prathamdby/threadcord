@@ -2,6 +2,7 @@ import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
 import { createGitHubTools } from "../github/tools.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
+import { workspaceEnv } from "../task/workspace-env.js";
 import type { DispatchAgentInput } from "../types.js";
 
 export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
@@ -13,10 +14,10 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
     cwd: turn.cwd,
     sandbox: local({
       cwd: turn.cwd,
-      env: {
+      env: workspaceEnv(turn.workspaceRoot, {
         GITHUB_TOKEN: githubToken,
         GH_TOKEN: githubToken,
-      },
+      }),
     }),
     durability: {
       timeoutMs: 60 * 60 * 1000,

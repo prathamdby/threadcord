@@ -5,6 +5,7 @@ import { dispatch } from "@flue/runtime";
 import type { AppConfig } from "../config.js";
 import setupAgent from "../agents/setup.js";
 import { execa } from "../task/execa.js";
+import { ensureWorkspaceDirs, workspaceEnv } from "../task/workspace-env.js";
 import { summarizeError } from "../util/redact.js";
 import { parseSetupProfileKey } from "./profile.js";
 import type { SetupStore } from "./store.js";
@@ -112,18 +113,18 @@ async function prepareSetupWorkspace(input: {
   githubToken: string;
 }): Promise<void> {
   await mkdir(input.workspacePath, { recursive: true });
+  await ensureWorkspaceDirs(input.workspacePath);
   const checkoutDir = setupCheckoutDir(input.workspacePath, input.repo);
   const askPassDir = await mkdtemp(join(tmpdir(), "threadcord-git-askpass-"));
   try {
     const askPassPath = join(askPassDir, "askpass.sh");
     await writeGitAskPass(askPassPath);
-    const gitEnv = {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
+    const gitEnv = workspaceEnv(input.workspacePath, {
       GIT_ASKPASS: askPassPath,
       GIT_TERMINAL_PROMPT: "0",
       GITHUB_TOKEN: input.githubToken,
-    };
+      GH_TOKEN: input.githubToken,
+    });
     try {
       await execa("git", ["-C", checkoutDir, "rev-parse", "--git-dir"], {
         env: gitEnv,

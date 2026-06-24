@@ -173,6 +173,8 @@ Setup environment JSON:
 on the initial task turn, so setup profiles can use project-specific bootstrap
 commands and shell pipelines.
 
+Threadcord scopes each setup and task workspace with its own `HOME`, npm global prefix, and cache directory. Commands such as `npm install -g <tool>` install into that workspace and put the workspace-local `bin` directory on `PATH`. Deleting the workspace deletes those globals.
+
 Setup commands:
 
 | Command | Purpose |

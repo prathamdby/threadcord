@@ -7,6 +7,7 @@ import type { TaskRecord } from "../types.js";
 export interface AgentRuntimeContext {
   model: string;
   cwd: string;
+  workspaceRoot: string;
   repo: string;
   baseBranch: string;
 }
@@ -32,6 +33,7 @@ export async function resolveAgentRuntimeContext(
   return {
     model: task.model || config.defaultModel,
     cwd: checkoutPathForTask(task),
+    workspaceRoot: task.workspacePath,
     repo: task.repo,
     baseBranch: task.branch,
   };
