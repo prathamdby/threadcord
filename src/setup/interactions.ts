@@ -458,7 +458,7 @@ async function respondWithDraft(
   };
   if (interaction.message) {
     await interaction.deferUpdate();
-    await interaction.message.edit(response);
+    await interaction.editReply(response);
     return;
   }
   await interaction.reply({

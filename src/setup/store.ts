@@ -227,6 +227,9 @@ export class SetupStore {
         [input.runId],
       );
       const run = rowToRun(singleRow(runResult.rows));
+      if (run.status !== "running") {
+        throw new Error(`Setup run ${run.id} is already ${run.status}.`);
+      }
       const profileResult = await client.query(
         `
           UPDATE setup_profiles
@@ -251,7 +254,7 @@ export class SetupStore {
         `
           UPDATE setup_runs
           SET status = 'succeeded', error_summary = NULL, updated_at = now()
-          WHERE id = $1
+          WHERE id = $1 AND status = 'running'
         `,
         [run.id],
       );
@@ -368,18 +371,26 @@ export class SetupStore {
     | { ok: true; profile: SetupProfile }
     | { ok: false; reason: "conflict" | "invalid" | "missing" }
   > {
-    const draft = await this.getDraft(draftId);
-    if (!draft) return { ok: false, reason: "missing" };
-    const validation = validateSetupProfilePayload({
-      environment: draft.environment,
-      memoryMarkdown: draft.memoryMarkdown,
-    });
-    if (!validation.ok || draft.validationStatus === "invalid") {
-      return { ok: false, reason: "invalid" };
-    }
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const draftResult = await client.query(
+        "SELECT * FROM setup_drafts WHERE id = $1 FOR UPDATE",
+        [draftId],
+      );
+      if (!draftResult.rows[0]) {
+        await client.query("ROLLBACK");
+        return { ok: false, reason: "missing" };
+      }
+      const draft = rowToDraft(draftResult.rows[0]);
+      const validation = validateSetupProfilePayload({
+        environment: draft.environment,
+        memoryMarkdown: draft.memoryMarkdown,
+      });
+      if (!validation.ok || draft.validationStatus === "invalid") {
+        await client.query("ROLLBACK");
+        return { ok: false, reason: "invalid" };
+      }
       const result = await client.query(
         `
           UPDATE setup_profiles
