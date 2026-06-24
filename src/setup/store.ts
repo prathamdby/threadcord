@@ -174,8 +174,12 @@ export class SetupStore {
         ],
       );
       if (!profileResult.rows[0]) {
+        const action = input.update ? "/setup update" : "/setup create";
+        const nextAction = input.update
+          ? "wait for the current setup to finish"
+          : "use /setup update";
         throw new Error(
-          `Setup profile for ${key.value.repo} on ${key.value.branch} is not available for this action.`,
+          `Setup profile for ${key.value.repo} on ${key.value.branch} cannot run ${action}; ${nextAction}.`,
         );
       }
       const profile = rowToProfile(profileResult.rows[0]);
@@ -270,10 +274,39 @@ export class SetupStore {
     }
   }
 
-  async failRun(runId: string, errorSummary: string): Promise<void> {
+  async failRun(runId: string, errorSummary: string): Promise<boolean> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const runResult = await client.query(
+        "SELECT * FROM setup_runs WHERE id = $1 FOR UPDATE",
+        [runId],
+      );
+      if (!runResult.rows[0]) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      const run = rowToRun(runResult.rows[0]);
+      if (run.status !== "running") {
+        await client.query("COMMIT");
+        return false;
+      }
+      const profileResult = await client.query(
+        "SELECT * FROM setup_profiles WHERE id = $1 FOR UPDATE",
+        [run.profileId],
+      );
+      if (!profileResult.rows[0]) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      const profile = rowToProfile(profileResult.rows[0]);
+      if (
+        profile.lastRunId !== run.id ||
+        (profile.status !== "running" && profile.status !== "updating")
+      ) {
+        await client.query("COMMIT");
+        return false;
+      }
       await client.query(
         `
           UPDATE setup_runs
@@ -293,6 +326,7 @@ export class SetupStore {
         [runId, errorSummary],
       );
       await client.query("COMMIT");
+      return true;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

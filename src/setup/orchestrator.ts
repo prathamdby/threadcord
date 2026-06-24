@@ -102,8 +102,13 @@ export class SetupOrchestrator {
     const run = await this.store.getRunByInstanceId(instanceId);
     if (!run) return false;
     if (run.status === "running") {
-      await this.store.failRun(run.id, "Setup agent ended without saving a profile.");
-      await rm(run.workspacePath, { recursive: true, force: true });
+      const failed = await this.store.failRun(
+        run.id,
+        "Setup agent ended without saving a profile.",
+      );
+      if (failed) {
+        await rm(run.workspacePath, { recursive: true, force: true });
+      }
     }
     return true;
   }
