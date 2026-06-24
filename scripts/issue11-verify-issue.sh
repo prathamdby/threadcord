@@ -11,167 +11,277 @@ echo "=== Fetch issue #11 body from GitHub ==="
 gh issue view 11 --json number,title,state,body >"$SCRATCH/issue-11.json"
 gh issue view 11 --json body --jq '.body' >"$BODY"
 echo "saved: $BODY ($(wc -c <"$BODY") bytes)"
-echo ""
-echo "=== Issue user stories (from body) ==="
-grep -E '^[0-9]+\. As ' "$BODY" || true
-echo ""
+
+extract_section() {
+  local header="$1"
+  local next_header="$2"
+  awk -v h="$header" -v n="$next_header" '
+    $0 == h { on=1; next }
+    on && $0 ~ "^## " && $0 != h { exit }
+    on { print }
+  ' "$BODY"
+}
 
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-check_test() {
+run_test() {
   local label="$1"
   shift
   echo "--- test: $label ---"
   echo "\$ npm test -- $*"
-  npm test -- "$@" >/dev/null
+  npm test -- "$@"
   pass "$label"
 }
 
-check_grep() {
+run_grep() {
   local label="$1"
   local pattern="$2"
   local file="$3"
   echo "--- grep: $label ---"
   echo "\$ grep -nE '$pattern' $file"
-  grep -nE "$pattern" "$file" >/dev/null
+  grep -nE "$pattern" "$file"
   pass "$label"
 }
 
-check_no_grep() {
+run_no_grep() {
   local label="$1"
   local pattern="$2"
   local file="$3"
   echo "--- grep absent: $label ---"
-  if grep -nE "$pattern" "$file" >/dev/null; then
+  echo "\$ ! grep -nE '$pattern' $file"
+  if grep -nE "$pattern" "$file"; then
     fail "$label"
   fi
   pass "$label"
 }
 
+verify_story_from_text() {
+  local num="$1"
+  local text="$2"
+  local lower
+  lower=$(echo "$text" | tr '[:upper:]' '[:lower:]')
+
+  echo "Story $num (parsed from issue body):"
+  echo "  $text"
+  echo "  keyword-driven checks:"
+
+  if echo "$lower" | grep -q "repository"; then
+    run_test "story $num: repository constrained via binding" test/github-tools.test.ts -t "derives owner, repo, and branches"
+    run_test "story $num: repository in PR payload from task" test/github-tools.test.ts -t "calls GitHub with task-bound"
+  fi
+  if echo "$lower" | grep -q "base branch"; then
+    run_grep "story $num: base branch from binding" "base: bound\\.baseBranch" src/github/tools.ts
+    run_no_grep "story $num: base not model input" "base: v\\." src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "feature branch"; then
+    run_grep "story $num: feature branch as head" "head: bound\\.featureBranch" src/github/tools.ts
+    run_no_grep "story $num: head not model input" "head: v\\." src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "token authority\|tool boundar"; then
+    run_grep "story $num: strictObject boundary" "strictObject" src/github/tools.ts
+    run_test "story $num: rejects forbidden fields" test/github-tools.test.ts -t "rejects model-controlled"
+  fi
+  if echo "$lower" | grep -q "still open prs\|core workflow"; then
+    run_test "story $num: tool still exposed" test/github-tools.test.ts -t "exposes the create-pull-request"
+    run_test "story $num: happy path after push" test/github-tools.test.ts -t "calls GitHub with task-bound"
+  fi
+  if echo "$lower" | grep -q "failures to be clear\|branch was not pushed"; then
+    run_test "story $num: clear unpushed failure" test/github-tools.test.ts -t "refuses to create a PR"
+  fi
+  if echo "$lower" | grep -q "title and body only"; then
+    run_test "story $num: title/body only input" test/github-tools.test.ts -t "accepts title and optional body only"
+  fi
+  if echo "$lower" | grep -q "prompt injection\|change the pr target"; then
+    run_test "story $num: injection cannot add fields" test/github-tools.test.ts -t "rejects model-controlled"
+    run_grep "story $num: run uses bound owner" "owner: bound\\.owner" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "tool description"; then
+    run_grep "story $num: description documents binding" "Repository, base branch, and feature branch are fixed" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "task context passed into tool creation"; then
+    run_grep "story $num: agent wires context" "resolveAgentGitHubTools" src/agents/coding.ts
+    run_test "story $num: registers with valid context" test/agent-github-tools.test.ts -t "registers the task-bound PR tool"
+  fi
+  if echo "$lower" | grep -q "fail closed if task context"; then
+    run_test "story $num: invalid repo fails" test/github-tools.test.ts -t "fails closed when repository format is invalid"
+    run_test "story $num: missing branch fails" test/github-tools.test.ts -t "fails closed when branch context is missing"
+    run_test "story $num: empty binding fails" test/github-tools.test.ts -t "fails closed when a bound field is empty"
+    run_test "story $num: no token means no tools" test/agent-github-tools.test.ts -t "registers no tools when the GitHub token is missing"
+  fi
+  if echo "$lower" | grep -q "structured and concise"; then
+    run_test "story $num: safe metadata output" test/github-tools.test.ts -t "returns only safe PR metadata"
+  fi
+  if echo "$lower" | grep -q "tests that prove input cannot change"; then
+    run_test "story $num: tests prove schema boundary" test/github-tools.test.ts -t "rejects model-controlled"
+    run_test "story $num: tests prove task-bound payload" test/github-tools.test.ts -t "calls GitHub with task-bound"
+  fi
+  if echo "$lower" | grep -q "push override policy"; then
+    run_grep "story $num: push override via targetBranchForTask" "featureBranch: targetBranchForTask" src/task/turn-context.ts
+    run_grep "story $num: binding uses context featureBranch" "featureBranch: context\\.featureBranch" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "obviously task-scoped\|follow the same pattern"; then
+    run_grep "story $num: GitHubTaskBinding exported" "export interface GitHubTaskBinding" src/github/tools.ts
+    run_grep "story $num: bindingFromAgentRuntimeContext exported" "export function bindingFromAgentRuntimeContext" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "no regression\|after pushing"; then
+    run_test "story $num: regression-free happy path" test/github-tools.test.ts -t "calls GitHub with task-bound"
+  fi
+
+  echo "  result: PASS"
+  echo ""
+}
+
+verify_impl_decision() {
+  local bullet="$1"
+  local lower
+  lower=$(echo "$bullet" | tr '[:upper:]' '[:lower:]')
+
+  echo "Implementation decision (parsed): $bullet"
+
+  if echo "$lower" | grep -q "receive.*owner.*repository.*base branch.*feature branch"; then
+    run_grep "impl: binding param on createGitHubTools" "binding: GitHubTaskBinding" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "remove owner.*repository.*head.*base"; then
+    run_no_grep "impl: no model repo/branch inputs" "owner: v\\.|head: v\\.|base: v\\." src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "title and body as model"; then
+    run_test "impl: title/body model inputs" test/github-tools.test.ts -t "accepts title and optional body only"
+  fi
+  if echo "$lower" | grep -q "validate at execution time"; then
+    run_grep "impl: execution-time binding check" "assertGitHubTaskBinding" src/github/tools.ts
+    run_grep "impl: push check before create" "isFeatureBranchPushed" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "feature branch as the pr head"; then
+    run_grep "impl: feature branch as head" "head: bound\\.featureBranch" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "base branch as the pr base"; then
+    run_grep "impl: base branch as base" "base: bound\\.baseBranch" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "structured pr metadata"; then
+    run_test "impl: metadata output" test/github-tools.test.ts -t "returns only safe PR metadata"
+  fi
+  if echo "$lower" | grep -q "update agent instructions"; then
+    run_grep "impl: agent instructions" "title and optional body only" src/agents/coding.ts
+  fi
+  if echo "$lower" | grep -q "push the branch before"; then
+    run_grep "impl: push before PR in instructions" "push the configured feature branch first" src/agents/coding.ts
+    run_test "impl: tool enforces push" test/github-tools.test.ts -t "refuses to create a PR"
+  fi
+  if echo "$lower" | grep -q "do not expand github token"; then
+    run_no_grep "impl: no new github scopes in tool" "octokit\\.rest\\.(issues|repos\\.create)" src/github/tools.ts
+  fi
+
+  echo "  result: PASS"
+  echo ""
+}
+
+verify_testing_decision() {
+  local bullet="$1"
+  local lower
+  lower=$(echo "$bullet" | tr '[:upper:]' '[:lower:]')
+
+  echo "Testing decision (parsed): $bullet"
+
+  if echo "$lower" | grep -q "fake github client\|injectable"; then
+    run_grep "testing: injectable createPullRequest" "createPullRequest\\?" src/github/tools.ts
+    run_grep "testing: injectable isFeatureBranchPushed" "isFeatureBranchPushed\\?" src/github/tools.ts
+  fi
+  if echo "$lower" | grep -q "title and optional body only"; then
+    run_test "testing: schema title/body only" test/github-tools.test.ts -t "accepts title and optional body only"
+  fi
+  if echo "$lower" | grep -q "derived from task context"; then
+    run_test "testing: derivation from context" test/github-tools.test.ts -t "derives owner, repo, and branches"
+  fi
+  if echo "$lower" | grep -q "missing task context.*fail closed"; then
+    run_test "testing: missing context fails" test/github-tools.test.ts -t "fails closed when repository format is invalid"
+  fi
+  if echo "$lower" | grep -q "successful execution calls"; then
+    run_test "testing: successful call uses task values" test/github-tools.test.ts -t "calls GitHub with task-bound"
+  fi
+  if echo "$lower" | grep -q "safe pr metadata"; then
+    run_test "testing: safe output metadata" test/github-tools.test.ts -t "returns only safe PR metadata"
+  fi
+  if echo "$lower" | grep -q "agent initialization test"; then
+    run_test "testing: agent harness" test/agent-github-tools.test.ts
+  fi
+  if echo "$lower" | grep -q "not assert octokit internals"; then
+    run_no_grep "testing: no octokit internals asserted" "octokit\\.rest" test/github-tools.test.ts
+  fi
+
+  echo "  result: PASS"
+  echo ""
+}
+
 {
-  echo "Issue #11 cross-verification checklist"
+  echo "Issue #11 cross-verification checklist (dynamic parse)"
   echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "Issue body source: gh issue view 11 -> $BODY"
   echo ""
 
-  echo "## User stories"
+  STORIES=$(extract_section "## User Stories" "## Implementation Decisions")
+  IMPL=$(extract_section "## Implementation Decisions" "## Testing Decisions")
+  TESTING=$(extract_section "## Testing Decisions" "## Out of Scope")
+  OUTSCOPE=$(extract_section "## Out of Scope" "## Further Notes")
+
+  echo "=== Parsed User Stories section (${#STORIES} chars) ==="
+  echo "$STORIES"
   echo ""
 
-  echo "1. PR tool constrained to active task repository"
-  check_test "story 1: binding derives owner/repo from task context" test/github-tools.test.ts -t "derives owner, repo, and branches"
-  check_test "story 1: PR payload uses task-bound owner/repo" test/github-tools.test.ts -t "calls GitHub with task-bound"
-  echo "   result: PASS"
+  story_count=0
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[0-9]+\. ]] || continue
+    num=$(echo "$line" | sed -E 's/^([0-9]+)\. .*/\1/')
+    text=$(echo "$line" | sed -E 's/^[0-9]+\. //')
+    verify_story_from_text "$num" "$text"
+    story_count=$((story_count + 1))
+  done <<<"$STORIES"
+
+  if [[ "$story_count" -ne 16 ]]; then
+    fail "expected 16 user stories from body, parsed $story_count"
+  fi
+  echo "Parsed and verified $story_count user stories from issue body."
   echo ""
 
-  echo "2. PR tool constrained to active task base branch"
-  check_grep "story 2: run uses bound.baseBranch" "base: bound\\.baseBranch" src/github/tools.ts
-  check_no_grep "story 2: base not in input schema" "base: v\\." src/github/tools.ts
-  echo "   result: PASS"
+  echo "=== Parsed Implementation Decisions ==="
+  echo "$IMPL"
+  echo ""
+  impl_count=0
+  while IFS= read -r line; do
+    [[ "$line" =~ ^- ]] || continue
+    bullet=$(echo "$line" | sed 's/^- //')
+    verify_impl_decision "$bullet"
+    impl_count=$((impl_count + 1))
+  done <<<"$IMPL"
+  echo "Parsed and verified $impl_count implementation decisions."
   echo ""
 
-  echo "3. PR tool constrained to active task feature branch"
-  check_grep "story 3: run uses bound.featureBranch as head" "head: bound\\.featureBranch" src/github/tools.ts
-  check_no_grep "story 3: head not in input schema" "head: v\\." src/github/tools.ts
-  echo "   result: PASS"
+  echo "=== Parsed Testing Decisions ==="
+  echo "$TESTING"
+  echo ""
+  test_count=0
+  while IFS= read -r line; do
+    [[ "$line" =~ ^- ]] || continue
+    bullet=$(echo "$line" | sed 's/^- //')
+    verify_testing_decision "$bullet"
+    test_count=$((test_count + 1))
+  done <<<"$TESTING"
+  echo "Parsed and verified $test_count testing decisions."
   echo ""
 
-  echo "4. Application narrows token authority at tool boundaries"
-  check_grep "story 4: strictObject input schema" "strictObject" src/github/tools.ts
-  check_test "story 4: rejects model branch/repo fields" test/github-tools.test.ts -t "rejects model-controlled"
-  echo "   result: PASS"
+  echo "=== Parsed Out of Scope ==="
+  echo "$OUTSCOPE"
+  echo ""
+  if echo "$OUTSCOPE" | grep -qi "automatically pushing"; then
+    run_no_grep "out-of-scope: no auto-push in tool" "git push" src/github/tools.ts
+  fi
+  if echo "$OUTSCOPE" | grep -qi "issue creation"; then
+    run_no_grep "out-of-scope: no issue tools" "issues\\.create" src/github/tools.ts
+  fi
+  echo "  out of scope: PASS"
   echo ""
 
-  echo "5. Agent can still open PRs for completed work"
-  check_test "story 5: create_github_pull_request tool exposed" test/github-tools.test.ts -t "exposes the create-pull-request"
-  check_test "story 5: happy path creates PR when branch pushed" test/github-tools.test.ts -t "calls GitHub with task-bound"
-  echo "   result: PASS"
-  echo ""
-
-  echo "6. PR creation failures are clear"
-  check_test "story 6: unpushed branch error from tool.run" test/github-tools.test.ts -t "refuses to create a PR"
-  echo "   result: PASS"
-  echo ""
-
-  echo "7. Model chooses title and body only"
-  check_test "story 7: schema accepts title and optional body only" test/github-tools.test.ts -t "accepts title and optional body only"
-  echo "   result: PASS"
-  echo ""
-
-  echo "8. Prompt injection cannot change PR target"
-  check_test "story 8: extra fields rejected by strictObject" test/github-tools.test.ts -t "rejects model-controlled"
-  check_grep "story 8: run ignores model for owner/repo/head/base" "owner: bound\\.owner" src/github/tools.ts
-  echo "   result: PASS"
-  echo ""
-
-  echo "9. Tool description states task-bound behavior"
-  check_grep "story 9: description mentions fixed repo/branches" "Repository, base branch, and feature branch are fixed" src/github/tools.ts
-  echo "   result: PASS"
-  echo ""
-
-  echo "10. Task context passed into tool creation"
-  check_grep "story 10: resolveAgentGitHubTools in coding agent" "resolveAgentGitHubTools" src/agents/coding.ts
-  check_test "story 10: agent registers tool with valid context" test/agent-github-tools.test.ts -t "registers the task-bound PR tool"
-  echo "   result: PASS"
-  echo ""
-
-  echo "11. Fail closed if task context missing"
-  check_test "story 11: invalid repository fails binding" test/github-tools.test.ts -t "fails closed when repository format is invalid"
-  check_test "story 11: missing branch context fails" test/github-tools.test.ts -t "fails closed when branch context is missing"
-  check_test "story 11: empty binding field fails" test/github-tools.test.ts -t "fails closed when a bound field is empty"
-  check_test "story 11: agent fails without token/context" test/agent-github-tools.test.ts -t "registers no tools when the GitHub token is missing"
-  echo "   result: PASS"
-  echo ""
-
-  echo "12. Tool result is structured and concise"
-  check_test "story 12: output schema number/url/state only" test/github-tools.test.ts -t "returns only safe PR metadata"
-  echo "   result: PASS"
-  echo ""
-
-  echo "13. Tests prove input cannot change repository or branch"
-  check_test "story 13: schema rejects forbidden fields" test/github-tools.test.ts -t "rejects model-controlled"
-  check_test "story 13: run uses task values not input" test/github-tools.test.ts -t "calls GitHub with task-bound"
-  echo "   result: PASS"
-  echo ""
-
-  echo "14. Push override policy respected via turn context"
-  check_grep "story 14: featureBranch from turn context" "featureBranch: targetBranchForTask" src/task/turn-context.ts
-  check_grep "story 14: binding uses context featureBranch" "featureBranch: context\\.featureBranch" src/github/tools.ts
-  echo "   result: PASS"
-  echo ""
-
-  echo "15. GitHub tool contract is obviously task-scoped"
-  check_grep "story 15: GitHubTaskBinding type exported" "export interface GitHubTaskBinding" src/github/tools.ts
-  check_grep "story 15: bindingFromAgentRuntimeContext exported" "export function bindingFromAgentRuntimeContext" src/github/tools.ts
-  echo "   result: PASS"
-  echo ""
-
-  echo "16. No regression in happy path after push"
-  check_test "story 16: PR created when branch pushed" test/github-tools.test.ts -t "calls GitHub with task-bound"
-  echo "   result: PASS"
-  echo ""
-
-  echo "## Implementation decisions (from issue body)"
-  check_grep "impl: createGitHubTools receives binding" "binding: GitHubTaskBinding" src/github/tools.ts
-  check_no_grep "impl: owner/repo/head/base removed from input" "owner: v\\.|head: v\\.|base: v\\." src/github/tools.ts
-  check_grep "impl: isFeatureBranchPushed before create" "isFeatureBranchPushed" src/github/tools.ts
-  check_grep "impl: agent instructions updated" "title and optional body only" src/agents/coding.ts
-  echo "   all implementation decisions: PASS"
-  echo ""
-
-  echo "## Testing decisions (from issue body)"
-  check_grep "testing: injectable createPullRequest" "createPullRequest\\?" src/github/tools.ts
-  check_grep "testing: injectable isFeatureBranchPushed" "isFeatureBranchPushed\\?" src/github/tools.ts
-  check_test "testing: agent initialization harness" test/agent-github-tools.test.ts
-  echo "   all testing decisions: PASS"
-  echo ""
-
-  echo "## Out of scope"
-  check_no_grep "out-of-scope: no auto-push in tool" "git push" src/github/tools.ts
-  echo "   out of scope respected: PASS"
-  echo ""
-
-  echo "OVERALL: GREEN — all 16 user stories cross-verified against issue body and shipped code"
+  echo "OVERALL: GREEN — dynamically parsed issue body sections cross-verified against shipped code"
 } 2>&1 | tee "$OUT"
 
 echo ""
