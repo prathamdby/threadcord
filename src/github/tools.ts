@@ -48,12 +48,20 @@ export function bindingFromAgentRuntimeContext(
   };
 }
 
+const bindingKeys: (keyof GitHubTaskBinding)[] = [
+  "owner",
+  "repo",
+  "baseBranch",
+  "featureBranch",
+];
+
 export function assertGitHubTaskBinding(
   binding: GitHubTaskBinding,
 ): GitHubTaskBinding {
-  for (const [field, value] of Object.entries(binding)) {
+  for (const key of bindingKeys) {
+    const value = binding[key];
     if (typeof value !== "string" || value.length === 0) {
-      throw new Error(`GitHub task binding is missing ${field}.`);
+      throw new Error(`GitHub task binding is missing ${key}.`);
     }
   }
   return binding;

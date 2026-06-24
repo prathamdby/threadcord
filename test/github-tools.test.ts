@@ -52,6 +52,14 @@ describe("assertGitHubTaskBinding", () => {
       assertGitHubTaskBinding({ ...binding, owner: "" }),
     ).toThrow("GitHub task binding is missing owner");
   });
+
+  it("fails closed when a bound field is completely missing", () => {
+    const incomplete = { ...binding };
+    delete (incomplete as Partial<GitHubTaskBinding>).featureBranch;
+    expect(() => assertGitHubTaskBinding(incomplete as GitHubTaskBinding)).toThrow(
+      "GitHub task binding is missing featureBranch",
+    );
+  });
 });
 
 describe("createGitHubTools", () => {
