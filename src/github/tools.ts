@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { defineTool } from "@flue/runtime";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
@@ -13,6 +14,10 @@ type AuthenticatedUser =
 
 const identityCache = new Map<string, GitIdentity>();
 
+function identityCacheKey(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
 export function gitIdentityFrom(user: AuthenticatedUser): GitIdentity {
   const name = user.name || user.login;
   const email =
@@ -24,7 +29,8 @@ export function gitIdentityFrom(user: AuthenticatedUser): GitIdentity {
 export async function resolveGitIdentity(
   token: string,
 ): Promise<GitIdentity | undefined> {
-  const cached = identityCache.get(token);
+  const cacheKey = identityCacheKey(token);
+  const cached = identityCache.get(cacheKey);
   if (cached) return cached;
 
   try {
@@ -34,7 +40,7 @@ export async function resolveGitIdentity(
     });
     const { data } = await octokit.rest.users.getAuthenticated();
     const identity = gitIdentityFrom(data);
-    identityCache.set(token, identity);
+    identityCache.set(cacheKey, identity);
     return identity;
   } catch (error) {
     console.warn(
