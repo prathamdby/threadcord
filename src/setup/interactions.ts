@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import {
   ActionRowBuilder,
   AttachmentBuilder,
@@ -648,11 +649,27 @@ async function readAttachmentText(attachment: Attachment): Promise<string> {
   if (attachment.size > 1024 * 1024) {
     throw new Error(`Attachment ${attachment.name} is too large. Max size is 1MB.`);
   }
-  const response = await fetch(attachment.url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch attachment ${attachment.name}.`);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(attachment.url);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await delay(250);
+      continue;
+    }
+    if (response.ok) return response.text();
+    const error = new Error(
+      `Failed to fetch attachment ${attachment.name}. HTTP ${response.status}.`,
+    );
+    if (response.status < 500 && response.status !== 429) throw error;
+    lastError = error;
+    if (attempt < 2) await delay(250);
   }
-  return response.text();
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Failed to fetch attachment ${attachment.name}.`);
 }
 
 async function replyWithError(

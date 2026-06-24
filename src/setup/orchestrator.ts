@@ -68,6 +68,7 @@ export class SetupOrchestrator {
     if (!run) return false;
     if (run.status === "running") {
       await this.store.failRun(run.id, "Setup agent ended without saving a profile.");
+      await rm(run.workspacePath, { recursive: true, force: true });
     }
     return true;
   }
