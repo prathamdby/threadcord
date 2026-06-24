@@ -714,19 +714,32 @@ async function replyWithError(
   interaction: ChatInputCommandInteraction,
   message: string,
 ): Promise<void> {
-  if (interaction.deferred) {
-    await interaction.editReply(`Setup failed: ${message}`);
-    return;
-  }
-  if (interaction.replied) {
-    await interaction.followUp({
-      content: `Setup failed: ${message}`,
+  const content = `Setup failed: ${message}`;
+  try {
+    if (interaction.deferred) {
+      await interaction.editReply(content);
+      return;
+    }
+    if (interaction.replied) {
+      await interaction.followUp({
+        content,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    await interaction.reply({
+      content,
       flags: MessageFlags.Ephemeral,
     });
-    return;
+  } catch {
+    if (!interaction.deferred && !interaction.replied) return;
+    try {
+      await interaction.followUp({
+        content,
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch {
+      return;
+    }
   }
-  await interaction.reply({
-    content: `Setup failed: ${message}`,
-    flags: MessageFlags.Ephemeral,
-  });
 }

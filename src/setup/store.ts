@@ -159,7 +159,7 @@ export class SetupStore {
               last_run_id = $6,
               error_summary = NULL,
               updated_at = now()
-          WHERE ($7::boolean AND setup_profiles.status = 'ready')
+          WHERE ($7::boolean AND setup_profiles.status IN ('ready', 'failed'))
              OR (NOT $7::boolean AND setup_profiles.status = 'failed')
           RETURNING *
         `,
