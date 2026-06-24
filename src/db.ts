@@ -25,19 +25,25 @@ export function getPool(): Pool {
   return poolInstance;
 }
 
-function createFluePostgres(pool: Pool) {
-  return postgres({
-    query: async (text, params) => (await pool.query(text, params)).rows,
+export function createPostgresRunner(pool: Pool) {
+  return {
+    query: async (text: string, params?: unknown[]) =>
+      (await pool.query(text, params)).rows,
     transaction: async <T>(
       fn: (tx: { query: PostgresQuery }) => Promise<T>,
     ) => {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        const result = await fn({
-          query: async (text, params) =>
-            (await client.query(text, params)).rows,
-        });
+        let chain: Promise<unknown> = Promise.resolve();
+        const query: PostgresQuery = (text, params) => {
+          const run = chain
+            .then(() => client.query(text, params))
+            .then((result) => result.rows);
+          chain = run.catch(() => {});
+          return run;
+        };
+        const result = await fn({ query });
         await client.query("COMMIT");
         return result;
       } catch (error) {
@@ -48,7 +54,11 @@ function createFluePostgres(pool: Pool) {
       }
     },
     close: () => pool.end(),
-  });
+  };
+}
+
+export function createFluePostgres(pool: Pool) {
+  return postgres(createPostgresRunner(pool));
 }
 
 export const pool = new Proxy({} as Pool, {
