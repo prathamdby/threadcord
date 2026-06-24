@@ -1,6 +1,66 @@
+import { createHash } from "node:crypto";
 import { defineTool } from "@flue/runtime";
 import { Octokit } from "@octokit/rest";
+import type { RestEndpointMethodTypes } from "@octokit/rest";
 import * as v from "valibot";
+
+export interface GitIdentity {
+  name: string;
+  email: string;
+}
+
+type AuthenticatedUser =
+  RestEndpointMethodTypes["users"]["getAuthenticated"]["response"]["data"];
+
+const identityCache = new Map<string, GitIdentity>();
+
+function identityCacheKey(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function gitIdentityFrom(user: AuthenticatedUser): GitIdentity {
+  const name = user.name || user.login;
+  const email =
+    user.email ??
+    `${user.id}+${user.login}@users.noreply.github.com`;
+  return { name, email };
+}
+
+export async function resolveGitIdentity(
+  token: string,
+): Promise<GitIdentity | undefined> {
+  const cacheKey = identityCacheKey(token);
+  const cached = identityCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const octokit = new Octokit({
+      auth: token,
+      userAgent: "threadcord/0.1.0",
+    });
+    const { data } = await octokit.rest.users.getAuthenticated();
+    const identity = gitIdentityFrom(data);
+    identityCache.set(cacheKey, identity);
+    return identity;
+  } catch (error) {
+    console.warn(
+      "Failed to resolve git identity from GitHub token:",
+      error instanceof Error ? error.message : error,
+    );
+    return undefined;
+  }
+}
+
+export function gitIdentityEnv(
+  identity: GitIdentity,
+): Record<string, string> {
+  return {
+    GIT_AUTHOR_NAME: identity.name,
+    GIT_AUTHOR_EMAIL: identity.email,
+    GIT_COMMITTER_NAME: identity.name,
+    GIT_COMMITTER_EMAIL: identity.email,
+  };
+}
 
 export function createGitHubTools(token: string) {
   const octokit = new Octokit({
