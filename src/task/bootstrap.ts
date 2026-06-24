@@ -2,7 +2,11 @@ import { mkdir, rm, stat, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { execa } from "./execa.js";
 import type { TaskRecord } from "../types.js";
-import { ensureWorkspaceDirs, workspaceEnv } from "./workspace-env.js";
+import {
+  ensureWorkspaceDirs,
+  workspaceEnv,
+  wrapWorkspaceBashCommand,
+} from "./workspace-env.js";
 
 export type BootstrapMode = "initial" | "continue";
 
@@ -42,7 +46,7 @@ export async function runSetupInstall(
   installCommand: string,
   githubToken: string,
 ): Promise<void> {
-  await execa("bash", ["-c", installCommand], {
+  await execa("bash", ["-c", wrapWorkspaceBashCommand(installCommand)], {
     cwd: checkoutDir,
     env: scopedGitEnv(workspaceRoot, githubToken),
     timeout: 600_000,

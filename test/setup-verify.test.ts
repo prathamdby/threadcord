@@ -198,6 +198,28 @@ describe("verifySetupEnvironment", () => {
     expect(capturedPath.split(":")[0]).toBe(workspacePaths(root).npmBin);
   });
 
+  it("finds a user-local tool on PATH after it is installed in the same install script", async () => {
+    const { workspaceRoot: root, checkoutDir } = await createWorkspace();
+    const marker = join(checkoutDir, "tool.txt");
+
+    const result = await verifySetupEnvironment({
+      environment: baseEnvironment({
+        install: [
+          'mkdir -p "$HOME/.tool/bin"',
+          'printf \'#!/bin/sh\\nprintf ok > "$1"\\n\' > "$HOME/.tool/bin/run"',
+          'chmod +x "$HOME/.tool/bin/run"',
+          `run "${marker}"`,
+        ].join("\n"),
+      }),
+      workspaceRoot: root,
+      checkoutDir,
+      githubToken: "",
+    });
+
+    expect(result).toEqual({ ok: true });
+    await expect(readFile(marker, "utf8")).resolves.toBe("ok");
+  });
+
   it("caps combined verify error output", async () => {
     const message = formatSetupVerifyError({
       ok: false,
