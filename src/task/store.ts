@@ -52,6 +52,7 @@ export class TaskStore {
       ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
       CHECK (status IN ('draft', 'queued', 'running', 'waiting', 'completed', 'failed', 'cancelled'))
     `);
+    // Deployed DB already enforces this invariant; no legacy orphan backfill here.
     await this.pool.query(`
       ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_attached_unless_draft_check
     `);

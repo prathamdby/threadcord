@@ -139,18 +139,29 @@ export class TaskOrchestrator {
     if (!created) return;
 
     let thread: ThreadRef;
-    let statusMessageId: string;
     try {
       thread = await message.createThread(
         threadName(taskRequest.repo, taskId),
       );
-      statusMessageId = (await thread.send("Queued")).id;
     } catch (error) {
       const summary = summarizeError(error);
       await this.store.markDraftFailed(task.id, summary);
       await this.replySafely(
         message,
         `Could not create a thread for this task: ${summary}`,
+      );
+      return;
+    }
+
+    let statusMessageId: string;
+    try {
+      statusMessageId = (await thread.send("Queued")).id;
+    } catch (error) {
+      const summary = summarizeError(error);
+      await this.store.markDraftFailed(task.id, summary);
+      await this.replySafely(
+        message,
+        `Task thread created but the status message could not be delivered: ${summary}`,
       );
       return;
     }

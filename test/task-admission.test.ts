@@ -74,9 +74,11 @@ describe("task admission when the status message throws", () => {
     expect(task!.status).toBe("failed");
     expect(task!.statusMessageId).toBe(`unattached:${task!.id}`);
     expect(world.dispatched).toHaveLength(0);
-    expect(result.replies.some((r) => r.includes("Could not create"))).toBe(
-      true,
-    );
+    expect(
+      result.replies.some((r) =>
+        r.includes("status message could not be delivered"),
+      ),
+    ).toBe(true);
   });
 });
 
