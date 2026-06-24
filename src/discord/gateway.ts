@@ -14,6 +14,7 @@ import {
 import type { SetupOrchestrator } from "../setup/orchestrator.js";
 import type { SetupStore } from "../setup/store.js";
 import type { TaskOrchestrator } from "../task/orchestrator.js";
+import { clampDiscordContent } from "./limits.js";
 import type { ChannelMessage, ThreadMessage, ThreadRef } from "../types.js";
 
 export function startDiscordGateway(
@@ -90,7 +91,7 @@ function toChannelMessage(message: Message): ChannelMessage {
         }),
       ),
     reply: async (content) => {
-      await message.reply(content);
+      await message.reply(clampDiscordContent(content));
     },
   };
 }
@@ -102,7 +103,7 @@ function toThreadMessage(message: Message): ThreadMessage {
     authorBot: message.author.bot,
     channelId: message.channelId,
     reply: async (content) => {
-      await message.reply(content);
+      await message.reply(clampDiscordContent(content));
     },
   };
 }
@@ -113,12 +114,12 @@ function toThreadRef(
   return {
     id: thread.id,
     send: async (content) => {
-      const message = await thread.send(content);
+      const message = await thread.send(clampDiscordContent(content));
       return { id: message.id };
     },
     editMessage: async (messageId, content) => {
       const message = await thread.messages.fetch(messageId);
-      await message.edit(content);
+      await message.edit(clampDiscordContent(content));
     },
   };
 }

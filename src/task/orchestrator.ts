@@ -344,7 +344,11 @@ export class TaskOrchestrator {
 
   private async post(threadId: string, content: string): Promise<void> {
     if (!this.postMessage || isPendingThreadId(threadId)) return;
-    await this.postMessage(threadId, content);
+    try {
+      await this.postMessage(threadId, content);
+    } catch (error) {
+      console.error("[threadcord] thread post failed", error);
+    }
   }
 }
 

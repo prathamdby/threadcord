@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { InMemoryStore, World } from "./support/orchestrator-harness.js";
+import { InMemoryStore, World, flush } from "./support/orchestrator-harness.js";
 import type { NewTaskRecord } from "../src/types.js";
 
 function draftInput(messageId: string): NewTaskRecord {
@@ -139,6 +139,26 @@ describe("scheduler ignores unattached drafts", () => {
       "status-b",
     );
     expect(second).toBeUndefined();
+  });
+});
+
+describe("milestone post failures", () => {
+  it("does not reject handleAgentEnd when milestone publishing throws", async () => {
+    const world = new World();
+    world.orchestrator.setMilestonePublisher(async () => {
+      throw new Error("discord: message too long");
+    });
+    const result = await world.submitRaw("m-milestone-fail");
+    const task = result.task!;
+
+    expect(task.status).toBe("running");
+
+    await expect(
+      world.orchestrator.handleAgentEnd(task.flueInstanceId),
+    ).resolves.toBeUndefined();
+    await flush();
+
+    expect(world.store.snapshot(task.id).status).toBe("waiting");
   });
 });
 
