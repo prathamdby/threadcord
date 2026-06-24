@@ -39,7 +39,6 @@ export class SetupOrchestrator {
       workspacePath,
       update: input.update,
     });
-    const checkoutDir = setupCheckoutDir(workspacePath, key.value.repo);
     try {
       await prepareSetupWorkspace({
         repo: key.value.repo,
@@ -58,7 +57,7 @@ export class SetupOrchestrator {
       });
       return { runId: run.id, profileId: profile.id, workspacePath };
     } catch (error) {
-      await rm(checkoutDir, { recursive: true, force: true });
+      await rm(workspacePath, { recursive: true, force: true });
       await this.store.failRun(run.id, summarizeError(error));
       throw error;
     }

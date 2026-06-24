@@ -16,10 +16,12 @@ export function registerObserveBridge(args: {
   observe((event) => {
     const instanceId = "instanceId" in event ? event.instanceId : undefined;
     if (!instanceId) return;
-    if (event.type === "agent_end") {
+    const isSetupInstance = instanceId.startsWith("setup:");
+    const isTaskInstance = isThreadcordInstance(instanceId);
+    if (event.type === "agent_end" && (isTaskInstance || isSetupInstance)) {
       void args.onAgentEnd(instanceId);
     }
-    if (!isThreadcordInstance(instanceId)) return;
+    if (!isTaskInstance) return;
     const line = eventSummary(event);
     if (!line) return;
 
