@@ -465,12 +465,10 @@ async function handleSetupModal(
   try {
     const updated = await store.updateDraft({
       draftId: draft.id,
-      ...(parsedPayload.ok
-        ? {
-            environment: parsedPayload.value.environment,
-            memoryMarkdown: parsedPayload.value.memoryMarkdown,
-          }
-        : {}),
+      environment: parsedPayload.ok ? parsedPayload.value.environment : environment,
+      memoryMarkdown: parsedPayload.ok
+        ? parsedPayload.value.memoryMarkdown
+        : memoryMarkdown,
       validationStatus: parsedPayload.ok ? "valid" : "invalid",
       validationMessage: parsedPayload.ok ? "Draft is valid." : parsedPayload.message,
     });

@@ -323,7 +323,7 @@ export class SetupStore {
         `,
         [runId, errorSummary],
       );
-      await client.query(
+      const failedProfile = await client.query(
         `
           UPDATE setup_profiles
           SET status = CASE WHEN revision > 0 THEN 'ready' ELSE 'failed' END,
@@ -333,6 +333,10 @@ export class SetupStore {
         `,
         [runId, errorSummary],
       );
+      if ((failedProfile.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return false;
+      }
       await client.query("COMMIT");
       return true;
     } catch (error) {

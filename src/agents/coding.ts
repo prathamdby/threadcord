@@ -2,8 +2,9 @@ import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
 import { createGitHubTools } from "../github/tools.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
+import type { DispatchAgentInput } from "../types.js";
 
-export default createAgent(async ({ id, env }) => {
+export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
   const githubToken = stringEnv(env, "GITHUB_TOKEN", "");
   const turn = await resolveAgentRuntimeContext(id, env);
 
@@ -29,7 +30,10 @@ export default createAgent(async ({ id, env }) => {
       "Use bash, git, and ripgrep to inspect and change the repository. Keep changes small and reversible.",
       "When asked to push, push only the configured feature branch unless the task explicitly provided a push override.",
       "When asked to open a PR, use create_github_pull_request after confirming the branch has been pushed.",
-    ].join("\n"),
+      payload?.instruction ?? "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
 });
 
