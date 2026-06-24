@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { dispatch } from "@flue/runtime";
 import type { AppConfig } from "../config.js";
@@ -39,6 +39,7 @@ export class SetupOrchestrator {
       workspacePath,
       update: input.update,
     });
+    const checkoutDir = setupCheckoutDir(workspacePath, key.value.repo);
     try {
       await prepareSetupWorkspace({
         repo: key.value.repo,
@@ -57,6 +58,7 @@ export class SetupOrchestrator {
       });
       return { runId: run.id, profileId: profile.id, workspacePath };
     } catch (error) {
+      await rm(checkoutDir, { recursive: true, force: true });
       await this.store.failRun(run.id, summarizeError(error));
       throw error;
     }
@@ -79,7 +81,7 @@ async function prepareSetupWorkspace(input: {
   githubToken: string;
 }): Promise<void> {
   await mkdir(input.workspacePath, { recursive: true });
-  const checkoutDir = join(input.workspacePath, basename(input.repo));
+  const checkoutDir = setupCheckoutDir(input.workspacePath, input.repo);
   const gitEnv = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
@@ -113,4 +115,8 @@ async function prepareSetupWorkspace(input: {
     cwd: checkoutDir,
     env: gitEnv,
   });
+}
+
+function setupCheckoutDir(workspacePath: string, repo: string): string {
+  return join(workspacePath, basename(repo));
 }

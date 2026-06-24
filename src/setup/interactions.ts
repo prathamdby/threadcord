@@ -317,6 +317,15 @@ async function handleSetupButton(
     return;
   }
   if (parsed.action === "commands") {
+    const checks = checksText(draft);
+    if (checks.length > 4000) {
+      await interaction.reply({
+        content:
+          "This draft has too many check commands for a Discord modal. Use /setup export, edit the environment JSON, then /setup import.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
     await interaction.showModal(commandsModal(draft));
     return;
   }
@@ -325,6 +334,14 @@ async function handleSetupButton(
     return;
   }
   if (parsed.action === "memory") {
+    if (draft.memoryMarkdown.length > 4000) {
+      await interaction.reply({
+        content:
+          "This setup memory is too large for a Discord modal. Use /setup export, edit the Markdown file, then /setup import.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
     await interaction.showModal(memoryModal(draft));
     return;
   }
