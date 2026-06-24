@@ -48,6 +48,16 @@ export async function cleanupExpiredWorkspaces(
       );
       continue;
     }
-    await rm(decision.resolvedPath, { recursive: true, force: true });
+    try {
+      await rm(decision.resolvedPath, { recursive: true, force: true });
+    } catch (error) {
+      warn(
+        redact(
+          `[threadcord] failed to delete workspace ${decision.resolvedPath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        ),
+      );
+    }
   }
 }

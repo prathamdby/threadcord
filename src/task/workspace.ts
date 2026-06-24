@@ -52,10 +52,7 @@ function resolveCandidatePath(
   workspaceRoot: string,
   candidatePath: string,
 ): string {
-  const resolvedRoot = resolve(workspaceRoot);
-  return isAbsolute(candidatePath)
-    ? resolve(candidatePath)
-    : resolve(resolvedRoot, candidatePath);
+  return resolve(workspaceRoot, candidatePath);
 }
 
 export type WorkspaceDeletionDecision =
@@ -95,10 +92,7 @@ export async function decideWorkspaceDeletion(
     // Missing workspaces cannot be realpathed; map through the resolved root so
     // containment stays consistent when the root itself is symlinked (/var).
     const fromResolvedRoot = relative(resolvedRoot, resolvedCandidate);
-    canonicalCandidate =
-      fromResolvedRoot === "" || fromResolvedRoot.startsWith("..")
-        ? resolvedCandidate
-        : join(canonicalRoot, fromResolvedRoot);
+    canonicalCandidate = join(canonicalRoot, fromResolvedRoot);
   }
 
   if (canonicalCandidate === canonicalRoot) {
