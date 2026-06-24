@@ -87,6 +87,18 @@ describe("validateTaskPolicy", () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it("rejects bare threadcord branch namespace push overrides", () => {
+    const result = validateTaskPolicy(
+      { ...baseRequest, pushOverride: "threadcord/" },
+      config,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Push override threadcord/ is not allowed for branch main.",
+    });
+  });
+
   it("rejects agent branch namespace push overrides", () => {
     const result = validateTaskPolicy(
       { ...baseRequest, pushOverride: "agent/task-1" },

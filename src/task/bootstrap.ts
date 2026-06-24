@@ -1,4 +1,4 @@
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, rm, stat, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { execa } from "./execa.js";
 import type { TaskRecord } from "../types.js";
@@ -13,9 +13,8 @@ export async function bootstrapWorkspace(
   await mkdir(task.workspacePath, { recursive: true });
   const checkoutDir = join(task.workspacePath, basename(task.repo));
 
-  if (!(await exists(checkoutDir))) {
-    await cloneRepo(task, githubToken, checkoutDir);
-  }
+  await ensureCheckoutDir(task, githubToken, checkoutDir);
+  await removeStaleGitLock(checkoutDir);
 
   if (mode === "initial") {
     await execa("git", ["fetch", "origin", task.branch], {
@@ -45,6 +44,26 @@ export async function runSetupInstall(
     env: gitEnv(githubToken),
     timeout: 600_000,
   });
+}
+
+async function ensureCheckoutDir(
+  task: TaskRecord,
+  githubToken: string,
+  checkoutDir: string,
+): Promise<void> {
+  if (await exists(checkoutDir) && !(await exists(join(checkoutDir, ".git")))) {
+    await rm(checkoutDir, { recursive: true, force: true });
+  }
+  if (!(await exists(checkoutDir))) {
+    await cloneRepo(task, githubToken, checkoutDir);
+  }
+}
+
+async function removeStaleGitLock(checkoutDir: string): Promise<void> {
+  const lockPath = join(checkoutDir, ".git", "index.lock");
+  if (await exists(lockPath)) {
+    await unlink(lockPath);
+  }
 }
 
 async function cloneRepo(

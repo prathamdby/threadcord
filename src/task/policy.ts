@@ -5,6 +5,7 @@ import type { TaskRequest } from "../types.js";
 export type PolicyResult = { ok: true } | { ok: false; reason: string };
 
 const REPO_FORMAT = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+const THREADCORD_BRANCH_PREFIX = "threadcord/";
 
 export function validateTaskPolicy(
   request: TaskRequest,
@@ -39,6 +40,8 @@ function isExplicitPushBranchAllowed(
   push: string,
   baseBranch: string,
 ): boolean {
-  if (push.startsWith("threadcord/")) return true;
+  if (push.startsWith(THREADCORD_BRANCH_PREFIX) && push.length > THREADCORD_BRANCH_PREFIX.length) {
+    return true;
+  }
   return push === baseBranch;
 }
