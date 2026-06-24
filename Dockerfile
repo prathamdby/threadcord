@@ -11,11 +11,30 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-FROM node:22-slim AS runtime
+FROM node:22-bookworm AS runtime
 
 WORKDIR /app
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ripgrep ca-certificates tini gosu \
+  && apt-get install -y \
+    bash \
+    ca-certificates \
+    curl \
+    git \
+    ripgrep \
+    tini \
+    gosu \
+    python3 \
+    python-is-python3 \
+    python3-venv \
+    python3-pip \
+    build-essential \
+    cmake \
+    pkg-config \
+    make \
+    gcc \
+    g++ \
+    unzip \
+    jq \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --shell /bin/bash threadcord \
   && mkdir -p /workspaces \
