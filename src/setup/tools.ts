@@ -1,9 +1,11 @@
 import { rm } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { defineTool } from "@flue/runtime";
 import * as v from "valibot";
 import { getPool } from "../db.js";
 import { validateSetupProfilePayload } from "./profile.js";
 import { SetupStore } from "./store.js";
+import { formatSetupVerifyError, verifySetupEnvironment } from "./verify.js";
 
 export function createSetupTools(runId: string) {
   return [
@@ -31,21 +33,32 @@ export function createSetupTools(runId: string) {
         }
         const store = new SetupStore(getPool());
         const run = await store.getRunByInstanceId(`setup:${runId}`);
+        if (!run) {
+          throw new Error("Setup run is missing.");
+        }
+        const checkoutDir = join(run.workspacePath, basename(run.repo));
+        const verification = await verifySetupEnvironment({
+          environment: parsed.value.environment,
+          workspaceRoot: run.workspacePath,
+          checkoutDir,
+          githubToken: process.env.GITHUB_TOKEN ?? "",
+        });
+        if (!verification.ok) {
+          throw new Error(formatSetupVerifyError(verification));
+        }
         const profile = await store.promoteRun({
           runId,
           environment: parsed.value.environment,
           memoryMarkdown: parsed.value.memoryMarkdown,
         });
-        if (run) {
-          await rm(run.workspacePath, { recursive: true, force: true }).catch(
-            (error) => {
-              console.warn(
-                `[threadcord] Failed to remove setup workspace ${run.workspacePath}`,
-                error,
-              );
-            },
-          );
-        }
+        await rm(run.workspacePath, { recursive: true, force: true }).catch(
+          (error) => {
+            console.warn(
+              `[threadcord] Failed to remove setup workspace ${run.workspacePath}`,
+              error,
+            );
+          },
+        );
         return JSON.stringify({
           status: "saved",
           profileId: profile.id,
