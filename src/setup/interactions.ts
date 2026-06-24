@@ -347,6 +347,7 @@ async function handleSetupButton(
     return;
   }
   if (parsed.action === "validate") {
+    await interaction.deferUpdate();
     const validation = validateSetupProfilePayload({
       environment: draft.environment,
       memoryMarkdown: draft.memoryMarkdown,
@@ -356,16 +357,17 @@ async function handleSetupButton(
       validationStatus: validation.ok ? "valid" : "invalid",
       validationMessage: validation.ok ? "Draft is valid." : validation.message,
     });
-    await interaction.update({
+    await interaction.editReply({
       content: renderDraft(updated).content,
       components: draftComponents(updated),
     });
     return;
   }
   if (parsed.action === "apply") {
+    await interaction.deferUpdate();
     const result = await store.applyDraft(draft.id);
     if (result.ok) {
-      await interaction.update({
+      await interaction.editReply({
         content: renderSetupProfile(result.profile).content,
         components: [],
       });
@@ -375,7 +377,7 @@ async function handleSetupButton(
       result.reason === "conflict"
         ? "Profile changed since this draft was opened. Reopen the editor."
         : `Draft could not be applied: ${result.reason}`;
-    await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
+    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
     return;
   }
   if (parsed.action === "discard") {
@@ -435,6 +437,7 @@ async function handleSetupModal(
     environment,
     memoryMarkdown,
   });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const updated = await store.updateDraft({
     draftId: draft.id,
     ...(parsedPayload.ok
@@ -457,8 +460,7 @@ async function respondWithDraft(
     content: renderDraft(draft).content,
     components: draftComponents(draft),
   };
-  if (interaction.message) {
-    await interaction.deferUpdate();
+  if (interaction.deferred || interaction.replied) {
     await interaction.editReply(response);
     return;
   }
