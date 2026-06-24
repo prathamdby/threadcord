@@ -1,4 +1,5 @@
 import type { Client } from "discord.js";
+import { clampDiscordContent } from "./limits.js";
 import { redact } from "../util/redact.js";
 
 export class DiscordPublisher {
@@ -8,7 +9,7 @@ export class DiscordPublisher {
     const channel = await this.client.channels.fetch(threadId);
     if (!channel?.isSendable())
       throw new Error(`Discord thread ${threadId} is not sendable`);
-    return channel.send(redact(content));
+    return channel.send(clampDiscordContent(redact(content)));
   }
 
   async edit(
@@ -20,6 +21,6 @@ export class DiscordPublisher {
     if (!channel?.isTextBased())
       throw new Error(`Discord thread ${threadId} is not text based`);
     const message = await channel.messages.fetch(messageId);
-    await message.edit(redact(content));
+    await message.edit(clampDiscordContent(redact(content)));
   }
 }
