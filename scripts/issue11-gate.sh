@@ -42,24 +42,24 @@ case "${1:-}" in
     '
     ;;
   2|inspect)
-    gate 2 inspect "" bash -ec "
-      transcript=\"$SCRATCH/fff-mcp-transcript.jsonl\"
-      if [[ ! -s \"\$transcript\" ]]; then
-        echo \"FAIL: missing fff MCP transcript at \$transcript\" >&2
+    gate 2 inspect "" env ISSUE11_SCRATCH="$SCRATCH" bash -ec '
+      transcript="${ISSUE11_SCRATCH}/fff-mcp-transcript.jsonl"
+      if [[ ! -s "$transcript" ]]; then
+        echo "FAIL: missing fff MCP transcript at $transcript" >&2
         exit 1
       fi
-      if ! grep -q createGitHubTools \"\$transcript\"; then
-        echo \"FAIL: transcript lacks createGitHubTools hits\" >&2
+      if ! grep -q createGitHubTools "$transcript"; then
+        echo "FAIL: transcript lacks createGitHubTools hits" >&2
         exit 1
       fi
-      echo \"fff MCP transcript: \$transcript (\$(wc -c <\"\$transcript\") bytes)\"
-      grep -nE 'strictObject|isFeatureBranchPushed|resolveAgentGitHubTools|bindingFromAgentRuntimeContext' \
+      echo "fff MCP transcript: $transcript ($(wc -c <"$transcript") bytes)"
+      grep -nE "strictObject|isFeatureBranchPushed|resolveAgentGitHubTools|bindingFromAgentRuntimeContext" \
         src/github/tools.ts src/agents/coding.ts
-      if grep -nE 'owner: v\\.|head: v\\.|base: v\\.' src/github/tools.ts; then
-        echo 'FAIL: model-controlled branch fields still in input schema' >&2
+      if grep -nE "owner: v\\.|head: v\\.|base: v\\." src/github/tools.ts; then
+        echo "FAIL: model-controlled branch fields still in input schema" >&2
         exit 1
       fi
-    "
+    '
     ;;
   3|test)
     gate 3 test tests.log bash -ec 'npm test -- test/github-tools.test.ts test/issue11-acceptance.test.ts && npm test'
