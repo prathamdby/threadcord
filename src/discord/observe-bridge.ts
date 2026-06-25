@@ -4,6 +4,7 @@ import { isThreadcordInstance } from "../ids.js";
 import type { TaskStore } from "../task/store.js";
 import { redact, summarizeError } from "../util/redact.js";
 import type { DiscordPublisher } from "./publisher.js";
+import { formatToolLine, isTerminalBlock } from "./tool-format.js";
 
 export interface ObserveBridgeCallbacks {
   store: TaskStore;
@@ -12,15 +13,23 @@ export interface ObserveBridgeCallbacks {
   onAgentFailure: (instanceId: string, errorSummary: string) => Promise<void>;
 }
 
+export interface InstanceRenderState {
+  lines: string[];
+  lastLine: string | undefined;
+  lastRenderedBase: string | undefined;
+  repeatCount: number;
+  lastWasTerminalBlock: boolean;
+}
+
 interface ObserveBridgeState {
-  buffers: Map<string, string[]>;
+  renderState: Map<string, InstanceRenderState>;
   timers: Map<string, NodeJS.Timeout>;
   instanceChains: Map<string, Promise<void>>;
 }
 
 export function registerObserveBridge(args: ObserveBridgeCallbacks): void {
   const state: ObserveBridgeState = {
-    buffers: new Map(),
+    renderState: new Map(),
     timers: new Map(),
     instanceChains: new Map(),
   };
@@ -52,7 +61,7 @@ export async function handleObserveEvent(
   event: FlueEvent,
   args: ObserveBridgeCallbacks,
   state: ObserveBridgeState = {
-    buffers: new Map(),
+    renderState: new Map(),
     timers: new Map(),
     instanceChains: new Map(),
   },
@@ -76,9 +85,12 @@ export async function handleObserveEvent(
   const line = eventSummary(event);
   if (!line) return;
 
-  const current = state.buffers.get(instanceId) ?? [];
-  current.push(line);
-  state.buffers.set(instanceId, current.slice(-8));
+  const terminal =
+    event.type === "tool_start" && isTerminalBlock(event.toolName, event.args);
+
+  const inst = state.renderState.get(instanceId) ?? newInstanceState();
+  appendRenderedLine(inst, line, terminal);
+  state.renderState.set(instanceId, inst);
 
   const existing = state.timers.get(instanceId);
   if (existing) clearTimeout(existing);
@@ -86,14 +98,50 @@ export async function handleObserveEvent(
     instanceId,
     setTimeout(() => {
       state.timers.delete(instanceId);
-      void flush(instanceId, state.buffers.get(instanceId) ?? [], args);
+      const current = state.renderState.get(instanceId);
+      if (current && current.lines.length > 0) {
+        void flush(instanceId, current, args);
+      }
     }, 2500),
   );
 }
 
+function newInstanceState(): InstanceRenderState {
+  return {
+    lines: [],
+    lastLine: undefined,
+    lastRenderedBase: undefined,
+    repeatCount: 0,
+    lastWasTerminalBlock: false,
+  };
+}
+
+function appendRenderedLine(
+  inst: InstanceRenderState,
+  baseLine: string,
+  terminal: boolean,
+): void {
+  if (inst.lastLine !== undefined && baseLine === inst.lastLine) {
+    inst.repeatCount += 1;
+    const base = inst.lastRenderedBase ?? baseLine;
+    inst.lines[inst.lines.length - 1] = `${base} (×${inst.repeatCount})`;
+    inst.lastWasTerminalBlock = terminal;
+    return;
+  }
+  let line = baseLine;
+  if (terminal && inst.lastWasTerminalBlock) {
+    line = baseLine.slice(baseLine.indexOf("\n") + 1);
+  }
+  inst.lines.push(line);
+  inst.lastLine = baseLine;
+  inst.lastRenderedBase = line;
+  inst.repeatCount = 1;
+  inst.lastWasTerminalBlock = terminal;
+}
+
 async function flush(
   instanceId: string,
-  lines: string[],
+  inst: InstanceRenderState,
   args: Pick<ObserveBridgeCallbacks, "store" | "publisher">,
 ): Promise<void> {
   const task = await args.store.getByInstanceId(instanceId);
@@ -101,7 +149,7 @@ async function flush(
   await args.publisher.edit(
     task.discordThreadId,
     task.statusMessageId,
-    `Status\n${lines.map((line) => `- ${redact(line)}`).join("\n")}`,
+    inst.lines.map((line) => redact(line)).join("\n"),
   );
 }
 
@@ -136,14 +184,10 @@ function formatFlueError(error: unknown): string | undefined {
 
 function eventSummary(event: FlueEvent): string | undefined {
   switch (event.type) {
-    case "agent_start":
-      return "Agent started";
     case "turn_start":
-      return `Model turn started (${event.purpose})`;
+      return "Model turn started";
     case "tool_start":
-      return `Tool started: ${event.toolName}`;
-    case "tool":
-      return `Tool finished: ${event.toolName}`;
+      return formatToolLine(event.toolName, event.args);
     case "agent_end":
       return "Agent turn completed";
     case "log":
