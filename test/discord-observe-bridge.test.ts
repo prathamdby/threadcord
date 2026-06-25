@@ -24,6 +24,49 @@ function taskEvent(partial: Record<string, unknown>): FlueEvent {
   } as FlueEvent;
 }
 
+function recordingBridge(): {
+  callbacks: ObserveBridgeCallbacks;
+  edits: string[];
+  state: NonNullable<Parameters<typeof handleObserveEvent>[2]>;
+} {
+  const edits: string[] = [];
+  const callbacks = {
+    store: {
+      getByInstanceId: async () => ({
+        id: "task-1",
+        discordMessageId: "msg-1",
+        discordThreadId: "thread-1",
+        flueInstanceId: toFlueInstanceId("thread-1"),
+        workspacePath: "/workspaces/task-1",
+        repo: "acme/web",
+        branch: "main",
+        model: "anthropic/claude-sonnet-4-5",
+        instruction: "Do the work",
+        setupProfileRevision: 2,
+        status: "running",
+        initialTurnStarted: true,
+        statusMessageId: "status-1",
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      }),
+    },
+    publisher: {
+      edit: async (_threadId: string, _messageId: string, content: string) => {
+        edits.push(content);
+      },
+      send: async () => ({ id: "m1" }),
+    },
+    onAgentEnd: async () => {},
+    onAgentFailure: async () => {},
+  } as unknown as ObserveBridgeCallbacks;
+  const state = {
+    renderState: new Map(),
+    timers: new Map(),
+    instanceChains: new Map<string, Promise<void>>(),
+  };
+  return { callbacks, edits, state };
+}
+
 describe("submissionFailureSummary", () => {
   it("detects submission_settled failures", () => {
     expect(
@@ -112,7 +155,7 @@ describe("handleObserveEvent", () => {
     const order: string[] = [];
     const instanceId = toFlueInstanceId("thread-1");
     const sharedState = {
-      buffers: new Map(),
+      renderState: new Map(),
       timers: new Map(),
       instanceChains: new Map<string, Promise<void>>(),
     };
@@ -228,6 +271,213 @@ describe("handleObserveEvent", () => {
 
     await vi.runAllTimersAsync();
     expect(edits[0]).toContain("Model turn started");
+    vi.useRealTimers();
+  });
+
+  it("renders read_file with a quoted path preview", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "read_file",
+        toolCallId: "tc-1",
+        args: { path: "src/main.py" },
+        instanceId: toFlueInstanceId("thread-1"),
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toContain('📖 read_file: "src/main.py"');
+    vi.useRealTimers();
+  });
+
+  it("renders bash as a fenced code block with a 💻 bash header", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "bash",
+        toolCallId: "tc-1",
+        args: { command: "pytest -q" },
+        instanceId: toFlueInstanceId("thread-1"),
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toBe("💻 bash\n```\npytest -q\n```");
+    vi.useRealTimers();
+  });
+
+  it("omits the 💻 bash header on a consecutive different bash command", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "bash",
+        toolCallId: "tc-1",
+        args: { command: "echo one" },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "bash",
+        toolCallId: "tc-2",
+        args: { command: "echo two" },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toBe("💻 bash\n```\necho one\n```\n```\necho two\n```");
+    vi.useRealTimers();
+  });
+
+  it("collapses consecutive identical bash calls to a (×N) counter", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    for (let i = 0; i < 3; i += 1) {
+      await handleObserveEvent(
+        taskEvent({
+          type: "tool_start",
+          toolName: "bash",
+          toolCallId: `tc-${i}`,
+          args: { command: "pytest -q" },
+          instanceId,
+        }),
+        callbacks,
+        state,
+      );
+    }
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toContain("💻 bash");
+    expect(edits[0]).toContain("(×3)");
+    vi.useRealTimers();
+  });
+
+  it("collapses consecutive identical non-bash tool calls to a (×N) counter", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    for (let i = 0; i < 2; i += 1) {
+      await handleObserveEvent(
+        taskEvent({
+          type: "tool_start",
+          toolName: "read_file",
+          toolCallId: `tc-${i}`,
+          args: { path: "src/main.py" },
+          instanceId,
+        }),
+        callbacks,
+        state,
+      );
+    }
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toBe('📖 read_file: "src/main.py" (×2)');
+    vi.useRealTimers();
+  });
+
+  it("renders an unknown tool with no string args as a default line", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "mcp_unknown_tool",
+        toolCallId: "tc-1",
+        args: { enabled: true, count: 7 },
+        instanceId: toFlueInstanceId("thread-1"),
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toContain("⚙️ mcp_unknown_tool…");
+    vi.useRealTimers();
+  });
+
+  it("adds no line for a tool finished event", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "read_file",
+        toolCallId: "tc-1",
+        args: { path: "src/main.py" },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "read_file",
+        toolCallId: "tc-1",
+        isError: false,
+        durationMs: 5,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toContain('📖 read_file: "src/main.py"');
+    expect(edits[0]).not.toContain("finished");
+    vi.useRealTimers();
+  });
+
+  it("truncates a preview longer than 40 chars with ... inside the quotes", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "read_file",
+        toolCallId: "tc-1",
+        args: { path: "x".repeat(50) },
+        instanceId: toFlueInstanceId("thread-1"),
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toBe(`📖 read_file: "${"x".repeat(37)}..."`);
+    vi.useRealTimers();
+  });
+
+  it("redacts secrets in tool arg previews", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const secret = "ghp_aBcDeFgHiJkLmNoPqRsTuvw";
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "read_file",
+        toolCallId: "tc-1",
+        args: { path: secret },
+        instanceId: toFlueInstanceId("thread-1"),
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toContain("[redacted]");
+    expect(edits[0]).not.toContain(secret);
     vi.useRealTimers();
   });
 });
