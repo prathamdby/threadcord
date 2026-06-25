@@ -212,6 +212,11 @@ describe("cancel during an in-flight turn", () => {
 
     await world.sendThreadMessage(task.id, "cancel-setup", "cancel");
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
+    expect(result.message.reactionLog).toEqual([
+      `react:${EYES}`,
+      `unreact:${EYES}`,
+      `react:${CROSS}`,
+    ]);
 
     release();
     await flush();
@@ -252,5 +257,68 @@ describe("cancel during an in-flight turn", () => {
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
     expect(world.dispatched).toContain(task.flueInstanceId);
     expect(posts.some((p) => p.startsWith("Failed:"))).toBe(false);
+  });
+});
+
+describe("reaction cleanup on terminal commands", () => {
+  it("flips eyes to cross when a running task is cancelled", async () => {
+    const world = new World();
+    const result = await world.submitRaw("m-cancel-running");
+    const task = result.task!;
+    expect(task.status).toBe("running");
+
+    await world.sendThreadMessage(task.id, "cancel-1", "cancel");
+
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+    expect(result.message.reactionLog).toEqual([
+      `react:${EYES}`,
+      `unreact:${EYES}`,
+      `react:${CROSS}`,
+    ]);
+  });
+
+  it("flips eyes to cross on a queued follow-up when the task is cancelled", async () => {
+    const world = new World();
+    const init = await world.submitRaw("m-cancel-queued-init");
+    const task = init.task!;
+    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await flush();
+
+    const running = await world.submitFollowup(task.id, "m-cancel-queued-f1");
+    expect(world.store.snapshot(task.id).status).toBe("running");
+
+    const queued = await world.submitFollowup(task.id, "m-cancel-queued-f2");
+    expect(world.store.snapshot(task.id).status).toBe("running");
+
+    await world.sendThreadMessage(task.id, "cancel-x", "cancel");
+
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+    expect(running.message.reactionLog).toEqual([
+      `react:${EYES}`,
+      `unreact:${EYES}`,
+      `react:${CROSS}`,
+    ]);
+    expect(queued.message.reactionLog).toEqual([
+      `react:${EYES}`,
+      `unreact:${EYES}`,
+      `react:${CROSS}`,
+    ]);
+  });
+
+  it("flips eyes to check when a queued task is marked done", async () => {
+    const world = new World(1);
+    await world.submitRaw("m-done-running");
+    const queued = await world.submitRaw("m-done-queued");
+    expect(queued.task!.status).toBe("queued");
+    expect(queued.message.reactCalls).toContain(EYES);
+
+    await world.sendThreadMessage(queued.task!.id, "done-1", "done");
+
+    expect(world.store.snapshot(queued.task!.id).status).toBe("completed");
+    expect(queued.message.reactionLog).toEqual([
+      `react:${EYES}`,
+      `unreact:${EYES}`,
+      `react:${CHECK}`,
+    ]);
   });
 });

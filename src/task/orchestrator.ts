@@ -229,8 +229,9 @@ export class TaskOrchestrator {
       await message.reply(
         "Cancelled. No further turns will be dispatched for this task.",
       );
-      this.clearInFlight(task.flueInstanceId);
-      this.disposeInitiators(task.id);
+      const turn = this.clearInFlight(task.flueInstanceId);
+      await this.flipReaction(turn?.initiator, CROSS);
+      await this.disposeInitiators(task.id, CROSS);
       this.taskThreads.delete(task.flueInstanceId);
       await this.fillConcurrencySlots();
       return;
@@ -246,7 +247,7 @@ export class TaskOrchestrator {
         return;
       }
       await message.reply("Task marked complete.");
-      this.disposeInitiators(task.id);
+      await this.disposeInitiators(task.id, CHECK);
       this.taskThreads.delete(task.flueInstanceId);
       return;
     }
@@ -315,7 +316,7 @@ export class TaskOrchestrator {
     );
     const turn = this.clearInFlight(instanceId);
     await this.flipReaction(turn?.initiator, CROSS);
-    this.disposeInitiators(task.id);
+    await this.disposeInitiators(task.id, CROSS);
     this.taskThreads.delete(instanceId);
     await this.fillConcurrencySlots();
   }
@@ -404,7 +405,7 @@ export class TaskOrchestrator {
       await this.post(task.discordThreadId, `Failed: ${summary}`);
       const turn = this.clearInFlight(task.flueInstanceId);
       await this.flipReaction(turn?.initiator, CROSS);
-      this.disposeInitiators(task.id);
+      await this.disposeInitiators(task.id, CROSS);
       this.taskThreads.delete(task.flueInstanceId);
       await this.fillConcurrencySlots();
     }
@@ -476,10 +477,17 @@ export class TaskOrchestrator {
     ids.add(message.id);
   }
 
-  private disposeInitiators(taskId: string): void {
+  private async disposeInitiators(
+    taskId: string,
+    finalEmoji: string,
+  ): Promise<void> {
     const ids = this.pendingInitiatorIds.get(taskId);
     if (!ids) return;
-    for (const id of ids) this.initiatorMessages.delete(id);
+    for (const id of ids) {
+      const handle = this.initiatorMessages.get(id);
+      if (handle) await this.flipReaction(handle, finalEmoji);
+      this.initiatorMessages.delete(id);
+    }
     this.pendingInitiatorIds.delete(taskId);
   }
 
