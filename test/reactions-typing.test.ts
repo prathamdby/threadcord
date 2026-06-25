@@ -187,3 +187,70 @@ describe("non-fatal reaction and typing errors", () => {
     expect(world.store.snapshot(task.id).status).toBe("waiting");
   });
 });
+
+describe("cancel during an in-flight turn", () => {
+  it("aborts the turn without dispatching or crashing when cancelled during setup", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const world = new World(1, 9000, {
+      bootstrap: async (task) => {
+        await gate;
+        return `/tmp/race-${task.id}`;
+      },
+    });
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+    const result = await world.submitRaw("m-race-setup");
+    const task = result.task!;
+
+    expect(task.status).toBe("running");
+    expect(world.dispatched).not.toContain(task.flueInstanceId);
+
+    await world.sendThreadMessage(task.id, "cancel-setup", "cancel");
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+
+    release();
+    await flush();
+    await flush();
+
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+    expect(world.dispatched).not.toContain(task.flueInstanceId);
+    expect(posts.some((p) => p.startsWith("Failed:"))).toBe(false);
+  });
+
+  it("does not crash or post a spurious failure when cancelled after dispatch", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const world = new World(1, 9000, {
+      dispatch: async (instanceId) => {
+        await gate;
+        world.dispatched.push(instanceId);
+      },
+    });
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+    const result = await world.submitRaw("m-race-dispatch");
+    const task = result.task!;
+
+    expect(task.status).toBe("running");
+
+    await world.sendThreadMessage(task.id, "cancel-dispatch", "cancel");
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+
+    release();
+    await flush();
+    await flush();
+
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+    expect(world.dispatched).toContain(task.flueInstanceId);
+    expect(posts.some((p) => p.startsWith("Failed:"))).toBe(false);
+  });
+});

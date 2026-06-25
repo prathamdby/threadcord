@@ -368,6 +368,9 @@ export class TaskOrchestrator {
           this.config.GITHUB_TOKEN,
         );
       }
+      // A concurrent cancel clears the in-flight entry during setup; abort
+      // rather than dispatch a turn that has already been cancelled.
+      if (!this.inFlightTurns.has(task.flueInstanceId)) return;
       const input: DispatchAgentInput = {
         kind: "threadcord.turn",
         workspacePath: checkoutPath,
@@ -385,9 +388,9 @@ export class TaskOrchestrator {
       };
       await this.dispatchTurn(task.flueInstanceId, input);
       const thread = this.taskThreads.get(task.flueInstanceId);
-      if (thread) {
-        this.inFlightTurns.get(task.flueInstanceId)!.typingTimer =
-          this.startTypingLoop(thread);
+      const inFlight = this.inFlightTurns.get(task.flueInstanceId);
+      if (thread && inFlight) {
+        inFlight.typingTimer = this.startTypingLoop(thread);
       }
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {

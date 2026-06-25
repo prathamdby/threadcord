@@ -1,6 +1,10 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { TaskOrchestrator } from "../../src/task/orchestrator.js";
+import {
+  TaskOrchestrator,
+  type BootstrapTurn,
+  type DispatchTurn,
+} from "../../src/task/orchestrator.js";
 import type { AppConfig } from "../../src/config.js";
 import type { SetupEnvironment, SetupProfile } from "../../src/setup/profile.js";
 import type { SetupStore } from "../../src/setup/store.js";
@@ -355,26 +359,37 @@ export interface SubmitResult {
   thread: RecordingThread;
 }
 
+export interface WorldOverrides {
+  dispatch?: DispatchTurn;
+  bootstrap?: BootstrapTurn;
+}
+
 export class World {
   readonly store: InMemoryStore;
   readonly orchestrator: TaskOrchestrator;
   readonly dispatched: string[] = [];
   private counter = 0;
 
-  constructor(maxConcurrent = config.MAX_CONCURRENT_TASKS, typingIntervalMs = 9000) {
+  constructor(
+    maxConcurrent = config.MAX_CONCURRENT_TASKS,
+    typingIntervalMs = 9000,
+    overrides: WorldOverrides = {},
+  ) {
     this.store = new InMemoryStore(maxConcurrent);
     this.orchestrator = new TaskOrchestrator(
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
       fakeSetupStore,
-      async (instanceId) => {
-        this.dispatched.push(instanceId);
-      },
-      async (task) => {
-        const path = join(TEST_WORKSPACE_ROOT, task.id);
-        await mkdir(path, { recursive: true });
-        return path;
-      },
+      overrides.dispatch ??
+        (async (instanceId: string) => {
+          this.dispatched.push(instanceId);
+        }),
+      overrides.bootstrap ??
+        (async (task) => {
+          const path = join(TEST_WORKSPACE_ROOT, task.id);
+          await mkdir(path, { recursive: true });
+          return path;
+        }),
       async () => {},
       typingIntervalMs,
     );
@@ -481,6 +496,38 @@ export class World {
     await this.orchestrator.handleThreadMessage(message);
     await flush();
     return { message, replies };
+  }
+
+  async sendThreadMessage(
+    taskId: string,
+    messageId: string,
+    content: string,
+  ): Promise<RecordingFollowupMessage> {
+    const task = this.store.snapshot(taskId);
+    const message: RecordingFollowupMessage = {
+      id: messageId,
+      content,
+      authorBot: false,
+      channelId: task.discordThreadId,
+      replies: [],
+      reactCalls: [],
+      unreactCalls: [],
+      reactionLog: [],
+      reply: async (c) => {
+        message.replies.push(c);
+      },
+      react: async (emoji) => {
+        message.reactCalls.push(emoji);
+        message.reactionLog.push(`react:${emoji}`);
+      },
+      unreact: async (emoji) => {
+        message.unreactCalls.push(emoji);
+        message.reactionLog.push(`unreact:${emoji}`);
+      },
+    };
+    await this.orchestrator.handleThreadMessage(message);
+    await flush();
+    return message;
   }
 
   async restart(): Promise<void> {
