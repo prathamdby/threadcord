@@ -1,6 +1,6 @@
 import {
-  shortenPathForPreview,
-  toolPreviewUsesPath,
+  shortenPreviewString,
+  shortenWorkspacePathsInText,
 } from "./tool-preview-path.js";
 
 export const PREVIEW_CAP = 40;
@@ -18,6 +18,7 @@ const TOOL_EMOJI: Record<string, string> = {
   write_file: "✍️",
   write: "✍️",
   edit_file: "🔧",
+  edit: "🔧",
   str_replace: "🔧",
   patch: "🔧",
   search_files: "🔎",
@@ -35,6 +36,7 @@ const PRIMARY_ARG: Record<string, string> = {
   write_file: "path",
   write: "path",
   edit_file: "path",
+  edit: "path",
   str_replace: "path",
   patch: "path",
   search_files: "pattern",
@@ -89,24 +91,29 @@ export function buildToolPreview(
     const value = record[key];
     if (typeof value === "string" && value.length > 0) {
       const display =
-        key === "path" && toolPreviewUsesPath(toolName)
-          ? shortenPathForPreview(value, options?.repoRoot)
+        key === "path"
+          ? shortenPreviewString(value, toolName, options?.repoRoot)
           : value;
       return capPreview(display);
     }
     return undefined;
   }
   const fallback = firstStringField(record);
-  return fallback !== undefined ? capPreview(fallback) : undefined;
+  if (fallback === undefined) return undefined;
+  return capPreview(shortenPreviewString(fallback, toolName, options?.repoRoot));
 }
 
-function terminalCommand(toolName: string, args: unknown): string | undefined {
+function terminalCommand(
+  toolName: string,
+  args: unknown,
+  options?: FormatToolPreviewOptions,
+): string | undefined {
   if (!isTerminalTool(toolName)) return undefined;
   const record = asRecord(args);
   if (!record) return undefined;
   const command = record["command"];
   if (typeof command === "string" && command.length > 0) {
-    return command;
+    return shortenWorkspacePathsInText(command, options?.repoRoot);
   }
   return undefined;
 }
@@ -135,7 +142,7 @@ export function formatToolLine(
   options?: FormatToolPreviewOptions,
 ): string {
   const emoji = getToolEmoji(toolName);
-  const command = terminalCommand(toolName, args);
+  const command = terminalCommand(toolName, args, options);
   if (command !== undefined) {
     return `${emoji} ${toolName}\n\`\`\`\n${terminalBody(command)}\n\`\`\``;
   }

@@ -8,6 +8,7 @@ const PATH_PRIMARY_TOOLS = new Set([
   "write_file",
   "write",
   "edit_file",
+  "edit",
   "str_replace",
   "patch",
 ]);
@@ -38,8 +39,9 @@ export function shortenPathForPreview(
       ? resolve(posixPath)
       : resolve(absRoot, posixPath);
     const rel = relative(absRoot, absPath);
-    if (rel && !rel.startsWith("..") && !isAbsolute(rel)) {
-      return toPosix(rel);
+    if (!rel.startsWith("..") && !isAbsolute(rel)) {
+      const relPosix = toPosix(rel);
+      return relPosix.length > 0 ? relPosix : ".";
     }
   }
 
@@ -51,6 +53,41 @@ export function shortenPathForPreview(
   }
 
   return posixPath.startsWith("/") ? posixPath.slice(1) : posixPath;
+}
+
+/** Replace absolute workspace paths embedded in shell commands or other text. */
+export function shortenWorkspacePathsInText(
+  text: string,
+  repoRoot?: string,
+): string {
+  const workspacePath =
+    /\/(?:workspaces\/[^/\s'"`]+(?:\/[^/\s'"`]+)+|root\/workspace\/[^\s'"`;|&]+)/g;
+  return text.replace(workspacePath, (match) =>
+    shortenPathForPreview(match, repoRoot),
+  );
+}
+
+function looksLikeFilesystemPath(value: string): boolean {
+  if (value.length > 1024 || value.includes("\n")) {
+    return false;
+  }
+  const p = toPosix(value.trim());
+  return p.startsWith("/") && p.includes("/", 1);
+}
+
+/** Shorten when the primary arg is missing but the first string field is a path. */
+export function shortenPreviewString(
+  value: string,
+  toolName: string,
+  repoRoot?: string,
+): string {
+  if (toolPreviewUsesPath(toolName)) {
+    return shortenPathForPreview(value, repoRoot);
+  }
+  if (looksLikeFilesystemPath(value)) {
+    return shortenPathForPreview(value, repoRoot);
+  }
+  return value;
 }
 
 function workspaceRepoRelative(absolutePosix: string): string | undefined {

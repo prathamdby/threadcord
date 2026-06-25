@@ -55,4 +55,29 @@ describe("formatToolLine path shortening", () => {
       buildToolPreview("grep", { pattern: "/workspaces/foo/bar" }),
     ).toBe("/workspaces/foo/bar");
   });
+
+  it("shortens workspace paths inside bash commands", () => {
+    const repoRoot = "/workspaces/task-uuid/threadcord";
+    expect(
+      formatToolLine(
+        "bash",
+        {
+          command:
+            "cd /workspaces/task-uuid/threadcord && npm test",
+        },
+        { repoRoot },
+      ),
+    ).toBe('💻 bash\n```\ncd . && npm test\n```');
+  });
+
+  it("shortens edit tool path via first string field", () => {
+    const repoRoot = "/workspaces/task-uuid/threadcord";
+    expect(
+      formatToolLine(
+        "edit",
+        { path: "/workspaces/task-uuid/threadcord/src/app.ts" },
+        { repoRoot },
+      ),
+    ).toBe('🔧 edit: "src/app.ts"');
+  });
 });
