@@ -104,6 +104,19 @@ export class SetupOrchestrator {
     }
     return true;
   }
+
+  async handleAgentFailure(
+    instanceId: string,
+    errorSummary: string,
+  ): Promise<boolean> {
+    const run = await this.store.getRunByInstanceId(instanceId);
+    if (!run) return false;
+    const failed = await this.store.failRun(run.id, summarizeError(errorSummary));
+    if (failed) {
+      await rm(run.workspacePath, { recursive: true, force: true });
+    }
+    return true;
+  }
 }
 
 async function prepareSetupWorkspace(input: {

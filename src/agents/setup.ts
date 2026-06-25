@@ -23,7 +23,7 @@ export default createAgent(async ({ id }) => {
       }),
     }),
     durability: {
-      timeoutMs: 60 * 60 * 1000,
+      timeoutMs: 30 * 60 * 1000,
       maxAttempts: 3,
     },
     tools: createSetupTools(run.id),
