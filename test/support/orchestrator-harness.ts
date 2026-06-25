@@ -72,7 +72,7 @@ export class InMemoryStore {
   snapshot(taskId: string): TaskRecord {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error(`No task ${taskId}`);
-    return { ...task };
+    return clone(task);
   }
 
   findByMessageId(messageId: string): TaskRecord | undefined {
@@ -138,9 +138,26 @@ export class InMemoryStore {
     if (!task || task.status !== "draft") return undefined;
     task.discordThreadId = threadId;
     task.flueInstanceId = flueInstanceId;
-    task.statusMessageId = statusMessageId;
+    task.progressMessageIds = [statusMessageId];
     task.status = "queued";
     return clone(task);
+  }
+
+  async appendProgressMessageId(
+    taskId: string,
+    messageId: string,
+  ): Promise<TaskRecord | undefined> {
+    const task = this.tasks.get(taskId);
+    if (!task) return undefined;
+    const base =
+      task.progressMessageIds ??
+      (task.statusMessageId ? [task.statusMessageId] : []);
+    task.progressMessageIds = [...base, messageId];
+    return clone(task);
+  }
+
+  seedTask(task: TaskRecord): void {
+    this.tasks.set(task.id, { ...task });
   }
 
   async markDraftFailed(
@@ -151,7 +168,7 @@ export class InMemoryStore {
     if (!task || task.status !== "draft") return undefined;
     task.status = "failed";
     task.errorSummary = errorSummary;
-    task.statusMessageId ??= `unattached:${task.id}`;
+    task.progressMessageIds ??= [`unattached:${task.id}`];
     return clone(task);
   }
 
@@ -161,7 +178,7 @@ export class InMemoryStore {
       if (task.status !== "draft") continue;
       task.status = "failed";
       task.errorSummary ??= "Draft abandoned before thread attachment";
-      task.statusMessageId ??= `unattached:${task.id}`;
+      task.progressMessageIds ??= [`unattached:${task.id}`];
       failed.push(clone(task));
     }
     return failed;
@@ -287,7 +304,12 @@ export class InMemoryStore {
 }
 
 function clone<T extends TaskRecord | undefined>(task: T): T {
-  return (task ? { ...task } : task) as T;
+  if (!task) return task as T;
+  const normalized: TaskRecord =
+    task.progressMessageIds === undefined && task.statusMessageId !== undefined
+      ? { ...task, progressMessageIds: [task.statusMessageId] }
+      : { ...task };
+  return normalized as T;
 }
 
 function byCreatedThenId(a: TaskRecord, b: TaskRecord): number {

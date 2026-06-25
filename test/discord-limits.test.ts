@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { clampDiscordContent } from "../src/discord/limits.js";
+import {
+  PROGRESS_ROLL_THRESHOLD,
+  clampDiscordContent,
+} from "../src/discord/limits.js";
+
+describe("PROGRESS_ROLL_THRESHOLD", () => {
+  it("leaves a 64-char safety margin below the 2000-char content limit", () => {
+    expect(PROGRESS_ROLL_THRESHOLD).toBe(1936);
+  });
+});
 
 describe("clampDiscordContent", () => {
   it("returns content unchanged when below the limit", () => {
