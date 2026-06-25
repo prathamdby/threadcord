@@ -229,6 +229,9 @@ export class TaskOrchestrator {
       await message.reply(
         "Cancelled. No further turns will be dispatched for this task.",
       );
+      // The current turn's initiator, if any, was moved from pending to
+      // in-flight by runTurn, so clearInFlight flips it and disposeInitiators
+      // (which only touches pending) cannot double-handle the same message.
       const turn = this.clearInFlight(task.flueInstanceId);
       await this.flipReaction(turn?.initiator, CROSS);
       await this.disposeInitiators(task.id, CROSS);
@@ -278,7 +281,14 @@ export class TaskOrchestrator {
     if (!task) return;
 
     if (task.status === "running") {
-      await this.store.transition(task.id, "running", "waiting");
+      const turned = await this.store.transition(task.id, "running", "waiting");
+      if (!turned) {
+        // A concurrent cancel/failure changed the status between the read
+        // and this transition; its own handler did the cleanup and slot fill.
+        this.clearInFlight(instanceId);
+        await this.fillConcurrencySlots();
+        return;
+      }
       await this.post(
         task.discordThreadId,
         "Turn completed. Waiting for the next instruction.",
@@ -369,9 +379,14 @@ export class TaskOrchestrator {
           this.config.GITHUB_TOKEN,
         );
       }
-      // A concurrent cancel clears the in-flight entry during setup; abort
-      // rather than dispatch a turn that has already been cancelled.
-      if (!this.inFlightTurns.has(task.flueInstanceId)) return;
+      // A concurrent cancel transitions the task out of running during setup;
+      // re-check the store (source of truth) before dispatching, since the
+      // in-flight entry may have been re-created here after cancel cleared it.
+      const current = await this.store.getByInstanceId(task.flueInstanceId);
+      if (!current || current.status !== "running") {
+        this.clearInFlight(task.flueInstanceId);
+        return;
+      }
       const input: DispatchAgentInput = {
         kind: "threadcord.turn",
         workspacePath: checkoutPath,

@@ -73,8 +73,14 @@ export class InMemoryStore {
   private readonly tasks = new Map<string, TaskRecord>();
   private followups: StoredFollowup[] = [];
   private seq = 0;
+  private breakTransition = false;
 
   constructor(private readonly maxConcurrent: number) {}
+
+  /** Simulate a concurrent cancel committing between read and transition. */
+  breakNextTransition(): void {
+    this.breakTransition = true;
+  }
 
   snapshot(taskId: string): TaskRecord {
     const task = this.tasks.get(taskId);
@@ -218,6 +224,12 @@ export class InMemoryStore {
     to: TaskStatus,
     errorSummary?: string,
   ): Promise<TaskRecord | undefined> {
+    if (this.breakTransition && to === "waiting") {
+      this.breakTransition = false;
+      const task = this.tasks.get(taskId);
+      if (task) task.status = "cancelled";
+      return undefined;
+    }
     const fromList = Array.isArray(from) ? from : [from];
     const task = this.tasks.get(taskId);
     if (!task || !fromList.includes(task.status)) return undefined;

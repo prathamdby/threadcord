@@ -322,3 +322,66 @@ describe("reaction cleanup on terminal commands", () => {
     ]);
   });
 });
+
+describe("guard against dispatching a cancelled task", () => {
+  it("aborts runTurn when the task is cancelled during bootstrap", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const world = new World(1, 9000, {
+      bootstrap: async (task) => {
+        await gate;
+        return `/tmp/cancel-during-bootstrap-${task.id}`;
+      },
+    });
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+
+    const result = await world.submitRaw("m-cancel-bootstrap");
+    const task = result.task!;
+    expect(task.status).toBe("running");
+
+    // Simulate a concurrent cancel that does not go through the orchestrator
+    // (so clearInFlight is not called); the in-flight entry remains set.
+    await world.store.cancelTask(task.id);
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+
+    release();
+    await flush();
+    await flush();
+
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+    expect(world.dispatched).not.toContain(task.flueInstanceId);
+    expect(posts.some((p) => p.startsWith("Agent turn accepted."))).toBe(false);
+    expect(posts.some((p) => p.startsWith("Turn completed."))).toBe(false);
+  });
+});
+
+describe("handleAgentEnd transition guard", () => {
+  it("does not post Turn completed or flip check when a concurrent cancel wins the transition", async () => {
+    const world = new World(1);
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+
+    const result = await world.submitRaw("m-transition-race");
+    const task = result.task!;
+    expect(task.status).toBe("running");
+    expect(result.message.reactionLog).toEqual([`react:${EYES}`]);
+
+    // Simulate a concurrent cancel committing between the read and the
+    // running->waiting transition inside handleAgentEnd.
+    world.store.breakNextTransition();
+
+    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await flush();
+
+    expect(world.store.snapshot(task.id).status).toBe("cancelled");
+    expect(posts.some((p) => p.startsWith("Turn completed."))).toBe(false);
+    expect(result.message.reactionLog).toEqual([`react:${EYES}`]);
+  });
+});
