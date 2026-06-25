@@ -98,7 +98,6 @@ export async function maybeRollProgressMessage(
       await publisher.edit(target.threadId, liveId, frozenContent);
       const sent = await publisher.send(target.threadId, redact(newLine));
       await store.appendProgressMessageId(streamId, sent.id);
-      target.progressMessageIds.push(sent.id);
       rolled = true;
     } catch (error) {
       console.error(`[threadcord] progress roll failed for ${streamId}`, error);

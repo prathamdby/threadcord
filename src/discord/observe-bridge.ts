@@ -156,7 +156,7 @@ async function resolveProgressStream(
       },
       store: {
         appendProgressMessageId: async (id, messageId) => {
-          void (await args.store.appendProgressMessageId(id, messageId));
+          await args.store.appendProgressMessageId(id, messageId);
         },
       },
     };
