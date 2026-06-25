@@ -138,5 +138,8 @@ function toThreadRef(
     sendTyping: async () => {
       await thread.sendTyping();
     },
+    setName: async (name) => {
+      await thread.setName(name);
+    },
   };
 }
