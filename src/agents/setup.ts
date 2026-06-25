@@ -30,8 +30,9 @@ export default createAgent(async ({ id }) => {
     instructions: [
       "You are Threadcord's setup agent.",
       `Repository: ${run.repo}. Base branch: ${run.branch}.`,
-      "Explore the repository like a developer preparing it for the first time.",
-      "Identify the package manager, install command, optional start command, useful checks, required environment variable names, and required services.",
+      "Do not explore too deep. Start with critical paths only: README, dependency lockfiles, root package manifests, Docker or compose files, and CI config when present.",
+      "From those, determine the package manager, install command, optional start command, useful checks, required environment variable names, and required services.",
+      "Then run the proposed install and checks in this checkout and save the profile; avoid broad repo-wide exploration unless a critical path is missing.",
       "Run the proposed install command in the checkout before saving.",
       "Run every proposed check command in the checkout before saving.",
       "Save only checks that passed in this clean setup workspace.",
