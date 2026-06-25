@@ -1,4 +1,14 @@
+import {
+  shortenPathForPreview,
+  toolPreviewUsesPath,
+} from "./tool-preview-path.js";
+
 export const PREVIEW_CAP = 40;
+
+export interface FormatToolPreviewOptions {
+  /** Repo checkout root used to shorten absolute paths in previews. */
+  repoRoot?: string;
+}
 
 const TOOL_EMOJI: Record<string, string> = {
   bash: "💻",
@@ -70,6 +80,7 @@ function capPreview(value: string): string {
 export function buildToolPreview(
   toolName: string,
   args: unknown,
+  options?: FormatToolPreviewOptions,
 ): string | undefined {
   const record = asRecord(args);
   if (!record) return undefined;
@@ -77,7 +88,11 @@ export function buildToolPreview(
   if (key !== undefined) {
     const value = record[key];
     if (typeof value === "string" && value.length > 0) {
-      return capPreview(value);
+      const display =
+        key === "path" && toolPreviewUsesPath(toolName)
+          ? shortenPathForPreview(value, options?.repoRoot)
+          : value;
+      return capPreview(display);
     }
     return undefined;
   }
@@ -114,13 +129,17 @@ function terminalBody(command: string): string {
   return body;
 }
 
-export function formatToolLine(toolName: string, args: unknown): string {
+export function formatToolLine(
+  toolName: string,
+  args: unknown,
+  options?: FormatToolPreviewOptions,
+): string {
   const emoji = getToolEmoji(toolName);
   const command = terminalCommand(toolName, args);
   if (command !== undefined) {
     return `${emoji} ${toolName}\n\`\`\`\n${terminalBody(command)}\n\`\`\``;
   }
-  const preview = buildToolPreview(toolName, args);
+  const preview = buildToolPreview(toolName, args, options);
   if (preview !== undefined) {
     return `${emoji} ${toolName}: "${preview}"`;
   }

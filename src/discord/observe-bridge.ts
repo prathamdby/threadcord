@@ -1,6 +1,8 @@
+import { posix } from "node:path";
 import type { FlueEvent } from "@flue/runtime";
 import { observe } from "@flue/runtime";
 import { isThreadcordInstance } from "../ids.js";
+import { checkoutPathForTask } from "../task/turn-context.js";
 import {
   setupProgressSessionFromRun,
   type SetupProgressSession,
@@ -92,7 +94,7 @@ export async function handleObserveEvent(
 
   if (!isTaskInstance && !isSetupInstance) return;
 
-  const line = eventSummary(event);
+  const line = await eventSummary(event, instanceId, args);
   if (!line) return;
 
   const terminal =
@@ -216,12 +218,22 @@ function formatFlueError(error: unknown): string | undefined {
   return undefined;
 }
 
-function eventSummary(event: FlueEvent): string | undefined {
+async function eventSummary(
+  event: FlueEvent,
+  instanceId: string,
+  bridge: ObserveBridgeCallbacks,
+): Promise<string | undefined> {
   switch (event.type) {
     case "turn_start":
       return "Model turn started";
-    case "tool_start":
-      return formatToolLine(event.toolName, event.args);
+    case "tool_start": {
+      const repoRoot = await resolveRepoRootForInstance(instanceId, bridge);
+      return formatToolLine(
+        event.toolName,
+        event.args,
+        repoRoot !== undefined ? { repoRoot } : undefined,
+      );
+    }
     case "agent_end":
       return "Agent turn completed";
     case "log":
@@ -229,6 +241,22 @@ function eventSummary(event: FlueEvent): string | undefined {
     default:
       return undefined;
   }
+}
+
+async function resolveRepoRootForInstance(
+  instanceId: string,
+  bridge: ObserveBridgeCallbacks,
+): Promise<string | undefined> {
+  if (isThreadcordInstance(instanceId)) {
+    const task = await bridge.store.getByInstanceId(instanceId);
+    return task ? checkoutPathForTask(task) : undefined;
+  }
+  if (instanceId.startsWith("setup:") && bridge.setupStore) {
+    const run = await bridge.setupStore.getRunByInstanceId(instanceId);
+    if (!run) return undefined;
+    return posix.join(run.workspacePath, posix.basename(run.repo));
+  }
+  return undefined;
 }
 
 export function failureDiscordMessage(errorSummary: string): string {
