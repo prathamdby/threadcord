@@ -434,6 +434,7 @@ export class World {
         if (failure.typingFail) throw new Error("discord: sendTyping 403");
         thread.sendTypingCalls += 1;
       },
+      setName: async () => {},
     };
 
     const message: RecordingControlMessage = {

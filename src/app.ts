@@ -44,6 +44,13 @@ export async function createApp(): Promise<{
   setupOrchestrator.setMilestonePublisher(async (threadId, content) => {
     await publisher.send(threadId, content);
   });
+  orchestrator.setThreadRenamer(async (threadId, name) => {
+    const channel = await discordClient.channels.fetch(threadId);
+    if (!channel?.isThread()) {
+      throw new Error(`Discord thread ${threadId} is not a thread`);
+    }
+    await channel.setName(name);
+  });
 
   registerObserveBridge({
     store,

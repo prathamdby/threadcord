@@ -22,6 +22,11 @@ import type { TaskStore } from "./store.js";
 import type { SetupEnvironment } from "../setup/profile.js";
 import type { SetupStore } from "../setup/store.js";
 import { summarizeError } from "../util/redact.js";
+import {
+  scheduleReadableThreadRename,
+  type RenameDiscordThread,
+} from "./rename-thread.js";
+import { threadName } from "./thread-name.js";
 import type {
   ChannelMessage,
   ClaimedTurn,
@@ -80,6 +85,7 @@ const TERMINAL_STATUSES = new Set<TaskStatus>([
 
 export class TaskOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
+  private renameDiscordThread?: RenameDiscordThread;
   private readonly taskThreads = new Map<string, ThreadRef>();
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
   private readonly pendingInitiatorIds = new Map<string, Set<string>>();
@@ -99,6 +105,10 @@ export class TaskOrchestrator {
     postMessage: (threadId: string, content: string) => Promise<void>,
   ): void {
     this.postMessage = postMessage;
+  }
+
+  setThreadRenamer(renameDiscordThread: RenameDiscordThread): void {
+    this.renameDiscordThread = renameDiscordThread;
   }
 
   async resumeAfterRestart(
@@ -400,21 +410,29 @@ export class TaskOrchestrator {
         this.clearInFlight(task.flueInstanceId);
         return;
       }
+      const fullPrompt = buildPrompt(
+        task,
+        checkoutPath,
+        setupProfile.revision,
+        setupProfile.environment,
+        setupProfile.memoryMarkdown,
+        instruction,
+      );
       const input: DispatchAgentInput = {
         kind: "threadcord.turn",
         workspacePath: checkoutPath,
         model: task.model,
         repo: task.repo,
         baseBranch: task.branch,
-        instruction: buildPrompt(
-          task,
-          checkoutPath,
-          setupProfile.revision,
-          setupProfile.environment,
-          setupProfile.memoryMarkdown,
-          instruction,
-        ),
+        instruction: fullPrompt,
       };
+      if (source === "initial" && this.renameDiscordThread) {
+        scheduleReadableThreadRename(
+          task.discordThreadId,
+          instruction,
+          this.renameDiscordThread,
+        );
+      }
       await this.dispatchTurn(task.flueInstanceId, input);
       const thread = this.taskThreads.get(task.flueInstanceId);
       const inFlight = this.inFlightTurns.get(task.flueInstanceId);
@@ -560,13 +578,6 @@ function buildPrompt(
     instruction,
   ];
   return lines.join("\n");
-}
-
-function threadName(repo: string, taskId: string): string {
-  return `threadcord-${repo.replace("/", "-")}-${taskId.slice(0, 8)}`.slice(
-    0,
-    90,
-  );
 }
 
 function formatChecks(checks: Record<string, string>): string {

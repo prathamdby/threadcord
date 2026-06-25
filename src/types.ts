@@ -77,6 +77,7 @@ export interface ThreadRef {
   send(content: string): Promise<{ id: string }>;
   editMessage(messageId: string, content: string): Promise<void>;
   sendTyping(): Promise<void>;
+  setName(name: string): Promise<void>;
 }
 
 /** Payload passed to the coding agent on each dispatched turn. */
