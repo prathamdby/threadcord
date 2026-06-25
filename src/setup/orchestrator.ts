@@ -7,14 +7,46 @@ import setupAgent from "../agents/setup.js";
 import { execa } from "../task/execa.js";
 import { ensureWorkspaceDirs, workspaceEnv } from "../task/workspace-env.js";
 import { summarizeError } from "../util/redact.js";
+import { renderSetupProfile } from "./renderer.js";
 import { parseSetupProfileKey } from "./profile.js";
 import type { SetupStore } from "./store.js";
+import type { ThreadRef } from "../types.js";
+
+const SETUP_TYPING_INTERVAL_MS = 9000;
 
 export class SetupOrchestrator {
+  private postMessage?: (threadId: string, content: string) => Promise<void>;
+  private readonly setupThreads = new Map<string, ThreadRef>();
+  private readonly setupTypingTimers = new Map<string, NodeJS.Timeout>();
+
   constructor(
     private readonly config: AppConfig,
     private readonly store: SetupStore,
+    private readonly typingIntervalMs: number = SETUP_TYPING_INTERVAL_MS,
   ) {}
+
+  setMilestonePublisher(
+    postMessage: (threadId: string, content: string) => Promise<void>,
+  ): void {
+    this.postMessage = postMessage;
+  }
+
+  registerSetupThread(runId: string, thread: ThreadRef): void {
+    this.setupThreads.set(runId, thread);
+    this.clearSetupTyping(runId);
+    const timer = setInterval(() => {
+      void thread.sendTyping().catch(() => {});
+    }, this.typingIntervalMs);
+    this.setupTypingTimers.set(runId, timer);
+  }
+
+  private clearSetupTyping(runId: string): void {
+    const timer = this.setupTypingTimers.get(runId);
+    if (timer) {
+      clearInterval(timer);
+      this.setupTypingTimers.delete(runId);
+    }
+  }
 
   async startSetup(input: {
     repo: string;
@@ -86,7 +118,9 @@ export class SetupOrchestrator {
       });
     } catch (error) {
       await rm(input.workspacePath, { recursive: true, force: true });
-      await this.store.failRun(input.runId, summarizeError(error));
+      const summary = summarizeError(error);
+      await this.store.failRun(input.runId, summary);
+      await this.notifyRunFinished(input.runId, "failed", summary);
     }
   }
 
@@ -100,7 +134,24 @@ export class SetupOrchestrator {
       );
       if (failed) {
         await rm(run.workspacePath, { recursive: true, force: true });
+        await this.notifyRunFinished(
+          run.id,
+          "failed",
+          "Setup agent ended without saving a profile.",
+        );
       }
+    } else if (run.status === "succeeded") {
+      const profile = await this.store.getProfileById(run.profileId);
+      const revision = profile?.revision;
+      await this.notifyRunFinished(
+        run.id,
+        "succeeded",
+        revision !== undefined
+          ? `Profile saved at revision ${revision}.`
+          : "Profile saved.",
+      );
+    } else if (run.status === "failed" && run.errorSummary) {
+      await this.notifyRunFinished(run.id, "failed", run.errorSummary);
     }
     return true;
   }
@@ -116,6 +167,38 @@ export class SetupOrchestrator {
       await rm(run.workspacePath, { recursive: true, force: true });
     }
     return true;
+  }
+
+  private async notifyRunFinished(
+    runId: string,
+    outcome: "succeeded" | "failed",
+    detail: string,
+  ): Promise<void> {
+    this.clearSetupTyping(runId);
+    this.setupThreads.delete(runId);
+    const run = await this.store.getRun(runId);
+    const threadId = run?.discordThreadId;
+    if (!threadId) return;
+    const headline =
+      outcome === "succeeded" ? "Setup finished successfully." : "Setup failed.";
+    await this.post(threadId, `${headline}\n${detail}`);
+    if (outcome === "succeeded") {
+      const profile = run
+        ? await this.store.getProfileById(run.profileId)
+        : undefined;
+      if (profile) {
+        await this.post(threadId, renderSetupProfile(profile).content);
+      }
+    }
+  }
+
+  private async post(threadId: string, content: string): Promise<void> {
+    if (!this.postMessage) return;
+    try {
+      await this.postMessage(threadId, content);
+    } catch (error) {
+      console.error("[threadcord] setup thread post failed", error);
+    }
   }
 }
 

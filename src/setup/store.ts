@@ -227,6 +227,51 @@ export class SetupStore {
     return result.rows[0] ? rowToRun(result.rows[0]) : undefined;
   }
 
+  async getRun(runId: string): Promise<SetupRun | undefined> {
+    const result = await this.pool.query("SELECT * FROM setup_runs WHERE id = $1", [
+      runId,
+    ]);
+    return result.rows[0] ? rowToRun(result.rows[0]) : undefined;
+  }
+
+  async attachDiscordThread(
+    runId: string,
+    discordThreadId: string,
+    progressMessageId: string,
+  ): Promise<SetupRun | undefined> {
+    const result = await this.pool.query(
+      `
+        UPDATE setup_runs
+        SET discord_thread_id = $2,
+            progress_message_ids = ARRAY[$3],
+            updated_at = now()
+        WHERE id = $1 AND status = 'running'
+        RETURNING *
+      `,
+      [runId, discordThreadId, progressMessageId],
+    );
+    return result.rows[0] ? rowToRun(result.rows[0]) : undefined;
+  }
+
+  async appendProgressMessageId(
+    runId: string,
+    messageId: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `
+        UPDATE setup_runs
+        SET progress_message_ids =
+              CASE
+                WHEN progress_message_ids IS NULL THEN ARRAY[$2]
+                ELSE array_append(progress_message_ids, $2)
+              END,
+            updated_at = now()
+        WHERE id = $1
+      `,
+      [runId, messageId],
+    );
+  }
+
   async promoteRun(input: {
     runId: string;
     environment: SetupEnvironment;
@@ -500,6 +545,16 @@ function rowToProfile(row: QueryResultRow): SetupProfile {
   };
 }
 
+function progressMessageIdsFromRunRow(
+  row: QueryResultRow,
+): string[] | undefined {
+  const ids = row.progress_message_ids;
+  if (Array.isArray(ids) && ids.length > 0) {
+    return ids.map(String);
+  }
+  return undefined;
+}
+
 function rowToRun(row: QueryResultRow): SetupRun {
   return {
     id: String(row.id),
@@ -509,6 +564,13 @@ function rowToRun(row: QueryResultRow): SetupRun {
     model: String(row.model),
     workspacePath: String(row.workspace_path),
     status: parseRunStatus(row.status),
+    ...(typeof row.discord_thread_id === "string"
+      ? { discordThreadId: row.discord_thread_id }
+      : {}),
+    ...(() => {
+      const progressMessageIds = progressMessageIdsFromRunRow(row);
+      return progressMessageIds ? { progressMessageIds } : {};
+    })(),
     ...(typeof row.error_summary === "string"
       ? { errorSummary: row.error_summary }
       : {}),

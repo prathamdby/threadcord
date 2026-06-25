@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { exportProfile, renderSetupProfile } from "../src/setup/renderer.js";
-import type { SetupProfile } from "../src/setup/profile.js";
+import {
+  exportProfile,
+  renderSetupProfile,
+  renderSetupStatus,
+} from "../src/setup/renderer.js";
+import type { SetupProfile, SetupRun } from "../src/setup/profile.js";
 
 const profile: SetupProfile = {
   id: "profile-1",
@@ -30,6 +34,29 @@ describe("setup renderer", () => {
     expect(renderSetupProfile(profile).content).toContain(
       "Required env: DATABASE_URL",
     );
+  });
+
+  it("renders status separately from full profile view", () => {
+    const running: SetupProfile = { ...profile, status: "running" };
+    const run: SetupRun = {
+      id: "run-1",
+      profileId: "profile-1",
+      repo: "owner/repo",
+      branch: "main",
+      model: "anthropic/claude-sonnet-4-5",
+      workspacePath: "/workspaces/setup",
+      status: "running",
+      discordThreadId: "thread-setup",
+      progressMessageIds: ["msg-1"],
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    };
+    const status = renderSetupStatus({ profile: running, run });
+    expect(status.content).toContain("Status: running");
+    expect(status.content).toContain("Run status: running");
+    expect(status.content).toContain("live log");
+    expect(status.content).not.toContain("Install: npm ci");
+    expect(status.content).toContain("/setup view");
   });
 
   it("exports environment JSON and memory Markdown", () => {

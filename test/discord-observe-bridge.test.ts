@@ -858,6 +858,40 @@ describe("TaskStore progress-message migration", () => {
   });
 });
 
+describe("setup observe streaming", () => {
+  it("edits the setup run progress message on tool events", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const setupStore = {
+      getRunByInstanceId: async () => ({
+        id: "run-abc",
+        profileId: "profile-1",
+        repo: "acme/web",
+        branch: "main",
+        model: "anthropic/claude-sonnet-4-5",
+        workspacePath: "/workspaces/setup",
+        status: "running",
+        discordThreadId: "setup-thread-1",
+        progressMessageIds: ["setup-status-1"],
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      }),
+      appendProgressMessageId: async () => undefined,
+    };
+    (callbacks as unknown as { setupStore: typeof setupStore }).setupStore =
+      setupStore;
+    const instanceId = "setup:run-abc";
+    await handleObserveEvent(
+      bashEvent("npm test", instanceId),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toContain("npm test");
+    vi.useRealTimers();
+  });
+});
+
 describe("TaskOrchestrator.handleAgentFailure", () => {
   it("marks a running task failed and keeps it failed on agent_end", async () => {
     const store = new InMemoryStore(1);

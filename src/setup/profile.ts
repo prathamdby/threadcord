@@ -50,6 +50,8 @@ export interface SetupRun {
   model: string;
   workspacePath: string;
   status: SetupRunStatus;
+  discordThreadId?: string;
+  progressMessageIds?: string[];
   errorSummary?: string;
   createdAt: Date;
   updatedAt: Date;
