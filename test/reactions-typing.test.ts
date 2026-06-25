@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { setPendingUserTurnMessage } from "../src/discord/user-turn-message.js";
+import {
+  setPendingUserTurnMessage,
+  takePendingUserTurnMessage,
+} from "../src/discord/user-turn-message.js";
 import { World, flush } from "./support/orchestrator-harness.js";
 
 const EYES = "👀";
@@ -53,6 +56,19 @@ describe("inbound-message reactions", () => {
       `react:${CHECK}`,
     ]);
     expect(posts).toContain("Turn completed. Waiting for the next instruction.");
+  });
+
+  it("drops pending user message when handleAgentEnd runs after cancel", async () => {
+    const world = new World();
+    const result = await world.submitRaw("m-cancel-pending");
+    const task = result.task!;
+
+    setPendingUserTurnMessage(task.flueInstanceId, "Should not post.");
+    await world.store.cancelTask(task.id);
+    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await flush();
+
+    expect(takePendingUserTurnMessage(task.flueInstanceId)).toBeUndefined();
   });
 
   it("posts the agent user message after the turn-completed notice", async () => {

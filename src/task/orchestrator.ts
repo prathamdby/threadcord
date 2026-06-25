@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dispatch } from "@flue/runtime";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
-import { takePendingUserTurnMessage } from "../discord/user-turn-message.js";
+import {
+  clearPendingUserTurnMessage,
+  takePendingUserTurnMessage,
+} from "../discord/user-turn-message.js";
 import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
 import codingAgent from "../agents/coding.js";
@@ -233,6 +236,7 @@ export class TaskOrchestrator {
       // The current turn's initiator, if any, was moved from pending to
       // in-flight by runTurn, so clearInFlight flips it and disposeInitiators
       // (which only touches pending) cannot double-handle the same message.
+      clearPendingUserTurnMessage(task.flueInstanceId);
       const turn = this.clearInFlight(task.flueInstanceId);
       await this.flipReaction(turn?.initiator, CROSS);
       await this.disposeInitiators(task.id, CROSS);
@@ -286,6 +290,7 @@ export class TaskOrchestrator {
       if (!turned) {
         // A concurrent cancel/failure changed the status between the read
         // and this transition; its own handler did the cleanup and slot fill.
+        clearPendingUserTurnMessage(instanceId);
         this.clearInFlight(instanceId);
         await this.fillConcurrencySlots();
         return;
@@ -304,6 +309,7 @@ export class TaskOrchestrator {
       return;
     }
 
+    clearPendingUserTurnMessage(instanceId);
     this.clearInFlight(instanceId);
     if (task.status === "cancelled" || task.status === "failed") {
       await this.fillConcurrencySlots();
