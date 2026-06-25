@@ -58,6 +58,11 @@ export class SetupStore {
       )
     `);
     await this.pool.query(`
+      ALTER TABLE setup_runs
+      ADD COLUMN IF NOT EXISTS discord_thread_id TEXT,
+      ADD COLUMN IF NOT EXISTS progress_message_ids TEXT[]
+    `);
+    await this.pool.query(`
       ALTER TABLE setup_runs DROP CONSTRAINT IF EXISTS setup_runs_status_check
     `);
     await this.pool.query(`

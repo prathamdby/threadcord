@@ -17,8 +17,7 @@ export function toSetupThreadRef(
       return { id: message.id };
     },
     editMessage: async (messageId, content) => {
-      const message = await thread.messages.fetch(messageId);
-      await message.edit(clampDiscordContent(content));
+      await thread.messages.edit(messageId, clampDiscordContent(content));
     },
     sendTyping: async () => {
       await thread.sendTyping();

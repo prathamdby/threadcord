@@ -31,7 +31,7 @@ export function renderSetupStatus(input: SetupStatusViewInput): SetupViewModel {
           `Run status: ${run.status}`,
           `Model: ${run.model}`,
           run.discordThreadId
-            ? `Live log: open the setup thread for this run in the control channel.`
+            ? `Live log: <#${run.discordThreadId}>`
             : undefined,
           run.errorSummary ? `Run error: ${run.errorSummary}` : undefined,
         ]
@@ -43,7 +43,9 @@ export function renderSetupStatus(input: SetupStatusViewInput): SetupViewModel {
     profile.status === "running" || profile.status === "updating"
       ? [
           "",
-          "A setup agent is running. Open the setup thread on your /setup command for the live log, or run /setup status again after it finishes.",
+          run?.discordThreadId
+            ? `A setup agent is running. Live log: <#${run.discordThreadId}> (or run /setup status again after it finishes).`
+            : "A setup agent is running. Open the setup thread on your /setup create or update reply for the live log, or run /setup status again after it finishes.",
         ]
       : [];
 

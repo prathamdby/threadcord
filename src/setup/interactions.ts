@@ -169,7 +169,7 @@ async function handleSetupCommand(
   const subcommand = interaction.options.getSubcommand();
   try {
     if (subcommand === "create" || subcommand === "update") {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await interaction.deferReply();
       const repo = requiredStringOption(interaction, "repo");
       const branch = requiredStringOption(interaction, "branch");
       const modelOption = interaction.options.getString("model") ?? undefined;
@@ -181,37 +181,36 @@ async function handleSetupCommand(
       });
       const run = await store.getRun(started.runId);
       const model = run?.model ?? modelOption ?? "default";
-      const channel = interaction.channel;
       let threadOpened = false;
-      if (channel?.isTextBased()) {
-        try {
-          const anchor = await channel.messages.fetch(interaction.id);
-          const threadRef = await openSetupRunThread({
-            anchorMessage: anchor,
-            store,
-            runId: started.runId,
-            repo: started.repo,
-            branch: started.branch,
-            model,
-            actionLabel: subcommand,
-          });
-          if (threadRef) {
-            orchestrator.registerSetupThread(started.runId, threadRef);
-            threadOpened = true;
-          }
-        } catch (error) {
-          console.error("[threadcord] setup thread creation failed", error);
+      let threadId: string | undefined;
+      try {
+        const anchor = await interaction.fetchReply();
+        const threadRef = await openSetupRunThread({
+          anchorMessage: anchor,
+          store,
+          runId: started.runId,
+          repo: started.repo,
+          branch: started.branch,
+          model,
+          actionLabel: subcommand,
+        });
+        if (threadRef) {
+          orchestrator.registerSetupThread(started.runId, threadRef);
+          threadOpened = true;
+          threadId = threadRef.id;
         }
+      } catch (error) {
+        console.error("[threadcord] setup thread creation failed", error);
       }
       void orchestrator.dispatchSetupAgent(started);
       try {
         await interaction.editReply(
           discordContent(
-            threadOpened
+            threadOpened && threadId
               ? [
                   `Setup ${subcommand} started.`,
                   `Run: ${started.runId}`,
-                  "Live log: see the thread on this message.",
+                  `Live log: <#${threadId}>`,
                 ].join("\n")
               : [
                   `Setup ${subcommand} started.`,

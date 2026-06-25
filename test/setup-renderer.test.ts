@@ -54,7 +54,7 @@ describe("setup renderer", () => {
     const status = renderSetupStatus({ profile: running, run });
     expect(status.content).toContain("Status: running");
     expect(status.content).toContain("Run status: running");
-    expect(status.content).toContain("live log");
+    expect(status.content).toContain("<#thread-setup>");
     expect(status.content).not.toContain("Install: npm ci");
     expect(status.content).toContain("/setup view");
   });
