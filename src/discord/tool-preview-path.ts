@@ -1,4 +1,6 @@
-import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { posix } from "node:path";
+
+const { basename, isAbsolute, relative, resolve } = posix;
 
 const PATH_PRIMARY_TOOLS = new Set([
   "read_file",
@@ -16,7 +18,7 @@ export function toolPreviewUsesPath(toolName: string): boolean {
 }
 
 function toPosix(path: string): string {
-  return path.split(sep).join("/");
+  return path.replace(/\\/g, "/");
 }
 
 /**
@@ -30,25 +32,25 @@ export function shortenPathForPreview(
   if (!trimmed) return raw;
 
   if (repoRoot) {
-    const absRoot = resolve(repoRoot);
-    const posix = toPosix(trimmed);
-    const absPath = isAbsolute(posix)
-      ? resolve(posix)
-      : resolve(absRoot, posix);
+    const absRoot = resolve(toPosix(repoRoot));
+    const posixPath = toPosix(trimmed);
+    const absPath = isAbsolute(posixPath)
+      ? resolve(posixPath)
+      : resolve(absRoot, posixPath);
     const rel = relative(absRoot, absPath);
     if (rel && !rel.startsWith("..") && !isAbsolute(rel)) {
       return toPosix(rel);
     }
   }
 
-  const posix = toPosix(trimmed);
-  const withLeading = posix.startsWith("/") ? posix : `/${posix}`;
+  const posixPath = toPosix(trimmed);
+  const withLeading = posixPath.startsWith("/") ? posixPath : `/${posixPath}`;
   const workspaceTail = workspaceRepoRelative(withLeading);
   if (workspaceTail !== undefined) {
     return workspaceTail;
   }
 
-  return posix.startsWith("/") ? posix.slice(1) : posix;
+  return posixPath.startsWith("/") ? posixPath.slice(1) : posixPath;
 }
 
 function workspaceRepoRelative(absolutePosix: string): string | undefined {

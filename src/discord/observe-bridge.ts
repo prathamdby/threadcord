@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import { posix } from "node:path";
 import type { FlueEvent } from "@flue/runtime";
 import { observe } from "@flue/runtime";
 import { isThreadcordInstance } from "../ids.js";
@@ -94,7 +94,7 @@ export async function handleObserveEvent(
 
   if (!isTaskInstance && !isSetupInstance) return;
 
-  const line = await eventSummary(event, args);
+  const line = await eventSummary(event, instanceId, args);
   if (!line) return;
 
   const terminal =
@@ -220,17 +220,14 @@ function formatFlueError(error: unknown): string | undefined {
 
 async function eventSummary(
   event: FlueEvent,
+  instanceId: string,
   bridge: ObserveBridgeCallbacks,
 ): Promise<string | undefined> {
   switch (event.type) {
     case "turn_start":
       return "Model turn started";
     case "tool_start": {
-      const instanceId = event.instanceId;
-      const repoRoot =
-        instanceId !== undefined
-          ? await resolveRepoRootForInstance(instanceId, bridge)
-          : undefined;
+      const repoRoot = await resolveRepoRootForInstance(instanceId, bridge);
       return formatToolLine(
         event.toolName,
         event.args,
@@ -257,7 +254,7 @@ async function resolveRepoRootForInstance(
   if (instanceId.startsWith("setup:") && bridge.setupStore) {
     const run = await bridge.setupStore.getRunByInstanceId(instanceId);
     if (!run) return undefined;
-    return join(run.workspacePath, basename(run.repo));
+    return posix.join(run.workspacePath, posix.basename(run.repo));
   }
   return undefined;
 }
