@@ -42,8 +42,8 @@ export function agentRuntimeContextFromTask(
     repo: task.repo,
     baseBranch: task.branch,
     ...(task.pushOverride ? { pushOverride: task.pushOverride } : {}),
-    checks: profile.environment.checks,
-    requiredEnv: profile.environment.requiredEnv,
+    checks: profile.environment?.checks ?? {},
+    requiredEnv: profile.environment?.requiredEnv ?? [],
   };
 }
 

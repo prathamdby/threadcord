@@ -52,16 +52,16 @@ export const END_TURN_CHECKLIST = (
   checksBlock: string,
   requiredEnvBlock: string,
 ) => `END_TURN_CHECKLIST
-Run after any edit, before push, before PR, before post_thread_message.
+Run after any edit, before push, before PR, before post_thread_message or post_thread_report.
 1. Compute diff: \`git diff $(git merge-base origin/${baseBranch} HEAD)..HEAD\`.
 2. If diff is empty: skip the checklist. Do not push. Do not open a PR.
 3. If diff is non-empty: run every check below via \`timeout 10m bash -lc '<cmd>'\`.
 ${checksBlock}
-4. Skip a check only when (a) it references a required env name that is unset in this workspace, or (b) the user instruction in this turn contains the literal line \`verify: false\`. Required env names: ${requiredEnvBlock}. In every skip case, name the check and the reason in the final post_thread_message.
-5. Any check fails -> do NOT push, do NOT open a PR. Post the failing check name, exit code, and last 30 lines of output to Discord via post_thread_message. Exit the turn.
+4. Skip a check only when (a) it references a required env name that is unset in this workspace, or (b) the user instruction in this turn contains the literal line \`verify: false\`. Required env names: ${requiredEnvBlock}. In every skip case, name the check and the reason in the final post_thread_message or post_thread_report.
+5. Any check fails -> do NOT push, do NOT open a PR. Post the failing check name, exit code, and last 30 lines of output to Discord via post_thread_report (preferred for verbose output) or post_thread_message if the full report fits in 1900 chars. Exit the turn.
 6. All checks pass (or all skipped with reasons) -> push, then PR per GIT WORKFLOW. If a check auto-fixed files (lint --fix), commit those fixes or revert before pushing.
-7. If no checks are configured and diff is non-empty: refuse to push unless the user instruction contains \`verify: false\`. State this in post_thread_message.
-8. If \`verify: false\` was used: post_thread_message must enumerate which checks were skipped and why the user requested the bypass.`;
+7. If no checks are configured and diff is non-empty: refuse to push unless the user instruction contains \`verify: false\`. State this in post_thread_message or post_thread_report.
+8. If \`verify: false\` was used: post_thread_message or post_thread_report must enumerate which checks were skipped and why the user requested the bypass.`;
 
 export const STATUS_POSTING = `STATUS POSTING (Discord)
 - The final message is the product. Treat it as the deliverable.

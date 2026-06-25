@@ -53,8 +53,8 @@ export type ComposeInput =
   | { role: "setup"; ctx: SetupCtx }
   | { role: "thread-namer"; ctx: ThreadNamerCtx };
 
-function formatChecksList(checks: Record<string, string>): string {
-  const entries = Object.entries(checks);
+function formatChecksList(checks?: Record<string, string> | null): string {
+  const entries = Object.entries(checks ?? {});
   if (entries.length === 0) {
     return "   (none configured)";
   }
@@ -63,8 +63,8 @@ function formatChecksList(checks: Record<string, string>): string {
     .join("\n");
 }
 
-function formatRequiredEnvList(requiredEnv: string[]): string {
-  if (requiredEnv.length === 0) {
+function formatRequiredEnvList(requiredEnv?: string[] | null): string {
+  if (!requiredEnv || requiredEnv.length === 0) {
     return "(none)";
   }
   return requiredEnv.join(", ");
