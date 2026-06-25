@@ -1,5 +1,6 @@
 import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
+import { createPostThreadMessageTool } from "../discord/thread-message-tool.js";
 import {
   createGitHubTools,
   gitIdentityEnv,
@@ -31,7 +32,10 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
       timeoutMs: 60 * 60 * 1000,
       maxAttempts: 10,
     },
-    tools: githubToken ? createGitHubTools(githubToken) : [],
+    tools: [
+      createPostThreadMessageTool(id),
+      ...(githubToken ? createGitHubTools(githubToken) : []),
+    ],
     instructions: [
       "You are Threadcord, a background coding agent controlled from Discord.",
       `Work only inside ${turn.cwd}. Treat credentials as write-only operational secrets; never print them.`,
@@ -43,6 +47,7 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
       "Commit: derive the message only from the diff; ignore Discord thread and task instruction text. Use conventional subjects with no scope (<type>: <description>, max 50 chars, lowercase except proper nouns, no trailing period). Optional body is bullet lines starting with - (what and why, no blank lines between bullets). Run git commit with one or two -m flags only: first -m is the subject, optional second -m holds the entire body with bullets joined by single newlines. Never three or more -m flags.",
       "Push: push before opening a PR. Push only the current threadcord/* branch, unless an allowed push override was provided.",
       "PR: use create_github_pull_request only after push succeeds. head is the pushed branch name; base is the task base branch. Title is plain English from the branch diff, not commit messages. Body is short and grouped by change area.",
+      "Discord: before finishing a successful turn, call post_thread_message with a concise final message for the human operator (what you did, outcome, PR link if any). That message is posted after the turn-completed notice.",
       payload?.instruction ?? "",
     ]
       .filter(Boolean)

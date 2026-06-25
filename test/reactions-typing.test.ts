@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { setPendingUserTurnMessage } from "../src/discord/user-turn-message.js";
 import { World, flush } from "./support/orchestrator-harness.js";
 
 const EYES = "👀";
@@ -52,6 +53,31 @@ describe("inbound-message reactions", () => {
       `react:${CHECK}`,
     ]);
     expect(posts).toContain("Turn completed. Waiting for the next instruction.");
+  });
+
+  it("posts the agent user message after the turn-completed notice", async () => {
+    const world = new World();
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+    const result = await world.submitRaw("m-user-msg");
+    const task = result.task!;
+
+    setPendingUserTurnMessage(
+      task.flueInstanceId,
+      "Shipped the fix and opened a PR.",
+    );
+    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await flush();
+
+    const completedIdx = posts.indexOf(
+      "Turn completed. Waiting for the next instruction.",
+    );
+    expect(completedIdx).toBeGreaterThanOrEqual(0);
+    expect(posts[completedIdx + 1]).toBe(
+      "Shipped the fix and opened a PR.",
+    );
   });
 
   it("flips eyes to cross on the initiator message when a turn fails", async () => {

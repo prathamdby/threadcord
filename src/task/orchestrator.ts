@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dispatch } from "@flue/runtime";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
+import { takePendingUserTurnMessage } from "../discord/user-turn-message.js";
 import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
 import codingAgent from "../agents/coding.js";
@@ -289,10 +290,14 @@ export class TaskOrchestrator {
         await this.fillConcurrencySlots();
         return;
       }
+      const userMessage = takePendingUserTurnMessage(instanceId);
       await this.post(
         task.discordThreadId,
         "Turn completed. Waiting for the next instruction.",
       );
+      if (userMessage) {
+        await this.post(task.discordThreadId, userMessage);
+      }
       const turn = this.clearInFlight(instanceId);
       await this.flipReaction(turn?.initiator, CHECK);
       await this.scheduleAfterTurn(task.id);
@@ -319,6 +324,8 @@ export class TaskOrchestrator {
       summarizeError(new Error(errorSummary)),
     );
     if (!failed) return;
+
+    takePendingUserTurnMessage(instanceId);
 
     await this.post(
       task.discordThreadId,
@@ -411,6 +418,7 @@ export class TaskOrchestrator {
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {
       const summary = summarizeError(error);
+      takePendingUserTurnMessage(task.flueInstanceId);
       await this.store.transition(
         task.id,
         ["queued", "waiting", "running"],
