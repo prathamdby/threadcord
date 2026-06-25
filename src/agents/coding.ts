@@ -6,6 +6,7 @@ import {
   gitIdentityEnv,
   resolveGitIdentity,
 } from "../github/tools.js";
+import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
 import { workspaceEnv } from "../task/workspace-env.js";
 import type { DispatchAgentInput } from "../types.js";
@@ -17,16 +18,20 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
     ? await resolveGitIdentity(githubToken)
     : undefined;
 
+  const sandboxEnv = githubToken
+    ? await resolveGithubHttpsGitEnv(
+        turn.workspaceRoot,
+        githubToken,
+        gitIdentity ? gitIdentityEnv(gitIdentity) : {},
+      )
+    : workspaceEnv(turn.workspaceRoot);
+
   return {
     model: turn.model,
     cwd: turn.cwd,
     sandbox: local({
       cwd: turn.cwd,
-      env: workspaceEnv(turn.workspaceRoot, {
-        GITHUB_TOKEN: githubToken,
-        GH_TOKEN: githubToken,
-        ...(gitIdentity ? gitIdentityEnv(gitIdentity) : {}),
-      }),
+      env: sandboxEnv,
     }),
     durability: {
       timeoutMs: 60 * 60 * 1000,

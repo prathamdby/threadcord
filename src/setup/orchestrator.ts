@@ -1,11 +1,14 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { dispatch } from "@flue/runtime";
 import type { AppConfig } from "../config.js";
 import setupAgent from "../agents/setup.js";
 import { execa } from "../task/execa.js";
-import { ensureWorkspaceDirs, workspaceEnv } from "../task/workspace-env.js";
+import {
+  githubHttpsCloneUrl,
+  resolveGithubHttpsGitEnv,
+} from "../task/git-auth.js";
+import { ensureWorkspaceDirs } from "../task/workspace-env.js";
 import { summarizeError } from "../util/redact.js";
 import { renderSetupProfile } from "./renderer.js";
 import { parseSetupProfileKey } from "./profile.js";
@@ -211,63 +214,38 @@ async function prepareSetupWorkspace(input: {
   await mkdir(input.workspacePath, { recursive: true });
   await ensureWorkspaceDirs(input.workspacePath);
   const checkoutDir = setupCheckoutDir(input.workspacePath, input.repo);
-  const askPassDir = await mkdtemp(join(tmpdir(), "threadcord-git-askpass-"));
+  const gitEnv = await resolveGithubHttpsGitEnv(
+    input.workspacePath,
+    input.githubToken,
+  );
   try {
-    const askPassPath = join(askPassDir, "askpass.sh");
-    await writeGitAskPass(askPassPath);
-    const gitEnv = workspaceEnv(input.workspacePath, {
-      GIT_ASKPASS: askPassPath,
-      GIT_TERMINAL_PROMPT: "0",
-      GITHUB_TOKEN: input.githubToken,
-      GH_TOKEN: input.githubToken,
-    });
-    try {
-      await execa("git", ["-C", checkoutDir, "rev-parse", "--git-dir"], {
-        env: gitEnv,
-      });
-    } catch {
-      await execa(
-        "git",
-        [
-          "clone",
-          "--branch",
-          input.branch,
-          "--single-branch",
-          `https://github.com/${input.repo}.git`,
-          checkoutDir,
-        ],
-        { cwd: input.workspacePath, env: gitEnv },
-      );
-    }
-    await execa("git", ["fetch", "origin", input.branch], {
-      cwd: checkoutDir,
+    await execa("git", ["-C", checkoutDir, "rev-parse", "--git-dir"], {
       env: gitEnv,
     });
-    await execa("git", ["checkout", "-B", input.branch, `origin/${input.branch}`], {
-      cwd: checkoutDir,
-      env: gitEnv,
-    });
-  } finally {
-    await rm(askPassDir, { recursive: true, force: true });
+  } catch {
+    await execa(
+      "git",
+      [
+        "clone",
+        "--branch",
+        input.branch,
+        "--single-branch",
+        githubHttpsCloneUrl(input.repo),
+        checkoutDir,
+      ],
+      { cwd: input.workspacePath, env: gitEnv },
+    );
   }
+  await execa("git", ["fetch", "origin", input.branch], {
+    cwd: checkoutDir,
+    env: gitEnv,
+  });
+  await execa("git", ["checkout", "-B", input.branch, `origin/${input.branch}`], {
+    cwd: checkoutDir,
+    env: gitEnv,
+  });
 }
 
 function setupCheckoutDir(workspacePath: string, repo: string): string {
   return join(workspacePath, basename(repo));
-}
-
-async function writeGitAskPass(path: string): Promise<void> {
-  await writeFile(
-    path,
-    [
-      "#!/bin/sh",
-      'case "$1" in',
-      '  *Username*) printf "%s\\n" "x-access-token" ;;',
-      '  *) printf "%s\\n" "$GITHUB_TOKEN" ;;',
-      "esac",
-      "",
-    ].join("\n"),
-    { mode: 0o700 },
-  );
-  await chmod(path, 0o700);
 }
