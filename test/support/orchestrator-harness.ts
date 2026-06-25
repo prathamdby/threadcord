@@ -72,7 +72,7 @@ export class InMemoryStore {
   snapshot(taskId: string): TaskRecord {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error(`No task ${taskId}`);
-    return { ...task };
+    return clone(task);
   }
 
   findByMessageId(messageId: string): TaskRecord | undefined {

@@ -40,18 +40,18 @@ export function registerObserveBridge(args: ObserveBridgeCallbacks): void {
   };
 
   observe((event) => {
-    void withInstanceEventLock(event, state, () =>
+    const instanceId = "instanceId" in event ? event.instanceId : undefined;
+    void withInstanceEventLock(instanceId, state, () =>
       handleObserveEvent(event, args, state),
     );
   });
 }
 
 export async function withInstanceEventLock(
-  event: FlueEvent,
+  instanceId: string | undefined,
   state: ObserveBridgeState,
   fn: () => Promise<void>,
 ): Promise<void> {
-  const instanceId = "instanceId" in event ? event.instanceId : undefined;
   if (!instanceId) {
     await fn();
     return;
@@ -108,10 +108,8 @@ export async function handleObserveEvent(
         state.timers.delete(instanceId);
         const current = state.renderState.get(instanceId);
         if (current && current.lines.length > 0) {
-          void withInstanceEventLock(
-            { instanceId } as FlueEvent,
-            state,
-            () => flush(instanceId, current, args),
+          void withInstanceEventLock(instanceId, state, () =>
+            flush(instanceId, current, args),
           );
         }
       }, PROGRESS_EDIT_INTERVAL_MS),
@@ -202,7 +200,11 @@ async function maybeRoll(
       await args.store.appendProgressMessageId(task.id, sent.id);
       rolled = true;
     }
-  } catch {
+  } catch (error) {
+    console.error(
+      `[threadcord] progress roll failed for ${instanceId}`,
+      error,
+    );
     rolled = false;
   }
 

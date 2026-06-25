@@ -308,49 +308,31 @@ describe("handleObserveEvent", () => {
     } as unknown as ObserveBridgeCallbacks;
 
     await Promise.all([
-      withInstanceEventLock(
-        taskEvent({
-          type: "turn",
-          turnId: "turn-1",
-          purpose: "agent",
-          durationMs: 12,
-          isError: true,
-          error: "Stream ended without finish_reason",
-          instanceId,
-        }),
-        sharedState,
-        () =>
-          handleObserveEvent(
-            taskEvent({
-              type: "turn",
-              turnId: "turn-1",
-              purpose: "agent",
-              durationMs: 12,
-              isError: true,
-              error: "Stream ended without finish_reason",
-              instanceId,
-            }),
-            callbacks,
-            sharedState,
-          ),
+      withInstanceEventLock(instanceId, sharedState, () =>
+        handleObserveEvent(
+          taskEvent({
+            type: "turn",
+            turnId: "turn-1",
+            purpose: "agent",
+            durationMs: 12,
+            isError: true,
+            error: "Stream ended without finish_reason",
+            instanceId,
+          }),
+          callbacks,
+          sharedState,
+        ),
       ),
-      withInstanceEventLock(
-        taskEvent({
-          type: "agent_end",
-          messages: [],
-          instanceId,
-        }),
-        sharedState,
-        () =>
-          handleObserveEvent(
-            taskEvent({
-              type: "agent_end",
-              messages: [],
-              instanceId,
-            }),
-            callbacks,
-            sharedState,
-          ),
+      withInstanceEventLock(instanceId, sharedState, () =>
+        handleObserveEvent(
+          taskEvent({
+            type: "agent_end",
+            messages: [],
+            instanceId,
+          }),
+          callbacks,
+          sharedState,
+        ),
       ),
     ]);
 
