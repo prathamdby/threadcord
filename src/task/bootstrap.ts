@@ -49,7 +49,7 @@ export async function runSetupInstall(
   await execa("bash", ["-c", wrapWorkspaceBashCommand(installCommand)], {
     cwd: checkoutDir,
     env: scopedGitEnv(workspaceRoot, githubToken),
-    timeout: 600_000,
+    timeout: 1_800_000,
   });
 }
 
