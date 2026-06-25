@@ -60,6 +60,7 @@ const readyProfile: SetupProfile = {
 
 export const fakeSetupStore = {
   getReadyProfile: async () => readyProfile,
+  getProfile: async () => readyProfile,
 } as unknown as SetupStore;
 
 interface StoredFollowup {

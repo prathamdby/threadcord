@@ -5,6 +5,7 @@ import { getPool } from "../db.js";
 import { createSetupTools } from "../setup/tools.js";
 import { SetupStore } from "../setup/store.js";
 import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
+import { composePrompt } from "./compose.js";
 
 export default createAgent(async ({ id }) => {
   const store = new SetupStore(getPool());
@@ -30,21 +31,12 @@ export default createAgent(async ({ id }) => {
       maxAttempts: 3,
     },
     tools: createSetupTools(run.id),
-    instructions: [
-      "You are Threadcord's setup agent.",
-      `Repository: ${run.repo}. Base branch: ${run.branch}.`,
-      "Do not explore the repository deeply. Start with critical paths only: root README, package manifests and lockfiles, docker-compose or similar service definitions, and the main app entry or build config.",
-      "From those, identify the package manager, install command, optional start command, useful checks, required environment variable names, and required services.",
-      "Write the setup profile next: run the proposed install and checks in the checkout, then save. Prefer a short, accurate profile over exhaustive codebase reading.",
-      "Run the proposed install command in the checkout before saving.",
-      "Run every proposed check command in the checkout before saving.",
-      "Save only checks that passed in this clean setup workspace.",
-      "If a useful command requires missing secrets or services, record those names in requiredEnv, requiredServices, and memory instead of saving a failing check.",
-      "start is optional. If present, choose a command that can be smoke-probed. The save tool rejects a start command that exits non-zero immediately.",
-      "The save tool re-runs install and checks before promotion. If it rejects the profile, inspect the output, adjust the commands, and call the tool again.",
-      "Do not commit files to the target repository.",
-      "Store secret names only. Never store secret values.",
-      "When you are done, call save_threadcord_setup_profile with environment JSON and Memory Markdown.",
-    ].join("\n"),
+    instructions: composePrompt({
+      role: "setup",
+      ctx: {
+        repo: run.repo,
+        branch: run.branch,
+      },
+    }),
   };
 });

@@ -4,7 +4,7 @@ import { dispatch } from "@flue/runtime";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
 import {
   clearPendingUserTurnMessage,
-  takePendingUserTurnMessage,
+  takePendingUserTurnMessages,
 } from "../discord/user-turn-message.js";
 import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
@@ -305,13 +305,16 @@ export class TaskOrchestrator {
         await this.fillConcurrencySlots();
         return;
       }
-      const userMessage = takePendingUserTurnMessage(instanceId);
-      await this.post(
-        task.discordThreadId,
-        "Turn completed. Waiting for the next instruction.",
-      );
-      if (userMessage) {
-        await this.post(task.discordThreadId, userMessage);
+      const userMessages = takePendingUserTurnMessages(instanceId);
+      if (userMessages.length === 0) {
+        await this.post(
+          task.discordThreadId,
+          "Turn completed. Waiting for the next instruction.",
+        );
+      } else {
+        for (const message of userMessages) {
+          await this.post(task.discordThreadId, message);
+        }
       }
       const turn = this.clearInFlight(instanceId);
       await this.flipReaction(turn?.initiator, CHECK);
@@ -341,7 +344,7 @@ export class TaskOrchestrator {
     );
     if (!failed) return;
 
-    takePendingUserTurnMessage(instanceId);
+    takePendingUserTurnMessages(instanceId);
 
     await this.post(
       task.discordThreadId,
@@ -442,7 +445,7 @@ export class TaskOrchestrator {
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {
       const summary = summarizeError(error);
-      takePendingUserTurnMessage(task.flueInstanceId);
+      takePendingUserTurnMessages(task.flueInstanceId);
       await this.store.transition(
         task.id,
         ["queued", "waiting", "running"],

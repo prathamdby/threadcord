@@ -72,7 +72,7 @@ export function createGitHubTools(token: string) {
     defineTool({
       name: "create_github_pull_request",
       description:
-        "Create a GitHub pull request for the already-pushed task branch.",
+        "Open a GitHub pull request. Call only after the branch was already-pushed successfully. Required: owner (GitHub org/user), repo (repo name only, no slash), title (plain English derived from the branch diff, not commit messages, <=72 chars), head (the pushed branch name; usually threadcord/<type>/<name>), base (the task base branch). Optional body (Markdown; group changes by area, link to relevant issues, do not paste GITHUB_TOKEN or env values). Returns JSON with the PR number, URL, and state. Do not call twice for the same head/base; if a PR already exists, post its URL via post_thread_message instead.",
       parameters: v.object({
         owner: v.pipe(v.string(), v.minLength(1)),
         repo: v.pipe(v.string(), v.minLength(1)),

@@ -600,6 +600,42 @@ describe("handleObserveEvent", () => {
     vi.useRealTimers();
   });
 
+  it("surfaces tool validation failures as tool_failed lines", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "post_thread_message",
+        toolCallId: "tc-err",
+        args: { message: "x".repeat(2000) },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "post_thread_message",
+        toolCallId: "tc-err",
+        isError: true,
+        result: "message exceeds 1900 chars; use post_thread_report",
+        durationMs: 2,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits.some((line) => line.includes("tool_failed: post_thread_message"))).toBe(
+      true,
+    );
+    expect(edits.some((line) => line.includes("1900 chars"))).toBe(true);
+    vi.useRealTimers();
+  });
+
   it("truncates a preview longer than 40 chars with ... inside the quotes", async () => {
     vi.useFakeTimers();
     const { callbacks, edits, state } = recordingBridge();
