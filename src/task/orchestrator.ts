@@ -138,7 +138,7 @@ export class TaskOrchestrator {
     );
     if (!setupProfile) {
       await message.reply(
-        `Rejected: Missing ready setup profile for ${request.repo} on ${request.branch}. Run /setup create repo:${request.repo} branch:${request.branch} first.`,
+        `Rejected: Missing ready setup profile for ${request.repo} on ${request.branch}. Run /setup create with repo ${request.repo} and branch ${request.branch} first.`,
       );
       return;
     }
