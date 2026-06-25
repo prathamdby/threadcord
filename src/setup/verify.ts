@@ -27,7 +27,7 @@ export interface VerifySetupEnvironmentInput {
   startProbeMs?: number;
 }
 
-const DEFAULT_INSTALL_TIMEOUT_MS = 600_000;
+const DEFAULT_INSTALL_TIMEOUT_MS = 1_800_000;
 const DEFAULT_CHECK_TIMEOUT_MS = 300_000;
 const DEFAULT_START_PROBE_MS = 10_000;
 const OUTPUT_MAX_CHARS = 2000;
