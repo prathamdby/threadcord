@@ -4,7 +4,10 @@ import { isThreadcordInstance } from "../ids.js";
 import type { TaskStore } from "../task/store.js";
 import { redact, summarizeError } from "../util/redact.js";
 import type { DiscordPublisher } from "./publisher.js";
+import { PROGRESS_ROLL_THRESHOLD } from "./limits.js";
 import { formatToolLine, isTerminalBlock } from "./tool-format.js";
+
+const PROGRESS_EDIT_INTERVAL_MS = 1500;
 
 export interface ObserveBridgeCallbacks {
   store: TaskStore;
@@ -19,6 +22,8 @@ export interface InstanceRenderState {
   lastRenderedBase: string | undefined;
   repeatCount: number;
   lastWasTerminalBlock: boolean;
+  bubbleStartIndex: number;
+  currentBubbleCharCount: number;
 }
 
 interface ObserveBridgeState {
@@ -89,21 +94,29 @@ export async function handleObserveEvent(
     event.type === "tool_start" && isTerminalBlock(event.toolName, event.args);
 
   const inst = state.renderState.get(instanceId) ?? newInstanceState();
-  appendRenderedLine(inst, line, terminal);
+  const outcome = appendRenderedLine(inst, line, terminal);
   state.renderState.set(instanceId, inst);
 
-  const existing = state.timers.get(instanceId);
-  if (existing) clearTimeout(existing);
-  state.timers.set(
-    instanceId,
-    setTimeout(() => {
-      state.timers.delete(instanceId);
-      const current = state.renderState.get(instanceId);
-      if (current && current.lines.length > 0) {
-        void flush(instanceId, current, args);
-      }
-    }, 2500),
-  );
+  if (outcome.kind === "new") {
+    await maybeRoll(instanceId, inst, outcome.line, args);
+  }
+
+  if (!state.timers.has(instanceId)) {
+    state.timers.set(
+      instanceId,
+      setTimeout(() => {
+        state.timers.delete(instanceId);
+        const current = state.renderState.get(instanceId);
+        if (current && current.lines.length > 0) {
+          void withInstanceEventLock(
+            { instanceId } as FlueEvent,
+            state,
+            () => flush(instanceId, current, args),
+          );
+        }
+      }, PROGRESS_EDIT_INTERVAL_MS),
+    );
+  }
 }
 
 function newInstanceState(): InstanceRenderState {
@@ -113,20 +126,29 @@ function newInstanceState(): InstanceRenderState {
     lastRenderedBase: undefined,
     repeatCount: 0,
     lastWasTerminalBlock: false,
+    bubbleStartIndex: 0,
+    currentBubbleCharCount: 0,
   };
 }
+
+type AppendOutcome =
+  | { kind: "repeat" }
+  | { kind: "new"; line: string };
 
 function appendRenderedLine(
   inst: InstanceRenderState,
   baseLine: string,
   terminal: boolean,
-): void {
+): AppendOutcome {
   if (inst.lastLine !== undefined && baseLine === inst.lastLine) {
     inst.repeatCount += 1;
     const base = inst.lastRenderedBase ?? baseLine;
-    inst.lines[inst.lines.length - 1] = `${base} (×${inst.repeatCount})`;
+    const prev = inst.lines[inst.lines.length - 1]!;
+    const next = `${base} (×${inst.repeatCount})`;
+    inst.lines[inst.lines.length - 1] = next;
+    inst.currentBubbleCharCount += next.length - prev.length;
     inst.lastWasTerminalBlock = terminal;
-    return;
+    return { kind: "repeat" };
   }
   let line = baseLine;
   if (terminal && inst.lastWasTerminalBlock) {
@@ -137,6 +159,59 @@ function appendRenderedLine(
   inst.lastRenderedBase = line;
   inst.repeatCount = 1;
   inst.lastWasTerminalBlock = terminal;
+  return { kind: "new", line };
+}
+
+export function shouldRollBubble(
+  currentBubbleCharCount: number,
+  nextLineLength: number,
+  threshold: number = PROGRESS_ROLL_THRESHOLD,
+): boolean {
+  return (
+    currentBubbleCharCount > 0 &&
+    currentBubbleCharCount + 1 + nextLineLength > threshold
+  );
+}
+
+async function maybeRoll(
+  instanceId: string,
+  inst: InstanceRenderState,
+  newLine: string,
+  args: Pick<ObserveBridgeCallbacks, "store" | "publisher">,
+): Promise<void> {
+  if (!shouldRollBubble(inst.currentBubbleCharCount, newLine.length)) {
+    const wasEmpty = inst.currentBubbleCharCount === 0;
+    inst.currentBubbleCharCount += (wasEmpty ? 0 : 1) + newLine.length;
+    return;
+  }
+
+  let rolled = false;
+  try {
+    const task = await args.store.getByInstanceId(instanceId);
+    const liveId = task?.progressMessageIds?.[task.progressMessageIds.length - 1];
+    if (task && liveId) {
+      const frozenContent = inst.lines
+        .slice(inst.bubbleStartIndex, inst.lines.length - 1)
+        .map((line) => redact(line))
+        .join("\n");
+      await args.publisher.edit(task.discordThreadId, liveId, frozenContent);
+      const sent = await args.publisher.send(
+        task.discordThreadId,
+        redact(newLine),
+      );
+      await args.store.appendProgressMessageId(task.id, sent.id);
+      rolled = true;
+    }
+  } catch {
+    rolled = false;
+  }
+
+  if (rolled) {
+    inst.bubbleStartIndex = inst.lines.length - 1;
+    inst.currentBubbleCharCount = newLine.length;
+  } else {
+    inst.currentBubbleCharCount += 1 + newLine.length;
+  }
 }
 
 async function flush(
@@ -145,12 +220,13 @@ async function flush(
   args: Pick<ObserveBridgeCallbacks, "store" | "publisher">,
 ): Promise<void> {
   const task = await args.store.getByInstanceId(instanceId);
-  if (!task?.statusMessageId) return;
-  await args.publisher.edit(
-    task.discordThreadId,
-    task.statusMessageId,
-    inst.lines.map((line) => redact(line)).join("\n"),
-  );
+  const liveId = task?.progressMessageIds?.[task.progressMessageIds.length - 1];
+  if (!liveId) return;
+  const content = inst.lines
+    .slice(inst.bubbleStartIndex)
+    .map((line) => redact(line))
+    .join("\n");
+  await args.publisher.edit(task.discordThreadId, liveId, content);
 }
 
 export function submissionFailureSummary(event: FlueEvent): string | undefined {

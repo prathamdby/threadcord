@@ -28,7 +28,7 @@ describe("task admission when Discord succeeds", () => {
     expect(task).toBeDefined();
     expect(task!.status).toBe("running");
     expect(task!.discordThreadId).toBe(world.threadIdFor("m-ok"));
-    expect(task!.statusMessageId).toBeDefined();
+    expect(task!.progressMessageIds).toBeDefined();
     expect(result.threadsCreated).toBe(1);
     expect(result.sends).toContain("Queued");
     expect(result.sends).toContain("Started");
@@ -57,7 +57,7 @@ describe("task admission when thread creation throws", () => {
     expect(task).toBeDefined();
     expect(task!.status).toBe("failed");
     expect(task!.errorSummary).toContain("thread create");
-    expect(task!.statusMessageId).toBe(`unattached:${task!.id}`);
+    expect(task!.progressMessageIds?.[0]).toBe(`unattached:${task!.id}`);
     expect(world.dispatched).toHaveLength(0);
     expect(result.replies.some((r) => r.includes("Could not create"))).toBe(
       true,
@@ -72,7 +72,7 @@ describe("task admission when the status message throws", () => {
 
     const task = result.task;
     expect(task!.status).toBe("failed");
-    expect(task!.statusMessageId).toBe(`unattached:${task!.id}`);
+    expect(task!.progressMessageIds?.[0]).toBe(`unattached:${task!.id}`);
     expect(world.dispatched).toHaveLength(0);
     expect(
       result.replies.some((r) =>
@@ -172,7 +172,7 @@ describe("restart reconciliation of leftover drafts", () => {
     await world.restart();
 
     expect(world.store.snapshot(input.id).status).toBe("failed");
-    expect(world.store.snapshot(input.id).statusMessageId).toBe(
+    expect(world.store.snapshot(input.id).progressMessageIds?.[0]).toBe(
       `unattached:${input.id}`,
     );
     expect(world.dispatched).toHaveLength(0);

@@ -46,6 +46,15 @@ export class TaskStore {
       ADD COLUMN IF NOT EXISTS setup_profile_revision INTEGER NOT NULL DEFAULT 0
     `);
     await this.pool.query(`
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS progress_message_ids TEXT[]
+    `);
+    await this.pool.query(`
+      UPDATE tasks
+      SET progress_message_ids = ARRAY[status_message_id]
+      WHERE status_message_id IS NOT NULL AND progress_message_ids IS NULL
+    `);
+    await this.pool.query(`
       ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check
     `);
     await this.pool.query(`
@@ -58,7 +67,7 @@ export class TaskStore {
     `);
     await this.pool.query(`
       ALTER TABLE tasks ADD CONSTRAINT tasks_attached_unless_draft_check
-      CHECK (status = 'draft' OR status_message_id IS NOT NULL)
+      CHECK (status = 'draft' OR progress_message_ids IS NOT NULL OR status_message_id IS NOT NULL)
     `);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS task_followups (
@@ -118,13 +127,37 @@ export class TaskStore {
         UPDATE tasks
         SET discord_thread_id = $2,
             flue_instance_id = $3,
-            status_message_id = $4,
+            progress_message_ids = ARRAY[$4],
             status = 'queued',
             updated_at = now()
         WHERE id = $1 AND status = 'draft'
         RETURNING *
       `,
       [taskId, threadId, flueInstanceId, statusMessageId],
+    );
+    return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
+  }
+
+  async appendProgressMessageId(
+    taskId: string,
+    messageId: string,
+  ): Promise<TaskRecord | undefined> {
+    const result = await this.pool.query(
+      `
+        UPDATE tasks
+        SET progress_message_ids =
+              COALESCE(
+                progress_message_ids,
+                CASE WHEN status_message_id IS NOT NULL
+                  THEN ARRAY[status_message_id]
+                  ELSE ARRAY[]::text[]
+                END
+              ) || $2::text[],
+            updated_at = now()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [taskId, [messageId]],
     );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
@@ -138,7 +171,7 @@ export class TaskStore {
         UPDATE tasks
         SET status = 'failed',
             error_summary = $2,
-            status_message_id = COALESCE(status_message_id, 'unattached:' || id),
+            progress_message_ids = COALESCE(progress_message_ids, ARRAY['unattached:' || id]),
             updated_at = now()
         WHERE id = $1 AND status = 'draft'
         RETURNING *
@@ -157,7 +190,7 @@ export class TaskStore {
               error_summary,
               'Draft abandoned before thread attachment'
             ),
-            status_message_id = COALESCE(status_message_id, 'unattached:' || id),
+            progress_message_ids = COALESCE(progress_message_ids, ARRAY['unattached:' || id]),
             updated_at = now()
         WHERE status = 'draft'
         RETURNING *
@@ -461,6 +494,22 @@ function parseTaskStatus(value: unknown): TaskStatus {
   throw new Error(`Invalid task status: ${String(value)}`);
 }
 
+export function progressMessageIdsFromRow(
+  row: QueryResultRow,
+): { progressMessageIds?: string[]; statusMessageId?: string } {
+  const ids = row.progress_message_ids;
+  if (Array.isArray(ids) && ids.length > 0) {
+    return { progressMessageIds: ids.map(String) };
+  }
+  if (typeof row.status_message_id === "string") {
+    return {
+      progressMessageIds: [row.status_message_id],
+      statusMessageId: row.status_message_id,
+    };
+  }
+  return {};
+}
+
 function rowToTask(row: QueryResultRow): TaskRecord {
   return {
     id: String(row.id),
@@ -477,9 +526,7 @@ function rowToTask(row: QueryResultRow): TaskRecord {
       : {}),
     status: parseTaskStatus(row.status),
     initialTurnStarted: Boolean(row.initial_turn_started),
-    ...(typeof row.status_message_id === "string"
-      ? { statusMessageId: row.status_message_id }
-      : {}),
+    ...progressMessageIdsFromRow(row),
     ...(typeof row.error_summary === "string"
       ? { errorSummary: row.error_summary }
       : {}),

@@ -1,5 +1,7 @@
 export const DISCORD_MESSAGE_CONTENT_LIMIT = 2000;
 
+export const PROGRESS_ROLL_THRESHOLD = DISCORD_MESSAGE_CONTENT_LIMIT - 64;
+
 function truncationMarker(removedCount: number): string {
   return `\n...[truncated ${removedCount} chars]...\n`;
 }

@@ -34,6 +34,7 @@ export interface TaskRecord extends Omit<TaskRequest, "model"> {
   model: string;
   status: TaskStatus;
   initialTurnStarted: boolean;
+  progressMessageIds?: string[];
   statusMessageId?: string;
   errorSummary?: string;
   setupProfileRevision: number;

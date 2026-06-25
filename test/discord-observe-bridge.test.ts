@@ -4,10 +4,15 @@ import { toFlueInstanceId } from "../src/ids.js";
 import {
   failureDiscordMessage,
   handleObserveEvent,
+  shouldRollBubble,
   submissionFailureSummary,
   withInstanceEventLock,
   type ObserveBridgeCallbacks,
 } from "../src/discord/observe-bridge.js";
+import { PROGRESS_ROLL_THRESHOLD, clampDiscordContent } from "../src/discord/limits.js";
+import { formatToolLine } from "../src/discord/tool-format.js";
+import { redact } from "../src/util/redact.js";
+import { progressMessageIdsFromRow } from "../src/task/store.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import {
@@ -27,9 +32,11 @@ function taskEvent(partial: Record<string, unknown>): FlueEvent {
 function recordingBridge(): {
   callbacks: ObserveBridgeCallbacks;
   edits: string[];
+  sends: { id: string; content: string }[];
   state: NonNullable<Parameters<typeof handleObserveEvent>[2]>;
 } {
   const edits: string[] = [];
+  const sends: { id: string; content: string }[] = [];
   const callbacks = {
     store: {
       getByInstanceId: async () => ({
@@ -45,16 +52,21 @@ function recordingBridge(): {
         setupProfileRevision: 2,
         status: "running",
         initialTurnStarted: true,
-        statusMessageId: "status-1",
+        progressMessageIds: ["status-1"],
         createdAt: new Date(0),
         updatedAt: new Date(0),
       }),
+      appendProgressMessageId: async () => undefined,
     },
     publisher: {
       edit: async (_threadId: string, _messageId: string, content: string) => {
         edits.push(content);
       },
-      send: async () => ({ id: "m1" }),
+      send: async (_threadId: string, content: string) => {
+        const id = `status-${sends.length + 2}`;
+        sends.push({ id, content });
+        return { id };
+      },
     },
     onAgentEnd: async () => {},
     onAgentFailure: async () => {},
@@ -64,8 +76,129 @@ function recordingBridge(): {
     timers: new Map(),
     instanceChains: new Map<string, Promise<void>>(),
   };
-  return { callbacks, edits, state };
+  return { callbacks, edits, sends, state };
 }
+
+function toolStartEvent(
+  toolName: string,
+  args: Record<string, unknown>,
+  instanceId: string,
+): FlueEvent {
+  return taskEvent({
+    type: "tool_start",
+    toolName,
+    toolCallId: "tc",
+    args,
+    instanceId,
+  });
+}
+
+function bashEvent(command: string, instanceId: string): FlueEvent {
+  return toolStartEvent("bash", { command }, instanceId);
+}
+
+function readFileEvent(path: string, instanceId: string): FlueEvent {
+  return toolStartEvent("read_file", { path }, instanceId);
+}
+
+function longToolEvent(toolName: string, instanceId: string): FlueEvent {
+  return toolStartEvent(toolName, { count: 7 }, instanceId);
+}
+
+function fillerPath(i: number): string {
+  return `p${i}` + "x".repeat(50);
+}
+
+async function rollingWorld(): Promise<{
+  callbacks: ObserveBridgeCallbacks;
+  sent: { id: string; content: string }[];
+  edits: { messageId: string; content: string }[];
+  state: NonNullable<Parameters<typeof handleObserveEvent>[2]>;
+  instanceId: string;
+  store: InMemoryStore;
+}> {
+  const store = new InMemoryStore(1);
+  const instanceId = toFlueInstanceId("thread-1");
+  await store.createDraft({
+    id: "task-1",
+    discordMessageId: "msg-1",
+    discordThreadId: "pending:task-1",
+    flueInstanceId: "pending:task-1",
+    workspacePath: "/workspaces/task-1",
+    repo: "acme/web",
+    branch: "main",
+    model: "anthropic/claude-sonnet-4-5",
+    instruction: "Do the work",
+    setupProfileRevision: 2,
+  });
+  await store.attachAndPromote("task-1", "thread-1", instanceId, "status-1");
+  const sent: { id: string; content: string }[] = [];
+  const edits: { messageId: string; content: string }[] = [];
+  let sendSeq = 2;
+  const callbacks = {
+    store,
+    publisher: {
+      edit: async (_threadId: string, messageId: string, content: string) => {
+        edits.push({ messageId, content: clampDiscordContent(redact(content)) });
+      },
+      send: async (_threadId: string, content: string) => {
+        const id = `status-${sendSeq++}`;
+        sent.push({ id, content: clampDiscordContent(redact(content)) });
+        return { id };
+      },
+    },
+    onAgentEnd: async () => {},
+    onAgentFailure: async () => {},
+  } as unknown as ObserveBridgeCallbacks;
+  const state = {
+    renderState: new Map(),
+    timers: new Map(),
+    instanceChains: new Map<string, Promise<void>>(),
+  };
+  return { callbacks, sent, edits, state, instanceId, store };
+}
+
+function linesThatFit(line: string): number {
+  return Math.floor((PROGRESS_ROLL_THRESHOLD + 1) / (line.length + 1));
+}
+
+describe("shouldRollBubble", () => {
+  it("never rolls an empty bubble", () => {
+    expect(shouldRollBubble(0, 2000)).toBe(false);
+  });
+
+  it("rolls when the next line would cross the threshold", () => {
+    expect(shouldRollBubble(1900, 100)).toBe(true);
+  });
+
+  it("does not roll when the next line still fits", () => {
+    expect(shouldRollBubble(1800, 100)).toBe(false);
+  });
+
+  it("respects a custom threshold", () => {
+    expect(shouldRollBubble(900, 100, 1000)).toBe(true);
+    expect(shouldRollBubble(800, 100, 1000)).toBe(false);
+  });
+});
+
+describe("progressMessageIdsFromRow", () => {
+  it("prefers the progress_message_ids column", () => {
+    expect(
+      progressMessageIdsFromRow({ progress_message_ids: ["a", "b"] }),
+    ).toEqual({ progressMessageIds: ["a", "b"] });
+  });
+
+  it("synthesizes from a legacy status_message_id", () => {
+    expect(progressMessageIdsFromRow({ status_message_id: "old" })).toEqual({
+      progressMessageIds: ["old"],
+      statusMessageId: "old",
+    });
+  });
+
+  it("returns nothing for an unattached draft", () => {
+    expect(progressMessageIdsFromRow({})).toEqual({});
+  });
+});
 
 describe("submissionFailureSummary", () => {
   it("detects submission_settled failures", () => {
@@ -249,7 +382,7 @@ describe("handleObserveEvent", () => {
             setupProfileRevision: 2,
             status: "running",
             initialTurnStarted: true,
-            statusMessageId: "status-1",
+            progressMessageIds: ["status-1"],
             createdAt: new Date(0),
             updatedAt: new Date(0),
           }),
@@ -523,6 +656,223 @@ describe("handleObserveEvent", () => {
     expect(edits[0]).toContain("[redacted]");
     expect(edits[0]).not.toContain(secret);
     vi.useRealTimers();
+  });
+});
+
+describe("progress overflow rolling", () => {
+  it("rolls to a second bubble and targets it for subsequent edits", async () => {
+    vi.useFakeTimers();
+    const { callbacks, sent, edits, state, instanceId } = await rollingWorld();
+    const sampleLine = formatToolLine("read_file", { path: fillerPath(0) });
+    const fit = linesThatFit(sampleLine);
+    const lines: string[] = [];
+    for (let i = 0; i < fit + 1; i += 1) {
+      const path = fillerPath(i);
+      lines.push(formatToolLine("read_file", { path }));
+      await handleObserveEvent(
+        readFileEvent(path, instanceId),
+        callbacks,
+        state,
+      );
+    }
+    await vi.runAllTimersAsync();
+
+    expect(sent).toHaveLength(1);
+    const secondId = sent[0]!.id;
+
+    const firstEdits = edits.filter((e) => e.messageId === "status-1");
+    expect(firstEdits).toHaveLength(1);
+    expect(firstEdits[0]!.content).toBe(lines.slice(0, fit).join("\n"));
+
+    const secondEdits = edits.filter((e) => e.messageId === secondId);
+    expect(secondEdits).toHaveLength(1);
+    expect(secondEdits[0]!.content).toBe(lines[fit]);
+    vi.useRealTimers();
+  });
+
+  it("never sends or edits content longer than the Discord limit", async () => {
+    vi.useFakeTimers();
+    const { callbacks, sent, edits, state, instanceId } = await rollingWorld();
+    for (let i = 0; i < 40; i += 1) {
+      await handleObserveEvent(
+        bashEvent(`step-${i}-` + "x".repeat(120), instanceId),
+        callbacks,
+        state,
+      );
+    }
+    await vi.runAllTimersAsync();
+
+    expect(sent.length).toBeGreaterThanOrEqual(1);
+    for (const s of sent) {
+      expect(s.content.length).toBeLessThanOrEqual(2000);
+    }
+    for (const e of edits) {
+      expect(e.content.length).toBeLessThanOrEqual(2000);
+    }
+    vi.useRealTimers();
+  });
+
+  it("clamps a single tool line longer than the threshold via the backstop", async () => {
+    vi.useFakeTimers();
+    const { callbacks, sent, edits, state, instanceId } = await rollingWorld();
+    await handleObserveEvent(
+      longToolEvent("x".repeat(2000), instanceId),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+
+    expect(sent).toHaveLength(0);
+    expect(edits).toHaveLength(1);
+    expect(edits[0]!.messageId).toBe("status-1");
+    expect(edits[0]!.content.length).toBeLessThanOrEqual(2000);
+    expect(edits[0]!.content).toContain("truncated");
+    vi.useRealTimers();
+  });
+
+  it("never cuts a bash code block across two bubbles", async () => {
+    vi.useFakeTimers();
+    const { callbacks, sent, edits, state, instanceId } = await rollingWorld();
+    for (let i = 0; i < 40; i += 1) {
+      await handleObserveEvent(
+        bashEvent(`step ${i}: ` + "x".repeat(100), instanceId),
+        callbacks,
+        state,
+      );
+    }
+    await vi.runAllTimersAsync();
+
+    expect(sent.length).toBeGreaterThanOrEqual(1);
+    for (const bubble of [...sent, ...edits]) {
+      const fences = bubble.content.split("```").length - 1;
+      expect(fences % 2, "unbalanced code fence across a bubble").toBe(0);
+    }
+    vi.useRealTimers();
+  });
+
+  it("coalesces a burst into one edit and re-edits at the 1500ms cadence", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state, instanceId } = await rollingWorld();
+
+    await handleObserveEvent(bashEvent("echo one", instanceId), callbacks, state);
+    await vi.advanceTimersByTimeAsync(100);
+    await handleObserveEvent(bashEvent("echo two", instanceId), callbacks, state);
+    await vi.advanceTimersByTimeAsync(1400);
+    expect(edits).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await handleObserveEvent(
+      bashEvent("echo three", instanceId),
+      callbacks,
+      state,
+    );
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(edits).toHaveLength(2);
+    vi.useRealTimers();
+  });
+
+  it("redacts a secret in a late-arriving tool arg in the second bubble", async () => {
+    vi.useFakeTimers();
+    const { callbacks, sent, edits, state, instanceId } = await rollingWorld();
+    const secret = "ghp_aBcDeFgHiJkLmNoPqRsTuvw";
+    const fillerLine = formatToolLine("read_file", { path: fillerPath(0) });
+    const fit = linesThatFit(fillerLine);
+    for (let i = 0; i < fit; i += 1) {
+      await handleObserveEvent(
+        readFileEvent(fillerPath(i), instanceId),
+        callbacks,
+        state,
+      );
+    }
+    await handleObserveEvent(
+      readFileEvent(secret + "x".repeat(30), instanceId),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+
+    const secondId = sent[0]!.id;
+    const secondContent = edits.filter((e) => e.messageId === secondId)[0]!
+      .content;
+    expect(secondContent).not.toContain(secret);
+    expect(secondContent).toContain("[redacted]");
+    vi.useRealTimers();
+  });
+});
+
+describe("TaskStore progress-message migration", () => {
+  it("synthesizes progressMessageIds from a legacy statusMessageId on read", async () => {
+    const store = new InMemoryStore(1);
+    const instanceId = toFlueInstanceId("thread-1");
+    store.seedTask({
+      id: "task-1",
+      discordMessageId: "msg-1",
+      discordThreadId: "thread-1",
+      flueInstanceId: instanceId,
+      workspacePath: "/workspaces/task-1",
+      repo: "acme/web",
+      branch: "main",
+      model: "anthropic/claude-sonnet-4-5",
+      instruction: "Do the work",
+      setupProfileRevision: 2,
+      status: "running",
+      initialTurnStarted: true,
+      statusMessageId: "old",
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    });
+
+    const read = await store.getByInstanceId(instanceId);
+    expect(read?.progressMessageIds).toEqual(["old"]);
+  });
+
+  it("appends rolled bubble ids to progressMessageIds", async () => {
+    const store = new InMemoryStore(1);
+    const instanceId = toFlueInstanceId("thread-1");
+    await store.createDraft({
+      id: "task-1",
+      discordMessageId: "msg-1",
+      discordThreadId: "pending:task-1",
+      flueInstanceId: "pending:task-1",
+      workspacePath: "/workspaces/task-1",
+      repo: "acme/web",
+      branch: "main",
+      model: "anthropic/claude-sonnet-4-5",
+      instruction: "Do the work",
+      setupProfileRevision: 2,
+    });
+    await store.attachAndPromote("task-1", "thread-1", instanceId, "status-1");
+    await store.appendProgressMessageId("task-1", "status-2");
+    await store.appendProgressMessageId("task-1", "status-3");
+
+    const read = await store.getByInstanceId(instanceId);
+    expect(read?.progressMessageIds).toEqual(["status-1", "status-2", "status-3"]);
+  });
+
+  it("preserves a legacy statusMessageId when appending a rolled id", async () => {
+    const store = new InMemoryStore(1);
+    const instanceId = toFlueInstanceId("thread-1");
+    store.seedTask({
+      id: "task-1",
+      discordMessageId: "msg-1",
+      discordThreadId: "thread-1",
+      flueInstanceId: instanceId,
+      workspacePath: "/workspaces/task-1",
+      repo: "acme/web",
+      branch: "main",
+      model: "anthropic/claude-sonnet-4-5",
+      instruction: "Do the work",
+      setupProfileRevision: 2,
+      status: "running",
+      initialTurnStarted: true,
+      statusMessageId: "old",
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    });
+    await store.appendProgressMessageId("task-1", "rolled-1");
+
+    const read = await store.getByInstanceId(instanceId);
+    expect(read?.progressMessageIds).toEqual(["old", "rolled-1"]);
   });
 });
 
