@@ -182,10 +182,10 @@ Setup commands (Discord slash command `/setup` with subcommands; `repo` and `bra
 
 | Subcommand | Purpose |
 | ---------- | ------- |
-| `create` | First-time setup when no profile exists, or when the profile is `failed`. |
-| `update` | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). |
-| `status` | Show profile status, revision, and last run state (ephemeral). |
-| `view` | View the active profile (ephemeral). |
+| `create` | First-time setup when no profile exists, or when the profile is `failed`. Spawns a public thread on the slash command with a live agent log (same style as coding tasks). |
+| `update` | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). Spawns a setup thread with live log. |
+| `status` | Show profile status, revision, and last run state (ephemeral). Re-run anytime for a fresh snapshot; while setup is running, open the setup thread from your `create`/`update` command for the live agent log. |
+| `view` | View the active profile environment and memory (ephemeral). |
 | `edit` | Open a private draft editor with buttons and modals. |
 | `export` | Export environment JSON and memory Markdown as ephemeral attachments. |
 | `import` | Import environment and/or memory attachments into a draft. |

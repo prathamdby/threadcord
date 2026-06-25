@@ -6,6 +6,11 @@ import {
   serializeSetupEnvironment,
 } from "./profile.js";
 
+export interface SetupStatusViewInput {
+  profile: SetupProfile;
+  run?: SetupRun;
+}
+
 export interface SetupViewModel {
   content: string;
   files?: SetupExportFile[];
@@ -14,6 +19,50 @@ export interface SetupViewModel {
 export interface SetupExportFile {
   name: string;
   content: string;
+}
+
+export function renderSetupStatus(input: SetupStatusViewInput): SetupViewModel {
+  const { profile, run } = input;
+  const runLines =
+    run && profile.lastRunId === run.id
+      ? [
+          "",
+          "Last run:",
+          `Run status: ${run.status}`,
+          `Model: ${run.model}`,
+          run.discordThreadId
+            ? `Live log: <#${run.discordThreadId}>`
+            : undefined,
+          run.errorSummary ? `Run error: ${run.errorSummary}` : undefined,
+        ]
+      : profile.lastRunId
+        ? ["", `Last run id: ${profile.lastRunId} (details not loaded)`]
+        : ["", "Last run: none"];
+
+  const liveHint =
+    profile.status === "running" || profile.status === "updating"
+      ? [
+          "",
+          run?.discordThreadId
+            ? `A setup agent is running. Live log: <#${run.discordThreadId}> (or run /setup status again after it finishes).`
+            : "A setup agent is running. Open the setup thread on your /setup create or update reply for the live log, or run /setup status again after it finishes.",
+        ]
+      : [];
+
+  return {
+    content: [
+      `Setup profile for ${profile.repo} on ${profile.branch}`,
+      `Status: ${profile.status}`,
+      `Revision: ${profile.revision}`,
+      profile.errorSummary ? `Profile error: ${profile.errorSummary}` : undefined,
+      ...runLines,
+      ...liveHint,
+      "",
+      "Use /setup view for the full active profile (environment and memory).",
+    ]
+      .filter((line): line is string => typeof line === "string")
+      .join("\n"),
+  };
 }
 
 export function renderSetupProfile(profile: SetupProfile): SetupViewModel {

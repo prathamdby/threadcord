@@ -25,7 +25,13 @@ import {
   validateSetupEnvironment,
   validateSetupProfilePayload,
 } from "./profile.js";
-import { exportProfile, renderDraft, renderSetupProfile } from "./renderer.js";
+import { openSetupRunThread } from "./discord-session.js";
+import {
+  exportProfile,
+  renderDraft,
+  renderSetupProfile,
+  renderSetupStatus,
+} from "./renderer.js";
 import type { SetupOrchestrator } from "./orchestrator.js";
 import type { SetupStore } from "./store.js";
 
@@ -163,24 +169,55 @@ async function handleSetupCommand(
   const subcommand = interaction.options.getSubcommand();
   try {
     if (subcommand === "create" || subcommand === "update") {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const model = interaction.options.getString("model") ?? undefined;
+      await interaction.deferReply();
+      const repo = requiredStringOption(interaction, "repo");
+      const branch = requiredStringOption(interaction, "branch");
+      const modelOption = interaction.options.getString("model") ?? undefined;
       const started = await orchestrator.startSetup({
-        repo: requiredStringOption(interaction, "repo"),
-        branch: requiredStringOption(interaction, "branch"),
+        repo,
+        branch,
         update: subcommand === "update",
-        ...(model ? { model } : {}),
+        ...(modelOption ? { model: modelOption } : {}),
       });
+      const run = await store.getRun(started.runId);
+      const model = run?.model ?? modelOption ?? "default";
+      let threadOpened = false;
+      let threadId: string | undefined;
+      try {
+        const anchor = await interaction.fetchReply();
+        const threadRef = await openSetupRunThread({
+          anchorMessage: anchor,
+          store,
+          runId: started.runId,
+          repo: started.repo,
+          branch: started.branch,
+          model,
+          actionLabel: subcommand,
+        });
+        if (threadRef) {
+          orchestrator.registerSetupThread(started.runId, threadRef);
+          threadOpened = true;
+          threadId = threadRef.id;
+        }
+      } catch (error) {
+        console.error("[threadcord] setup thread creation failed", error);
+      }
       void orchestrator.dispatchSetupAgent(started);
       try {
         await interaction.editReply(
           discordContent(
-            [
-              `Setup ${subcommand} started.`,
-              `Run: ${started.runId}`,
-              `Profile: ${started.profileId}`,
-              `Workspace: ${started.workspacePath}`,
-            ].join("\n"),
+            threadOpened && threadId
+              ? [
+                  `Setup ${subcommand} started.`,
+                  `Run: ${started.runId}`,
+                  `Live log: <#${threadId}>`,
+                ].join("\n")
+              : [
+                  `Setup ${subcommand} started.`,
+                  `Run: ${started.runId}`,
+                  `Profile: ${started.profileId}`,
+                  "Could not open a Discord thread for the live log; watch server logs.",
+                ].join("\n"),
           ),
         );
       } catch (error) {
@@ -188,7 +225,32 @@ async function handleSetupCommand(
       }
       return;
     }
-    if (subcommand === "status" || subcommand === "view") {
+    if (subcommand === "status") {
+      const profile = await store.getProfile(
+        requiredStringOption(interaction, "repo"),
+        requiredStringOption(interaction, "branch"),
+      );
+      if (!profile) {
+        await interaction.reply({
+          content: discordContent("Setup profile is missing."),
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const run = profile.lastRunId
+        ? await store.getRun(profile.lastRunId)
+        : undefined;
+      const view = renderSetupStatus({
+        profile,
+        ...(run ? { run } : {}),
+      });
+      await interaction.reply({
+        content: discordContent(view.content),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    if (subcommand === "view") {
       const profile = await store.getProfile(
         requiredStringOption(interaction, "repo"),
         requiredStringOption(interaction, "branch"),

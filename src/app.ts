@@ -41,9 +41,13 @@ export async function createApp(): Promise<{
   orchestrator.setMilestonePublisher(async (threadId, content) => {
     await publisher.send(threadId, content);
   });
+  setupOrchestrator.setMilestonePublisher(async (threadId, content) => {
+    await publisher.send(threadId, content);
+  });
 
   registerObserveBridge({
     store,
+    setupStore,
     publisher,
     onAgentEnd: async (instanceId) => {
       if (await setupOrchestrator.handleAgentEnd(instanceId)) return;
