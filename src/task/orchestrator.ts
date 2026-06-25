@@ -28,6 +28,21 @@ import type {
   ThreadRef,
 } from "../types.js";
 
+const EYES = "👀";
+const CHECK = "✅";
+const CROSS = "❌";
+const TYPING_INTERVAL_MS = 9000;
+
+interface ReactionTarget {
+  react(emoji: string): Promise<void>;
+  unreact(emoji: string): Promise<void>;
+}
+
+interface InFlightTurn {
+  initiator?: ReactionTarget | undefined;
+  typingTimer?: NodeJS.Timeout | undefined;
+}
+
 /** Sends one dispatched agent turn. Injectable so tests can fake the runtime. */
 export type DispatchTurn = (
   instanceId: string,
@@ -61,6 +76,10 @@ const TERMINAL_STATUSES = new Set<TaskStatus>([
 
 export class TaskOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
+  private readonly taskThreads = new Map<string, ThreadRef>();
+  private readonly initiatorMessages = new Map<string, ReactionTarget>();
+  private readonly pendingInitiatorIds = new Map<string, Set<string>>();
+  private readonly inFlightTurns = new Map<string, InFlightTurn>();
 
   constructor(
     private readonly config: AppConfig,
@@ -69,6 +88,7 @@ export class TaskOrchestrator {
     private readonly dispatchTurn: DispatchTurn = defaultDispatchTurn,
     private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
     private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
+    private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
   ) {}
 
   setMilestonePublisher(
@@ -176,6 +196,10 @@ export class TaskOrchestrator {
     );
     if (!attached) return;
 
+    this.taskThreads.set(attached.flueInstanceId, thread);
+    this.recordInitiator(attached.id, message);
+    void this.reactSafely(message, EYES);
+
     const claimed = await this.store.claimNextTurn(attached.id);
     if (claimed) {
       await thread.send("Started");
@@ -205,6 +229,13 @@ export class TaskOrchestrator {
       await message.reply(
         "Cancelled. No further turns will be dispatched for this task.",
       );
+      // The current turn's initiator, if any, was moved from pending to
+      // in-flight by runTurn, so clearInFlight flips it and disposeInitiators
+      // (which only touches pending) cannot double-handle the same message.
+      const turn = this.clearInFlight(task.flueInstanceId);
+      await this.flipReaction(turn?.initiator, CROSS);
+      await this.disposeInitiators(task.id, CROSS);
+      this.taskThreads.delete(task.flueInstanceId);
       await this.fillConcurrencySlots();
       return;
     }
@@ -219,6 +250,8 @@ export class TaskOrchestrator {
         return;
       }
       await message.reply("Task marked complete.");
+      await this.disposeInitiators(task.id, CHECK);
+      this.taskThreads.delete(task.flueInstanceId);
       return;
     }
     if (TERMINAL_STATUSES.has(task.status)) {
@@ -234,6 +267,8 @@ export class TaskOrchestrator {
       message.content,
     );
     await message.reply(`Queued follow-up - position ${position}`);
+    this.recordInitiator(task.id, message);
+    void this.reactSafely(message, EYES);
 
     if (task.status === "waiting") {
       const claimed = await this.store.claimNextTurn(task.id);
@@ -246,15 +281,25 @@ export class TaskOrchestrator {
     if (!task) return;
 
     if (task.status === "running") {
-      await this.store.transition(task.id, "running", "waiting");
+      const turned = await this.store.transition(task.id, "running", "waiting");
+      if (!turned) {
+        // A concurrent cancel/failure changed the status between the read
+        // and this transition; its own handler did the cleanup and slot fill.
+        this.clearInFlight(instanceId);
+        await this.fillConcurrencySlots();
+        return;
+      }
       await this.post(
         task.discordThreadId,
         "Turn completed. Waiting for the next instruction.",
       );
+      const turn = this.clearInFlight(instanceId);
+      await this.flipReaction(turn?.initiator, CHECK);
       await this.scheduleAfterTurn(task.id);
       return;
     }
 
+    this.clearInFlight(instanceId);
     if (task.status === "cancelled" || task.status === "failed") {
       await this.fillConcurrencySlots();
     }
@@ -279,6 +324,10 @@ export class TaskOrchestrator {
       task.discordThreadId,
       failureDiscordMessage(failed.errorSummary ?? errorSummary),
     );
+    const turn = this.clearInFlight(instanceId);
+    await this.flipReaction(turn?.initiator, CROSS);
+    await this.disposeInitiators(task.id, CROSS);
+    this.taskThreads.delete(instanceId);
     await this.fillConcurrencySlots();
   }
 
@@ -301,6 +350,12 @@ export class TaskOrchestrator {
 
   private async runTurn(claimed: ClaimedTurn): Promise<void> {
     const { task, instruction, source } = claimed;
+    const initiator = this.initiatorMessages.get(claimed.initiatorMessageId);
+    if (initiator) {
+      this.initiatorMessages.delete(claimed.initiatorMessageId);
+      this.pendingInitiatorIds.get(task.id)?.delete(claimed.initiatorMessageId);
+    }
+    this.inFlightTurns.set(task.flueInstanceId, { initiator });
     try {
       const checkoutPath = await this.bootstrap(
         task,
@@ -324,6 +379,14 @@ export class TaskOrchestrator {
           this.config.GITHUB_TOKEN,
         );
       }
+      // A concurrent cancel transitions the task out of running during setup;
+      // re-check the store (source of truth) before dispatching, since the
+      // in-flight entry may have been re-created here after cancel cleared it.
+      const current = await this.store.getByInstanceId(task.flueInstanceId);
+      if (!current || current.status !== "running") {
+        this.clearInFlight(task.flueInstanceId);
+        return;
+      }
       const input: DispatchAgentInput = {
         kind: "threadcord.turn",
         workspacePath: checkoutPath,
@@ -340,6 +403,11 @@ export class TaskOrchestrator {
         ),
       };
       await this.dispatchTurn(task.flueInstanceId, input);
+      const thread = this.taskThreads.get(task.flueInstanceId);
+      const inFlight = this.inFlightTurns.get(task.flueInstanceId);
+      if (thread && inFlight) {
+        inFlight.typingTimer = this.startTypingLoop(thread);
+      }
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {
       const summary = summarizeError(error);
@@ -350,6 +418,10 @@ export class TaskOrchestrator {
         summary,
       );
       await this.post(task.discordThreadId, `Failed: ${summary}`);
+      const turn = this.clearInFlight(task.flueInstanceId);
+      await this.flipReaction(turn?.initiator, CROSS);
+      await this.disposeInitiators(task.id, CROSS);
+      this.taskThreads.delete(task.flueInstanceId);
       await this.fillConcurrencySlots();
     }
   }
@@ -363,6 +435,75 @@ export class TaskOrchestrator {
     } catch (error) {
       console.error("[threadcord] control-channel reply failed", error);
     }
+  }
+
+  private async reactSafely(
+    target: ReactionTarget,
+    emoji: string,
+  ): Promise<void> {
+    try {
+      await target.react(emoji);
+    } catch (error) {
+      console.error("[threadcord] reaction failed", error);
+    }
+  }
+
+  private async flipReaction(
+    initiator: ReactionTarget | undefined,
+    emoji: string,
+  ): Promise<void> {
+    if (!initiator) return;
+    try {
+      await initiator.unreact(EYES);
+    } catch (error) {
+      console.error("[threadcord] unreact failed", error);
+    }
+    try {
+      await initiator.react(emoji);
+    } catch (error) {
+      console.error("[threadcord] react failed", error);
+    }
+  }
+
+  private startTypingLoop(thread: ThreadRef): NodeJS.Timeout {
+    const ping = (): void => {
+      void thread.sendTyping().catch(() => {});
+    };
+    ping();
+    const timer = setInterval(ping, this.typingIntervalMs);
+    if (typeof timer.unref === "function") timer.unref();
+    return timer;
+  }
+
+  private clearInFlight(instanceId: string): InFlightTurn | undefined {
+    const turn = this.inFlightTurns.get(instanceId);
+    if (turn?.typingTimer) clearInterval(turn.typingTimer);
+    this.inFlightTurns.delete(instanceId);
+    return turn;
+  }
+
+  private recordInitiator(taskId: string, message: ReactionTarget & { id: string }): void {
+    this.initiatorMessages.set(message.id, message);
+    let ids = this.pendingInitiatorIds.get(taskId);
+    if (!ids) {
+      ids = new Set();
+      this.pendingInitiatorIds.set(taskId, ids);
+    }
+    ids.add(message.id);
+  }
+
+  private async disposeInitiators(
+    taskId: string,
+    finalEmoji: string,
+  ): Promise<void> {
+    const ids = this.pendingInitiatorIds.get(taskId);
+    if (!ids) return;
+    for (const id of ids) {
+      const handle = this.initiatorMessages.get(id);
+      if (handle) await this.flipReaction(handle, finalEmoji);
+      this.initiatorMessages.delete(id);
+    }
+    this.pendingInitiatorIds.delete(taskId);
   }
 
   private async post(threadId: string, content: string): Promise<void> {

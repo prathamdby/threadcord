@@ -1,14 +1,21 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { TaskOrchestrator } from "../../src/task/orchestrator.js";
+import {
+  TaskOrchestrator,
+  type BootstrapTurn,
+  type DispatchTurn,
+} from "../../src/task/orchestrator.js";
 import type { AppConfig } from "../../src/config.js";
 import type { SetupEnvironment, SetupProfile } from "../../src/setup/profile.js";
 import type { SetupStore } from "../../src/setup/store.js";
 import type {
+  ChannelMessage,
   ClaimedTurn,
   NewTaskRecord,
   TaskRecord,
   TaskStatus,
+  ThreadMessage,
+  ThreadRef,
 } from "../../src/types.js";
 
 export const CHANNEL_ID = "control-channel";
@@ -66,8 +73,14 @@ export class InMemoryStore {
   private readonly tasks = new Map<string, TaskRecord>();
   private followups: StoredFollowup[] = [];
   private seq = 0;
+  private breakTransition = false;
 
   constructor(private readonly maxConcurrent: number) {}
+
+  /** Simulate a concurrent cancel committing between read and transition. */
+  breakNextTransition(): void {
+    this.breakTransition = true;
+  }
 
   snapshot(taskId: string): TaskRecord {
     const task = this.tasks.get(taskId);
@@ -211,6 +224,12 @@ export class InMemoryStore {
     to: TaskStatus,
     errorSummary?: string,
   ): Promise<TaskRecord | undefined> {
+    if (this.breakTransition && to === "waiting") {
+      this.breakTransition = false;
+      const task = this.tasks.get(taskId);
+      if (task) task.status = "cancelled";
+      return undefined;
+    }
     const fromList = Array.isArray(from) ? from : [from];
     const task = this.tasks.get(taskId);
     if (!task || !fromList.includes(task.status)) return undefined;
@@ -277,6 +296,7 @@ export class InMemoryStore {
       task: clone(candidate),
       instruction: candidate.instruction,
       source: "initial",
+      initiatorMessageId: candidate.discordMessageId,
     };
   }
 
@@ -299,6 +319,7 @@ export class InMemoryStore {
       task: clone(task),
       instruction: followup.instruction,
       source: "followup",
+      initiatorMessageId: followup.discordMessageId,
     };
   }
 }
@@ -320,6 +341,25 @@ function byCreatedThenId(a: TaskRecord, b: TaskRecord): number {
 export interface ThreadFailure {
   createThread?: boolean;
   statusSend?: boolean;
+  reactionFail?: boolean;
+  typingFail?: boolean;
+}
+
+export interface ReactionRecordings {
+  reactCalls: string[];
+  unreactCalls: string[];
+  reactionLog: string[];
+}
+
+export interface RecordingControlMessage extends ChannelMessage, ReactionRecordings {
+  replies: string[];
+}
+export interface RecordingFollowupMessage extends ThreadMessage, ReactionRecordings {
+  replies: string[];
+}
+export interface RecordingThread extends ThreadRef {
+  sends: string[];
+  sendTypingCalls: number;
 }
 
 export interface SubmitResult {
@@ -327,6 +367,13 @@ export interface SubmitResult {
   replies: string[];
   sends: string[];
   threadsCreated: number;
+  message: RecordingControlMessage;
+  thread: RecordingThread;
+}
+
+export interface WorldOverrides {
+  dispatch?: DispatchTurn;
+  bootstrap?: BootstrapTurn;
 }
 
 export class World {
@@ -335,21 +382,28 @@ export class World {
   readonly dispatched: string[] = [];
   private counter = 0;
 
-  constructor(maxConcurrent = config.MAX_CONCURRENT_TASKS) {
+  constructor(
+    maxConcurrent = config.MAX_CONCURRENT_TASKS,
+    typingIntervalMs = 9000,
+    overrides: WorldOverrides = {},
+  ) {
     this.store = new InMemoryStore(maxConcurrent);
     this.orchestrator = new TaskOrchestrator(
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
       fakeSetupStore,
-      async (instanceId) => {
-        this.dispatched.push(instanceId);
-      },
-      async (task) => {
-        const path = join(TEST_WORKSPACE_ROOT, task.id);
-        await mkdir(path, { recursive: true });
-        return path;
-      },
+      overrides.dispatch ??
+        (async (instanceId: string) => {
+          this.dispatched.push(instanceId);
+        }),
+      overrides.bootstrap ??
+        (async (task) => {
+          const path = join(TEST_WORKSPACE_ROOT, task.id);
+          await mkdir(path, { recursive: true });
+          return path;
+        }),
       async () => {},
+      typingIntervalMs,
     );
   }
 
@@ -365,33 +419,127 @@ export class World {
     const replies: string[] = [];
     const sends: string[] = [];
     let threadsCreated = 0;
-    await this.orchestrator.handleChannelMessage({
+
+    const thread: RecordingThread = {
+      id: threadId,
+      sends,
+      sendTypingCalls: 0,
+      send: async (content) => {
+        if (failure.statusSend) throw new Error("discord: status send 500");
+        sends.push(content);
+        return { id: `status-${this.counter++}` };
+      },
+      editMessage: async () => {},
+      sendTyping: async () => {
+        if (failure.typingFail) throw new Error("discord: sendTyping 403");
+        thread.sendTypingCalls += 1;
+      },
+    };
+
+    const message: RecordingControlMessage = {
       id: messageId,
       content: `Do the work\nrepo: acme/web\nbranch: main`,
       authorBot: false,
       channelId: CHANNEL_ID,
-      reply: async (content) => void replies.push(content),
+      replies,
+      reactCalls: [],
+      unreactCalls: [],
+      reactionLog: [],
+      reply: async (content) => {
+        replies.push(content);
+      },
+      react: async (emoji) => {
+        if (failure.reactionFail) throw new Error("discord: react 403");
+        message.reactCalls.push(emoji);
+        message.reactionLog.push(`react:${emoji}`);
+      },
+      unreact: async (emoji) => {
+        if (failure.reactionFail) throw new Error("discord: unreact 403");
+        message.unreactCalls.push(emoji);
+        message.reactionLog.push(`unreact:${emoji}`);
+      },
       createThread: async () => {
         if (failure.createThread) throw new Error("discord: thread create 500");
         threadsCreated += 1;
-        return {
-          id: threadId,
-          send: async (content) => {
-            if (failure.statusSend) throw new Error("discord: status send 500");
-            sends.push(content);
-            return { id: `status-${this.counter++}` };
-          },
-          editMessage: async () => {},
-        };
+        return thread;
       },
-    });
+    };
+
+    await this.orchestrator.handleChannelMessage(message);
     await flush();
     return {
       task: this.store.findByMessageId(messageId),
       replies,
       sends,
       threadsCreated,
+      message,
+      thread,
     };
+  }
+
+  async submitFollowup(
+    taskId: string,
+    followupMessageId: string,
+    content = "fix the tests",
+  ): Promise<{ message: RecordingFollowupMessage; replies: string[] }> {
+    const task = this.store.snapshot(taskId);
+    const replies: string[] = [];
+    const message: RecordingFollowupMessage = {
+      id: followupMessageId,
+      content,
+      authorBot: false,
+      channelId: task.discordThreadId,
+      replies,
+      reactCalls: [],
+      unreactCalls: [],
+      reactionLog: [],
+      reply: async (c) => {
+        replies.push(c);
+      },
+      react: async (emoji) => {
+        message.reactCalls.push(emoji);
+        message.reactionLog.push(`react:${emoji}`);
+      },
+      unreact: async (emoji) => {
+        message.unreactCalls.push(emoji);
+        message.reactionLog.push(`unreact:${emoji}`);
+      },
+    };
+    await this.orchestrator.handleThreadMessage(message);
+    await flush();
+    return { message, replies };
+  }
+
+  async sendThreadMessage(
+    taskId: string,
+    messageId: string,
+    content: string,
+  ): Promise<RecordingFollowupMessage> {
+    const task = this.store.snapshot(taskId);
+    const message: RecordingFollowupMessage = {
+      id: messageId,
+      content,
+      authorBot: false,
+      channelId: task.discordThreadId,
+      replies: [],
+      reactCalls: [],
+      unreactCalls: [],
+      reactionLog: [],
+      reply: async (c) => {
+        message.replies.push(c);
+      },
+      react: async (emoji) => {
+        message.reactCalls.push(emoji);
+        message.reactionLog.push(`react:${emoji}`);
+      },
+      unreact: async (emoji) => {
+        message.unreactCalls.push(emoji);
+        message.reactionLog.push(`unreact:${emoji}`);
+      },
+    };
+    await this.orchestrator.handleThreadMessage(message);
+    await flush();
+    return message;
   }
 
   async restart(): Promise<void> {

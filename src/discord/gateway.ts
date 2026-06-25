@@ -93,6 +93,13 @@ function toChannelMessage(message: Message): ChannelMessage {
     reply: async (content) => {
       await message.reply(clampDiscordContent(content));
     },
+    react: async (emoji) => {
+      await message.react(emoji);
+    },
+    unreact: async (emoji) => {
+      const me = message.client.user;
+      if (me) await message.reactions.resolve(emoji)?.users.remove(me.id);
+    },
   };
 }
 
@@ -104,6 +111,13 @@ function toThreadMessage(message: Message): ThreadMessage {
     channelId: message.channelId,
     reply: async (content) => {
       await message.reply(clampDiscordContent(content));
+    },
+    react: async (emoji) => {
+      await message.react(emoji);
+    },
+    unreact: async (emoji) => {
+      const me = message.client.user;
+      if (me) await message.reactions.resolve(emoji)?.users.remove(me.id);
     },
   };
 }
@@ -120,6 +134,9 @@ function toThreadRef(
     editMessage: async (messageId, content) => {
       const message = await thread.messages.fetch(messageId);
       await message.edit(clampDiscordContent(content));
+    },
+    sendTyping: async () => {
+      await thread.sendTyping();
     },
   };
 }
