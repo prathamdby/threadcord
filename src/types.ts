@@ -58,6 +58,8 @@ export interface ChannelMessage {
   channelId: string;
   createThread(name: string): Promise<ThreadRef>;
   reply(content: string): Promise<void>;
+  react(emoji: string): Promise<void>;
+  unreact(emoji: string): Promise<void>;
 }
 
 export interface ThreadMessage {
@@ -66,12 +68,15 @@ export interface ThreadMessage {
   authorBot: boolean;
   channelId: string;
   reply(content: string): Promise<void>;
+  react(emoji: string): Promise<void>;
+  unreact(emoji: string): Promise<void>;
 }
 
 export interface ThreadRef {
   id: string;
   send(content: string): Promise<{ id: string }>;
   editMessage(messageId: string, content: string): Promise<void>;
+  sendTyping(): Promise<void>;
 }
 
 /** Payload passed to the coding agent on each dispatched turn. */
@@ -88,4 +93,7 @@ export interface ClaimedTurn {
   task: TaskRecord;
   instruction: string;
   source: "initial" | "followup";
+  // id (not the live handle) so the postgres TaskStore can populate it; the
+  // orchestrator re-resolves the reaction handle from its own in-memory map.
+  initiatorMessageId: string;
 }

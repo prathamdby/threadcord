@@ -434,7 +434,12 @@ export class TaskStore {
     const row = result.rows[0];
     if (!row) return undefined;
     const task = rowToTask(row);
-    return { task, instruction: task.instruction, source: "initial" };
+    return {
+      task,
+      instruction: task.instruction,
+      source: "initial",
+      initiatorMessageId: task.discordMessageId,
+    };
   }
 
   private async claimFollowupTurn(
@@ -457,7 +462,7 @@ export class TaskStore {
         deleted AS (
           DELETE FROM task_followups
           WHERE id = (SELECT followup_id FROM candidate)
-          RETURNING instruction
+          RETURNING instruction, discord_message_id
         ),
         updated AS (
           UPDATE tasks
@@ -465,7 +470,7 @@ export class TaskStore {
           WHERE id = (SELECT task_id FROM candidate)
           RETURNING *
         )
-        SELECT updated.*, deleted.instruction AS run_instruction
+        SELECT updated.*, deleted.instruction AS run_instruction, deleted.discord_message_id AS run_initiator_message_id
         FROM updated
         JOIN deleted ON true
       `,
@@ -474,7 +479,12 @@ export class TaskStore {
     const row = result.rows[0];
     if (!row || typeof row.run_instruction !== "string") return undefined;
     const task = rowToTask(row);
-    return { task, instruction: row.run_instruction, source: "followup" };
+    return {
+      task,
+      instruction: row.run_instruction,
+      source: "followup",
+      initiatorMessageId: String(row.run_initiator_message_id),
+    };
   }
 }
 
