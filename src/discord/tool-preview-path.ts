@@ -68,12 +68,11 @@ export function shortenWorkspacePathsInText(
 }
 
 function looksLikeFilesystemPath(value: string): boolean {
+  if (value.length > 1024 || value.includes("\n")) {
+    return false;
+  }
   const p = toPosix(value.trim());
-  return (
-    p.startsWith("/workspaces/") ||
-    p.startsWith("/root/workspace/") ||
-    (p.startsWith("/") && p.includes("/"))
-  );
+  return p.startsWith("/") && p.includes("/", 1);
 }
 
 /** Shorten when the primary arg is missing but the first string field is a path. */
