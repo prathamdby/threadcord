@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,6 +46,17 @@ describe("git-auth", () => {
     expect(env.GIT_TERMINAL_PROMPT).toBe("0");
     expect(env.GITHUB_TOKEN).toBe("secret");
     expect(env.HOME).toBe(workspacePaths(workspaceRoot).home);
+  });
+
+  it("does not rewrite askpass when the script already exists", async () => {
+    workspaceRoot = await mkdtemp(join(tmpdir(), "threadcord-git-auth-"));
+    const askPassPath = workspaceGitAskPassPath(workspaceRoot);
+    await prepareWorkspaceGitAuth(workspaceRoot);
+    const firstMtime = (await stat(askPassPath)).mtimeMs;
+    await new Promise((r) => setTimeout(r, 5));
+    await prepareWorkspaceGitAuth(workspaceRoot);
+    const secondMtime = (await stat(askPassPath)).mtimeMs;
+    expect(secondMtime).toBe(firstMtime);
   });
 
   it("merges extra env into github https git env", () => {

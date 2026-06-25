@@ -1,4 +1,4 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { workspaceEnv } from "./workspace-env.js";
 
@@ -36,7 +36,11 @@ export async function prepareWorkspaceGitAuth(
   const dir = join(workspaceRoot, WORKSPACE_ASKPASS_DIR);
   await mkdir(dir, { recursive: true });
   const askPassPath = join(dir, WORKSPACE_ASKPASS_SCRIPT);
-  await writeGitAskPass(askPassPath);
+  try {
+    await stat(askPassPath);
+  } catch {
+    await writeGitAskPass(askPassPath);
+  }
   return askPassPath;
 }
 
