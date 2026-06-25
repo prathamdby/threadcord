@@ -78,7 +78,7 @@ export async function handleObserveEvent(
   const isTaskInstance = isThreadcordInstance(instanceId);
 
   const failureSummary = submissionFailureSummary(event);
-  if (failureSummary && isTaskInstance) {
+  if (failureSummary && (isTaskInstance || isSetupInstance)) {
     await args.onAgentFailure(instanceId, failureSummary);
   }
 
