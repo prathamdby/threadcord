@@ -1,10 +1,13 @@
 import { mkdir, rm, stat, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
+import {
+  githubHttpsCloneUrl,
+  resolveGithubHttpsGitEnv,
+} from "./git-auth.js";
 import { execa } from "./execa.js";
 import type { TaskRecord } from "../types.js";
 import {
   ensureWorkspaceDirs,
-  workspaceEnv,
   wrapWorkspaceBashCommand,
 } from "./workspace-env.js";
 
@@ -18,21 +21,25 @@ export async function bootstrapWorkspace(
   await mkdir(task.workspacePath, { recursive: true });
   await ensureWorkspaceDirs(task.workspacePath);
   const checkoutDir = join(task.workspacePath, basename(task.repo));
+  const gitEnv = await resolveGithubHttpsGitEnv(
+    task.workspacePath,
+    githubToken,
+  );
 
-  await ensureCheckoutDir(task, githubToken, checkoutDir);
+  await ensureCheckoutDir(task, gitEnv, checkoutDir);
   await removeStaleGitLock(checkoutDir);
 
   if (mode === "initial") {
     await execa("git", ["fetch", "origin", task.branch], {
       cwd: checkoutDir,
-      env: scopedGitEnv(task.workspacePath, githubToken),
+      env: gitEnv,
     });
     await execa(
       "git",
       ["checkout", "-B", task.branch, `origin/${task.branch}`],
       {
         cwd: checkoutDir,
-        env: scopedGitEnv(task.workspacePath, githubToken),
+        env: gitEnv,
       },
     );
   }
@@ -46,23 +53,24 @@ export async function runSetupInstall(
   installCommand: string,
   githubToken: string,
 ): Promise<void> {
+  const gitEnv = await resolveGithubHttpsGitEnv(workspaceRoot, githubToken);
   await execa("bash", ["-c", wrapWorkspaceBashCommand(installCommand)], {
     cwd: checkoutDir,
-    env: scopedGitEnv(workspaceRoot, githubToken),
+    env: gitEnv,
     timeout: 1_800_000,
   });
 }
 
 async function ensureCheckoutDir(
   task: TaskRecord,
-  githubToken: string,
+  gitEnv: NodeJS.ProcessEnv,
   checkoutDir: string,
 ): Promise<void> {
   if (await exists(checkoutDir) && !(await exists(join(checkoutDir, ".git")))) {
     await rm(checkoutDir, { recursive: true, force: true });
   }
   if (!(await exists(checkoutDir))) {
-    await cloneRepo(task, githubToken, checkoutDir);
+    await cloneRepo(task, gitEnv, checkoutDir);
   }
 }
 
@@ -75,16 +83,16 @@ async function removeStaleGitLock(checkoutDir: string): Promise<void> {
 
 async function cloneRepo(
   task: TaskRecord,
-  githubToken: string,
+  gitEnv: NodeJS.ProcessEnv,
   checkoutDir: string,
 ): Promise<void> {
-  const repoUrl = `https://github.com/${task.repo}.git`;
+  const repoUrl = githubHttpsCloneUrl(task.repo);
   await execa(
     "git",
     ["clone", "--branch", task.branch, "--single-branch", repoUrl, checkoutDir],
     {
       cwd: task.workspacePath,
-      env: scopedGitEnv(task.workspacePath, githubToken),
+      env: gitEnv,
     },
   );
 }
@@ -96,15 +104,4 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function scopedGitEnv(
-  workspaceRoot: string,
-  token: string,
-): NodeJS.ProcessEnv {
-  return workspaceEnv(workspaceRoot, {
-    GIT_TERMINAL_PROMPT: "0",
-    GITHUB_TOKEN: token,
-    GH_TOKEN: token,
-  });
 }

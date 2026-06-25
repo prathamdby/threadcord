@@ -4,7 +4,7 @@ import { local } from "@flue/runtime/node";
 import { getPool } from "../db.js";
 import { createSetupTools } from "../setup/tools.js";
 import { SetupStore } from "../setup/store.js";
-import { workspaceEnv } from "../task/workspace-env.js";
+import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
 
 export default createAgent(async ({ id }) => {
   const store = new SetupStore(getPool());
@@ -12,15 +12,18 @@ export default createAgent(async ({ id }) => {
   if (!run) throw new Error(`No Threadcord setup run found for ${id}`);
   const checkoutPath = join(run.workspacePath, basename(run.repo));
 
+  const githubToken = process.env.GITHUB_TOKEN ?? "";
+  const sandboxEnv = await resolveGithubHttpsGitEnv(
+    run.workspacePath,
+    githubToken,
+  );
+
   return {
     model: run.model,
     cwd: checkoutPath,
     sandbox: local({
       cwd: checkoutPath,
-      env: workspaceEnv(run.workspacePath, {
-        GITHUB_TOKEN: process.env.GITHUB_TOKEN ?? "",
-        GH_TOKEN: process.env.GITHUB_TOKEN ?? "",
-      }),
+      env: sandboxEnv,
     }),
     durability: {
       timeoutMs: 30 * 60 * 1000,

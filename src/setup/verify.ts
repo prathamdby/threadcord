@@ -1,9 +1,7 @@
 import { spawn } from "node:child_process";
 import { execa } from "../task/execa.js";
-import {
-  workspaceEnv,
-  wrapWorkspaceBashCommand,
-} from "../task/workspace-env.js";
+import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
+import { wrapWorkspaceBashCommand } from "../task/workspace-env.js";
 import { redact } from "../util/redact.js";
 import type { SetupEnvironment } from "./profile.js";
 
@@ -35,17 +33,6 @@ const START_KILL_GRACE_MS = 500;
 
 function isProbeKillExit(code: number | null): boolean {
   return code === null || code === 0 || code === 143 || code === 137;
-}
-
-function commandEnv(
-  workspaceRoot: string,
-  githubToken: string,
-): NodeJS.ProcessEnv {
-  return workspaceEnv(workspaceRoot, {
-    GIT_TERMINAL_PROMPT: "0",
-    GITHUB_TOKEN: githubToken,
-    GH_TOKEN: githubToken,
-  });
 }
 
 function truncateTail(text: string, maxChars: number): string {
@@ -171,7 +158,10 @@ async function probeStartCommand(input: {
 export async function verifySetupEnvironment(
   input: VerifySetupEnvironmentInput,
 ): Promise<SetupVerifyResult> {
-  const env = commandEnv(input.workspaceRoot, input.githubToken);
+  const env = await resolveGithubHttpsGitEnv(
+    input.workspaceRoot,
+    input.githubToken,
+  );
   const installTimeoutMs = input.installTimeoutMs ?? DEFAULT_INSTALL_TIMEOUT_MS;
   const checkTimeoutMs = input.checkTimeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS;
   const startProbeMs = input.startProbeMs ?? DEFAULT_START_PROBE_MS;
