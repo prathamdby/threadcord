@@ -343,6 +343,50 @@ describe("handleObserveEvent", () => {
     vi.useRealTimers();
   });
 
+  it("keeps the bash header suppressed when a later identical call dedups", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "bash",
+        toolCallId: "tc-1",
+        args: { command: "echo one" },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "bash",
+        toolCallId: "tc-2",
+        args: { command: "echo two" },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "bash",
+        toolCallId: "tc-3",
+        args: { command: "echo two" },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits[0]).toBe(
+      "💻 bash\n```\necho one\n```\n```\necho two\n``` (×2)",
+    );
+    vi.useRealTimers();
+  });
+
   it("collapses consecutive identical bash calls to a (×N) counter", async () => {
     vi.useFakeTimers();
     const { callbacks, edits, state } = recordingBridge();

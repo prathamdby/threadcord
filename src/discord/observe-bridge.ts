@@ -16,6 +16,7 @@ export interface ObserveBridgeCallbacks {
 export interface InstanceRenderState {
   lines: string[];
   lastLine: string | undefined;
+  lastRenderedBase: string | undefined;
   repeatCount: number;
   lastWasTerminalBlock: boolean;
 }
@@ -109,6 +110,7 @@ function newInstanceState(): InstanceRenderState {
   return {
     lines: [],
     lastLine: undefined,
+    lastRenderedBase: undefined,
     repeatCount: 0,
     lastWasTerminalBlock: false,
   };
@@ -121,7 +123,8 @@ function appendRenderedLine(
 ): void {
   if (inst.lastLine !== undefined && baseLine === inst.lastLine) {
     inst.repeatCount += 1;
-    inst.lines[inst.lines.length - 1] = `${baseLine} (×${inst.repeatCount})`;
+    const base = inst.lastRenderedBase ?? baseLine;
+    inst.lines[inst.lines.length - 1] = `${base} (×${inst.repeatCount})`;
     inst.lastWasTerminalBlock = terminal;
     return;
   }
@@ -131,6 +134,7 @@ function appendRenderedLine(
   }
   inst.lines.push(line);
   inst.lastLine = baseLine;
+  inst.lastRenderedBase = line;
   inst.repeatCount = 1;
   inst.lastWasTerminalBlock = terminal;
 }
