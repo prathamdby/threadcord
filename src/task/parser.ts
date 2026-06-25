@@ -9,6 +9,7 @@ export type ParseResult =
   | { ok: true; request: ParsedTaskRequest }
   | { ok: false; message: string };
 
+/** Parses control-channel task messages: prose instruction, then trailing keyed metadata (repo, branch, optional model and push). */
 export function parseTaskMessage(content: string): ParseResult {
   const lines = content.split(/\r?\n/);
   const fields = new Map<string, string>();

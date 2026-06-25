@@ -8,7 +8,7 @@
 
 </div>
 
-> A message in your control channel opens a public thread, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, running tasks go back to `waiting`.
+> A message in your control channel opens a public thread, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, tasks that were `running` are moved to `waiting` so follow-ups can continue.
 
 Threadcord is a Discord bot plus a small Hono server. You post a task with `repo`, `branch`, and optionally `model` fields. The bot replies in a thread, clones the repo, and dispatches work to a Flue coding agent. Thread commands handle follow-ups, cancel, and done.
 
@@ -77,7 +77,7 @@ npm run test
 npm run build
 ```
 
-`npm run dev` runs `flue dev`. Flue generates the Node server and dispatch wiring.
+`npm run dev` runs `flue dev --target node`. Flue generates the Node server (`dist/server.mjs` after build) and dispatch wiring. `npm start` runs the built server only.
 
 ## Configure model providers
 
@@ -118,7 +118,7 @@ Allowed models are derived at startup from these provider blocks. When a Discord
 
 ## Message format
 
-Put the instruction first. Add keyed fields at the bottom of the message.
+Put the instruction first. Add keyed fields as consecutive lines at the **end** of the message (parsed from the bottom upward). Field names are case-insensitive. Only `repo`, `branch`, `model`, and `push` are recognized; other lines with `key: value` before the metadata block stay part of the instruction.
 
 ```text
 Fix the failing auth test and open a PR when done.
@@ -128,7 +128,7 @@ branch: main
 model: anthropic/claude-sonnet-4-5
 ```
 
-`model` is optional. If omitted, Threadcord uses the first model from your provider configuration (for example the first entry in `ANTHROPIC_MODELS` when Anthropic is configured first).
+`model` is optional. If omitted, Threadcord uses the first entry in `allowedModels` at startup (derived from configured providers in env order: Anthropic, then OpenAI, then each custom provider).
 
 Coding agents normally create their own branches named `threadcord/<type>/<meaningful-name>` (for example `threadcord/feat/add-auth`). Optional push override:
 
@@ -174,26 +174,23 @@ on the initial task turn, so setup profiles can use project-specific bootstrap
 commands and shell pipelines. Setup install uses the same non-login shell behavior
 as agent commands, so workspace-local npm globals remain on `PATH`.
 
-`/setup create` and `/setup update` promote a profile only after the save tool
-verifies `install`, every stored `checks` command, and non-empty `start` smoke
-behavior in the setup workspace. `checks` are commands that passed in that clean
-workspace. If a useful command needs missing secrets or services, record the
-names in `requiredEnv`, `requiredServices`, and memory instead of saving a
-failing check unless you can make it pass during setup.
+Promotion happens when the setup agent calls `save_threadcord_setup_profile`. That tool re-runs `install`, every stored `checks` command, and (when `start` is non-empty) a short smoke probe of `start` in the setup workspace. `checks` should be commands that passed in that workspace. If a useful command needs missing secrets or services, record the names in `requiredEnv`, `requiredServices`, and memory instead of saving a failing check unless you can make it pass during setup. `start` is optional; leave it empty if there is no long-running dev server to probe.
 
 Threadcord scopes each setup and task workspace with its own `HOME`, npm global prefix, and cache directory. Commands such as `npm install -g <tool>` install into that workspace and put the workspace-local `bin` directory on `PATH`. Deleting the workspace deletes those globals.
 
-Setup commands:
+Setup commands (Discord slash command `/setup` with subcommands; `repo` and `branch` are required options, optional `model` on create/update):
 
-| Command | Purpose |
-| ------- | ------- |
-| `/setup create repo:<owner/repo> branch:<branch>` | Clone a setup workspace and dispatch the setup agent. |
-| `/setup update repo:<owner/repo> branch:<branch>` | Re-run setup and promote only after verified commands succeed. |
-| `/setup status repo:<owner/repo> branch:<branch>` | Show profile status, revision, and last run state. |
-| `/setup view repo:<owner/repo> branch:<branch>` | View the active profile privately in Discord. |
-| `/setup edit repo:<owner/repo> branch:<branch>` | Open a private draft editor with buttons and modals. |
-| `/setup export repo:<owner/repo> branch:<branch>` | Export environment JSON and memory Markdown as private attachments. |
-| `/setup import repo:<owner/repo> branch:<branch>` | Import JSON or Markdown attachments into a draft. |
+| Subcommand | Purpose |
+| ---------- | ------- |
+| `create` | First-time setup when no profile exists, or when the profile is `failed`. |
+| `update` | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). |
+| `status` | Show profile status, revision, and last run state (ephemeral). |
+| `view` | View the active profile (ephemeral). |
+| `edit` | Open a private draft editor with buttons and modals. |
+| `export` | Export environment JSON and memory Markdown as ephemeral attachments. |
+| `import` | Import environment and/or memory attachments into a draft. |
+
+Repository names are normalized to lowercase `owner/repo`. Coding tasks require a profile in `ready` status.
 
 Draft edits are isolated from the active profile. Applying a draft increments the profile revision only if the active profile still matches the draft base revision. If someone changed the profile first, Threadcord reports a conflict and leaves the active profile unchanged.
 
@@ -207,7 +204,7 @@ Each control-channel message gets its own public thread. Status updates and foll
 
 ### Concurrency and follow-ups
 
-`MAX_CONCURRENT_TASKS` caps parallel agent runs. Extra tasks queue. Follow-up messages in a thread queue behind the current turn.
+`MAX_CONCURRENT_TASKS` caps parallel agent runs. Extra tasks queue. Follow-up messages in a thread queue behind the current turn. On each task’s **initial** turn only, Threadcord runs the profile’s `install` command in the task workspace before dispatching the coding agent (follow-up turns reuse the checkout without re-running install).
 
 ### You run the stack
 
@@ -217,12 +214,13 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 
 | Capability | Where           | What happens                                       |
 | ---------- | --------------- | -------------------------------------------------- |
-| New task   | Control channel | Thread created, repo cloned, first turn queued     |
+| New task   | Control channel | Thread created, repo cloned, first turn queued (requires ready setup profile) |
 | Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`    |
 | `status`   | Task thread     | Replies with current task status                   |
 | `cancel`   | Task thread     | Stops further dispatches, frees a concurrency slot |
 | `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`  |
 | Open PR    | Agent tool      | `create_github_pull_request` after push            |
+| Setup      | `/setup` slash  | Durable per-repo profiles; see [Setup profiles](#setup-profiles) |
 
 ## How it works
 
@@ -265,3 +263,4 @@ Clone, push, and PR creation use your `GITHUB_TOKEN`. Repo access is bounded by 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
