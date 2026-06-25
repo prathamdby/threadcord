@@ -284,6 +284,32 @@ describe("handleObserveEvent", () => {
     );
   });
 
+  it("calls onAgentFailure for failed setup submission events", async () => {
+    const onAgentFailure = vi.fn(async () => {});
+    await handleObserveEvent(
+      taskEvent({
+        type: "submission_settled",
+        outcome: "failed",
+        error: "Submission exceeded processing timeout",
+        instanceId: "setup:run-abc",
+      }),
+      {
+        store: { getByInstanceId: async () => undefined },
+        publisher: {
+          edit: async () => {},
+          send: async () => ({ id: "m1" }),
+        },
+        onAgentEnd: async () => {},
+        onAgentFailure,
+      } as unknown as ObserveBridgeCallbacks,
+    );
+
+    expect(onAgentFailure).toHaveBeenCalledWith(
+      "setup:run-abc",
+      "Submission exceeded processing timeout",
+    );
+  });
+
   it("serializes failure handling before agent_end for the same instance", async () => {
     const order: string[] = [];
     const instanceId = toFlueInstanceId("thread-1");
