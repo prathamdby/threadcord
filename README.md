@@ -131,7 +131,8 @@ Coding agents normally create branches named `threadcord/<type>/<meaningful-name
 Thread commands (in a Threadcord-created thread):
 
 - `status` prints the current task status.
-- `cancel` stops further dispatches and frees a concurrency slot.
+- `abort` or `/abort` stops the in-flight agent turn and cancels the task.
+- `cancel` or `/cancel` cancels the task without failing the current turn (no further dispatches).
 - `done` marks a `waiting` or `queued` task complete.
 
 ## Setup profiles
@@ -209,7 +210,8 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 | New task   | Control channel | Thread created, repo cloned, first turn queued (requires ready setup profile) |
 | Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`                               |
 | `status`   | Task thread     | Replies with current task status                                              |
-| `cancel`   | Task thread     | Stops further dispatches, frees a concurrency slot                            |
+| `abort`    | Task thread     | Stops in-flight agent work and cancels the task (`/abort` or `abort`)          |
+| `cancel`   | Task thread     | Cancels task; current turn may finish; no further dispatches                  |
 | `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`                             |
 | Open PR    | Agent tool      | `create_github_pull_request` after push                                       |
 | Learn      | Agent tool      | `append_threadcord_setup_memory` after verified repo lessons                  |

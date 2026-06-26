@@ -30,6 +30,10 @@ import {
   scheduleReadableThreadRename,
   type RenameDiscordThread,
 } from "./rename-thread.js";
+import {
+  parseThreadControlCommand,
+  stopTaskWork,
+} from "./abort-thread-task.js";
 import { threadName } from "./thread-name.js";
 import type {
   ClaimedTurn,
@@ -244,29 +248,37 @@ export class TaskOrchestrator {
     const task = await this.store.getByThreadId(message.channelId);
     if (!task) return;
 
-    const command = message.content.trim().toLowerCase();
+    const command = parseThreadControlCommand(message.content);
     if (command === "status") {
       await message.reply(`Status: ${task.status}`);
       return;
     }
-    if (command === "cancel") {
-      const cancelled = await this.store.cancelTask(task.id);
-      if (!cancelled) {
+    if (command === "abort" || command === "cancel") {
+      const result = await stopTaskWork(
+        task,
+        {
+          store: this.store,
+          clearInFlight: (id) => this.clearInFlight(id),
+          flipReaction: (initiator, emoji) =>
+            this.flipReaction(initiator, emoji),
+          disposeInitiators: (taskId, emoji) =>
+            this.disposeInitiators(taskId, emoji),
+          deleteTaskThread: (id) => {
+            this.taskThreads.delete(id);
+          },
+          fillConcurrencySlots: () => this.fillConcurrencySlots(),
+        },
+        { abortInFlight: command === "abort" },
+      );
+      if (!result.cancelled) {
         await message.reply(`Task is already ${task.status}.`);
         return;
       }
-      await message.reply(
-        "Cancelled. No further turns will be dispatched for this task.",
-      );
-      // The current turn's initiator, if any, was moved from pending to
-      // in-flight by runTurn, so clearInFlight flips it and disposeInitiators
-      // (which only touches pending) cannot double-handle the same message.
-      clearPendingUserTurnMessage(task.flueInstanceId);
-      const turn = this.clearInFlight(task.flueInstanceId);
-      await this.flipReaction(turn?.initiator, CROSS);
-      await this.disposeInitiators(task.id, CROSS);
-      this.taskThreads.delete(task.flueInstanceId);
-      await this.fillConcurrencySlots();
+      const reply =
+        command === "abort"
+          ? "Aborted. The in-flight agent turn was stopped and no further turns will run."
+          : "Cancelled. No further turns will be dispatched for this task.";
+      await message.reply(reply);
       return;
     }
     if (command === "done") {
