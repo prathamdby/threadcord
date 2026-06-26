@@ -65,13 +65,10 @@ export function createFluePostgres(pool: Pool) {
 }
 
 function fluePersistenceBase(): ReturnType<typeof createFluePostgres> {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      "DATABASE_URL is required for Flue persistence (db.ts connect).",
-    );
+  if (!flueAdapter) {
+    flueAdapter = createFluePostgres(getPool());
   }
-  return createFluePostgres(new PgPool({ connectionString: url }));
+  return flueAdapter;
 }
 
 function threadcordPersistenceAdapter(): PersistenceAdapter {
@@ -89,7 +86,7 @@ function threadcordPersistenceAdapter(): PersistenceAdapter {
       return stores;
     },
     async close() {
-      await base?.close?.();
+      // Pool lifecycle is owned by app bootstrap/shutdown (shared with TaskStore).
     },
   };
   return persistenceAdapter;

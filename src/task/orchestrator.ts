@@ -254,17 +254,22 @@ export class TaskOrchestrator {
       return;
     }
     if (command === "abort" || command === "cancel") {
-      const result = await stopTaskWork(task, {
-        store: this.store,
-        clearInFlight: (id) => this.clearInFlight(id),
-        flipReaction: (initiator, emoji) => this.flipReaction(initiator, emoji),
-        disposeInitiators: (taskId, emoji) =>
-          this.disposeInitiators(taskId, emoji),
-        deleteTaskThread: (id) => {
-          this.taskThreads.delete(id);
+      const result = await stopTaskWork(
+        task,
+        {
+          store: this.store,
+          clearInFlight: (id) => this.clearInFlight(id),
+          flipReaction: (initiator, emoji) =>
+            this.flipReaction(initiator, emoji),
+          disposeInitiators: (taskId, emoji) =>
+            this.disposeInitiators(taskId, emoji),
+          deleteTaskThread: (id) => {
+            this.taskThreads.delete(id);
+          },
+          fillConcurrencySlots: () => this.fillConcurrencySlots(),
         },
-        fillConcurrencySlots: () => this.fillConcurrencySlots(),
-      });
+        { abortInFlight: command === "abort" },
+      );
       if (!result.cancelled) {
         await message.reply(`Task is already ${task.status}.`);
         return;

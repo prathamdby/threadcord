@@ -24,7 +24,7 @@ export async function abortAgentWorkForInstance(
 
   for (const submission of await submissions.listRunningSubmissions()) {
     const input = submission.input;
-    if (input.id !== instanceId) continue;
+    if (!input || input.id !== instanceId) continue;
     if (
       !TASK_AGENT_NAMES.includes(
         input.agent as (typeof TASK_AGENT_NAMES)[number],

@@ -22,9 +22,15 @@ export interface AbortThreadTaskDeps {
   fillConcurrencySlots: () => Promise<void>;
 }
 
+export interface StopTaskWorkOptions {
+  /** When true, fail in-flight Flue submissions for this instance (`abort`). */
+  abortInFlight?: boolean;
+}
+
 export async function stopTaskWork(
   task: TaskRecord,
   deps: AbortThreadTaskDeps,
+  options: StopTaskWorkOptions = {},
 ): Promise<{ cancelled: boolean; alreadyTerminal: boolean }> {
   const cancelled = await deps.store.cancelTask(task.id);
   if (!cancelled) {
@@ -32,7 +38,13 @@ export async function stopTaskWork(
   }
 
   clearPendingUserTurnMessage(task.flueInstanceId);
-  await abortAgentWorkForInstance(task.flueInstanceId);
+  if (options.abortInFlight) {
+    try {
+      await abortAgentWorkForInstance(task.flueInstanceId);
+    } catch (error) {
+      console.error("[threadcord] failed to abort agent work", error);
+    }
+  }
 
   const turn = deps.clearInFlight(task.flueInstanceId);
   await deps.flipReaction(turn?.initiator, "❌");
