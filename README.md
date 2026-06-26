@@ -8,9 +8,9 @@
 
 </div>
 
-> A message in your control channel opens a public thread, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, tasks that were `running` are moved to `waiting` so follow-ups can continue.
+> `/task create` opens a public thread on your reply, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, tasks that were `running` are moved to `waiting` so follow-ups can continue.
 
-Threadcord is a Discord bot plus a small Hono server. You post a task with `repo`, `branch`, and optionally `model` fields. The bot replies in a thread, clones the repo, and dispatches work to a Flue coding agent. Thread commands handle follow-ups, cancel, and done.
+Threadcord is a Discord bot plus a small Hono server. Use `/task create` to supply repo, branch, model, and instruction. The bot opens a thread on the command reply, clones the repo, and dispatches work to a Flue coding agent. Thread messages handle follow-ups; thread commands handle cancel and done.
 
 Configuration lives in [`.env.example`](.env.example). Zod validation is in [`src/config.ts`](src/config.ts).
 
@@ -36,7 +36,7 @@ Configuration lives in [`.env.example`](.env.example). Zod validation is in [`sr
 1. Create a bot in the Discord developer portal.
 2. Turn on the **Message Content** intent.
 3. Grant View Channel, Send Messages, Create Public Threads, Send Messages in Threads, Read Message History.
-4. Copy the bot token and your control channel ID into `.env` as `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID`.
+4. Copy the bot token into `.env` as `DISCORD_BOT_TOKEN`. Invite the bot where you will use `/task` and `/setup`.
 
 ### 2. Docker Compose (recommended)
 
@@ -116,27 +116,17 @@ Inside Docker Compose, `localhost` in a provider URL points at the container, no
 
 Allowed models are derived at startup from these provider blocks. When a Discord task omits `model:`, the first configured model is used.
 
-## Message format
+## Creating tasks
 
-Put the instruction first. Add keyed fields as consecutive lines at the **end** of the message (parsed from the bottom upward). Field names are case-insensitive. Only `repo`, `branch`, `model`, and `push` are recognized; other lines with `key: value` before the metadata block stay part of the instruction.
+Run `/task create` in any channel where the bot can post and create threads.
 
-```text
-Fix the failing auth test and open a PR when done.
+1. An ephemeral message lists **ready setup profiles** in a dropdown (`owner/repo @ branch`). Discord modals only support text fields, not dropdowns, so repo and branch are chosen here (up to 25 profiles).
+2. After you pick one, a modal asks for **model** and **task instruction** (model defaults to the first allowed model at startup).
+3. The bot replies with a link to a new public thread. Progress and agent output stream there.
 
-repo: owner/name
-branch: main
-model: anthropic/claude-sonnet-4-5
-```
+If no setup profile is ready, run `/setup create` first.
 
-`model` is optional. If omitted, Threadcord uses the first entry in `allowedModels` at startup (derived from configured providers in env order: Anthropic, then OpenAI, then each custom provider).
-
-Coding agents normally create their own branches named `threadcord/<type>/<meaningful-name>` (for example `threadcord/feat/add-auth`). Optional push override:
-
-```text
-push: main
-```
-
-Only the task base branch and explicit `threadcord/*` branches are allowed as push targets. The legacy `agent/*` prefix is no longer accepted.
+Coding agents normally create branches named `threadcord/<type>/<meaningful-name>` (for example `threadcord/feat/add-auth`). Push overrides are not exposed in the slash UI; use follow-up instructions in the thread if you need a specific push target. Only the task base branch and explicit `threadcord/*` branches are allowed as push targets.
 
 Thread commands (in a Threadcord-created thread):
 
@@ -261,9 +251,10 @@ Instructions and status lines post to your server. [`redact.ts`](src/util/redact
 
 ### GitHub
 
-Clone, push, and PR creation use your `GITHUB_TOKEN`. Repo access is bounded by that token's scope. Limit who can post in the control channel accordingly.
+Clone, push, and PR creation use your `GITHUB_TOKEN`. Repo access is bounded by that token's scope. Limit who can run `/task create` and post in task threads accordingly.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
 

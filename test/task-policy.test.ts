@@ -13,7 +13,7 @@ const baseRequest: TaskRequest = {
 const config: AppConfig = {
   DATABASE_URL: "postgres://example",
   DISCORD_BOT_TOKEN: "token",
-  DISCORD_CHANNEL_ID: "channel",
+
   GITHUB_TOKEN: "github",
   WORKSPACE_ROOT: "/workspaces",
   MAX_CONCURRENT_TASKS: 3,

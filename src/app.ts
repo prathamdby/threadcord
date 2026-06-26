@@ -33,6 +33,7 @@ export async function createApp(): Promise<{
   const setupOrchestrator = new SetupOrchestrator(config, setupStore);
   const discordClient = startDiscordGateway(
     config.DISCORD_BOT_TOKEN,
+    config,
     orchestrator,
     setupStore,
     setupOrchestrator,

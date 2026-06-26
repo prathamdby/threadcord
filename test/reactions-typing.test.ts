@@ -13,21 +13,21 @@ const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("inbound-message reactions", () => {
-  it("reacts eyes on the control-channel message when a task is accepted", async () => {
+  it("does not react when a slash-style task is accepted", async () => {
     const world = new World();
     const result = await world.submitRaw("m-accept");
 
     expect(result.task!.status).toBe("running");
-    expect(result.message.reactCalls).toContain(EYES);
+    expect(result.message.reactCalls).toHaveLength(0);
   });
 
-  it("reacts eyes even when the task is queued behind a running one", async () => {
+  it("does not react when a slash-style task is queued", async () => {
     const world = new World(1);
     await world.submitRaw("m-running");
     const queued = await world.submitRaw("m-queued");
 
     expect(queued.task!.status).toBe("queued");
-    expect(queued.message.reactCalls).toContain(EYES);
+    expect(queued.message.reactCalls).toHaveLength(0);
   });
 
   it("leaves no orphan eyes when thread creation fails", async () => {
@@ -38,7 +38,7 @@ describe("inbound-message reactions", () => {
     expect(result.message.reactCalls).toHaveLength(0);
   });
 
-  it("flips eyes to check on the initiator message when a turn ends", async () => {
+  it("does not flip reactions on slash initiator when a turn ends", async () => {
     const world = new World();
     const posts: string[] = [];
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
@@ -51,11 +51,7 @@ describe("inbound-message reactions", () => {
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
-    expect(result.message.reactionLog).toEqual([
-      `react:${EYES}`,
-      `unreact:${EYES}`,
-      `react:${CHECK}`,
-    ]);
+    expect(result.message.reactionLog).toEqual([]);
     expect(posts).toContain("Turn completed. Waiting for the next instruction.");
   });
 
@@ -95,7 +91,7 @@ describe("inbound-message reactions", () => {
     ]);
   });
 
-  it("flips eyes to cross on the initiator message when a turn fails", async () => {
+  it("does not flip reactions on slash initiator when a turn fails", async () => {
     const world = new World();
     const result = await world.submitRaw("m-fail-turn");
     const task = result.task!;
@@ -107,11 +103,7 @@ describe("inbound-message reactions", () => {
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("failed");
-    expect(result.message.reactionLog).toEqual([
-      `react:${EYES}`,
-      `unreact:${EYES}`,
-      `react:${CROSS}`,
-    ]);
+    expect(result.message.reactionLog).toEqual([]);
   });
 
   it("reacts per follow-up initiator message and flips on that turn's end", async () => {
@@ -253,11 +245,7 @@ describe("cancel during an in-flight turn", () => {
 
     await world.sendThreadMessage(task.id, "cancel-setup", "cancel");
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
-    expect(result.message.reactionLog).toEqual([
-      `react:${EYES}`,
-      `unreact:${EYES}`,
-      `react:${CROSS}`,
-    ]);
+    expect(result.message.reactionLog).toEqual([]);
 
     release();
     await flush();
@@ -311,11 +299,7 @@ describe("reaction cleanup on terminal commands", () => {
     await world.sendThreadMessage(task.id, "cancel-1", "cancel");
 
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
-    expect(result.message.reactionLog).toEqual([
-      `react:${EYES}`,
-      `unreact:${EYES}`,
-      `react:${CROSS}`,
-    ]);
+    expect(result.message.reactionLog).toEqual([]);
   });
 
   it("flips eyes to cross on a queued follow-up when the task is cancelled", async () => {
@@ -351,16 +335,12 @@ describe("reaction cleanup on terminal commands", () => {
     await world.submitRaw("m-done-running");
     const queued = await world.submitRaw("m-done-queued");
     expect(queued.task!.status).toBe("queued");
-    expect(queued.message.reactCalls).toContain(EYES);
+    expect(queued.message.reactCalls).toHaveLength(0);
 
     await world.sendThreadMessage(queued.task!.id, "done-1", "done");
 
     expect(world.store.snapshot(queued.task!.id).status).toBe("completed");
-    expect(queued.message.reactionLog).toEqual([
-      `react:${EYES}`,
-      `unreact:${EYES}`,
-      `react:${CHECK}`,
-    ]);
+    expect(queued.message.reactionLog).toEqual([]);
   });
 });
 
@@ -412,7 +392,7 @@ describe("handleAgentEnd transition guard", () => {
     const result = await world.submitRaw("m-transition-race");
     const task = result.task!;
     expect(task.status).toBe("running");
-    expect(result.message.reactionLog).toEqual([`react:${EYES}`]);
+    expect(result.message.reactionLog).toEqual([]);
 
     // Simulate a concurrent cancel committing between the read and the
     // running->waiting transition inside handleAgentEnd.
@@ -423,6 +403,6 @@ describe("handleAgentEnd transition guard", () => {
 
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
     expect(posts.some((p) => p.startsWith("Turn completed."))).toBe(false);
-    expect(result.message.reactionLog).toEqual([`react:${EYES}`]);
+    expect(result.message.reactionLog).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@ import { validateTaskPolicy } from "../src/task/policy.js";
 const env = {
   DATABASE_URL: "postgres://example",
   DISCORD_BOT_TOKEN: "discord",
-  DISCORD_CHANNEL_ID: "channel",
+
   GITHUB_TOKEN: "github",
   ANTHROPIC_API_KEY: "anthropic",
   ANTHROPIC_MODELS: "claude-sonnet-4-5,claude-opus-4-1",
