@@ -215,6 +215,20 @@ function formatFlueError(error: unknown): string | undefined {
       return message.trim();
     }
   }
+  // Flue tool errors and bash failures use { content: [{ type: "text", text: "..." }, ...], details }
+  if (error && typeof error === "object" && "content" in error) {
+    const content = (error as { content?: unknown }).content;
+    if (Array.isArray(content) && content.length > 0) {
+      for (const block of content) {
+        if (block && typeof block === "object" && "text" in block) {
+          const text = (block as { text?: unknown }).text;
+          if (typeof text === "string" && text.trim().length > 0) {
+            return text.trim();
+          }
+        }
+      }
+    }
+  }
   return undefined;
 }
 

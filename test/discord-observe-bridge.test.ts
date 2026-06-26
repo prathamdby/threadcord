@@ -636,6 +636,78 @@ describe("handleObserveEvent", () => {
     vi.useRealTimers();
   });
 
+  it("surfaces Flue content-array errors (bash shape) as tool_failed lines", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "bash",
+        toolCallId: "tc-bash-err",
+        args: { command: "invalid-command" },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "bash",
+        toolCallId: "tc-bash-err",
+        isError: true,
+        result: {
+          content: [{ type: "text", text: "command not found: invalid-command" }],
+          details: { command: "invalid-command", exitCode: -1 },
+        },
+        durationMs: 10,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits.some((line) => line.includes("tool_failed: bash"))).toBe(true);
+    expect(edits.some((line) => line.includes("command not found"))).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("surfaces Flue content-array errors without type field", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "bash",
+        toolCallId: "tc-min",
+        args: { command: "failing-command" },
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "bash",
+        toolCallId: "tc-min",
+        isError: true,
+        result: {
+          content: [{ text: "permission denied" }],
+        },
+        durationMs: 5,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits.some((line) => line.includes("permission denied"))).toBe(true);
+    vi.useRealTimers();
+  });
+
   it("truncates a preview longer than 40 chars with ... inside the quotes", async () => {
     vi.useFakeTimers();
     const { callbacks, edits, state } = recordingBridge();
