@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+        env:
+          DATABASE_URL: postgres://threadcord:threadcord@localhost:5432/threadcord
+          DISCORD_BOT_TOKEN: ci-placeholder
+          DISCORD_CHANNEL_ID: "0"
+          GITHUB_TOKEN: ci-placeholder
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: threadcord
+          POSTGRES_PASSWORD: threadcord
+          POSTGRES_DB: threadcord
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U threadcord -d threadcord"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          DATABASE_URL: postgres://threadcord:threadcord@localhost:5432/threadcord
+          DISCORD_BOT_TOKEN: ci-placeholder
+          DISCORD_CHANNEL_ID: "0"
+          GITHUB_TOKEN: ci-placeholder
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          DATABASE_URL: postgres://threadcord:threadcord@localhost:5432/threadcord
+          DISCORD_BOT_TOKEN: ci-placeholder
+          DISCORD_CHANNEL_ID: "0"
+          GITHUB_TOKEN: ci-placeholder
