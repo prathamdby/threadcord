@@ -85,6 +85,10 @@ describe("composePrompt coding invariants", () => {
     "Root cause",
     "cwd = /workspaces/task-1/web",
     "Repo = acme/web",
+    "End-of-task deliverable",
+    "OPERATOR WORKSTYLE",
+    "poteto-mode",
+    "prath-mode",
   ])("contains %s", (token) => {
     expect(prompt).toContain(token);
   });
@@ -128,6 +132,19 @@ describe("composePrompt coding prompt-consistency invariants", () => {
 
   it("keeps the multi-line merge-base checklist command", () => {
     expect(prompt).toContain("git merge-base");
+  });
+
+  it("requires mandatory end-of-turn Discord summary with PR links", () => {
+    expect(prompt).toContain(
+      "always call post_thread_message or post_thread_report before the turn ends",
+    );
+    expect(prompt).toContain("include the PR URL as a markdown link");
+  });
+
+  it("documents operator poteto-mode and prath-mode ship chain", () => {
+    expect(prompt).toContain("OPERATOR WORKSTYLE");
+    expect(prompt).toContain("prath-mode commit");
+    expect(prompt).toContain("create_github_pull_request");
   });
 
   it("forbids cross-tool argument keys in TOOL USE", () => {
