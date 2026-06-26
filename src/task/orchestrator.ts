@@ -49,7 +49,6 @@ export interface StartTaskFromSlashInput {
   initiatorMessageId: string;
   pending: PendingTaskCreate;
   createThread: (name: string) => Promise<ThreadRef>;
-  onFailure: (summary: string) => Promise<void>;
 }
 
 const EYES = "👀";
@@ -198,8 +197,10 @@ export class TaskOrchestrator {
     } catch (error) {
       const summary = summarizeError(error);
       await this.store.markDraftFailed(task.id, summary);
-      await input.onFailure(`Could not create a thread for this task: ${summary}`);
-      return { ok: false, reason: summary };
+      return {
+        ok: false,
+        reason: `Could not create a thread for this task: ${summary}`,
+      };
     }
 
     let statusMessageId: string;
@@ -208,10 +209,10 @@ export class TaskOrchestrator {
     } catch (error) {
       const summary = summarizeError(error);
       await this.store.markDraftFailed(task.id, summary);
-      await input.onFailure(
-        `Task thread created but the status message could not be delivered: ${summary}`,
-      );
-      return { ok: false, reason: summary };
+      return {
+        ok: false,
+        reason: `Task thread created but the status message could not be delivered: ${summary}`,
+      };
     }
 
     const attached = await this.store.attachAndPromote(
@@ -225,7 +226,7 @@ export class TaskOrchestrator {
     }
 
     this.taskThreads.set(attached.flueInstanceId, thread);
-    this.recordInitiatorById(attached.id, input.initiatorMessageId);
+    this.recordSlashInitiator(attached.id, input.initiatorMessageId);
 
     const claimed = await this.store.claimNextTurn(attached.id);
     if (claimed) {
@@ -541,6 +542,14 @@ export class TaskOrchestrator {
       this.pendingInitiatorIds.set(taskId, ids);
     }
     ids.add(messageId);
+  }
+
+  private recordSlashInitiator(taskId: string, messageId: string): void {
+    this.recordInitiatorById(taskId, messageId);
+    this.initiatorMessages.set(messageId, {
+      react: async () => {},
+      unreact: async () => {},
+    });
   }
 
   private async disposeInitiators(

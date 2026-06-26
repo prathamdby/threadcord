@@ -6,6 +6,7 @@ export function buildTaskCommandJson(): ReturnType<
   const command = new SlashCommandBuilder()
     .setName("task")
     .setDescription("Create and manage Threadcord coding tasks.")
+    .setDMPermission(false)
     .addSubcommand((subcommand) =>
       subcommand
         .setName("create")

@@ -25,6 +25,16 @@ function discordContent(content: string): string {
   return clampDiscordContent(content);
 }
 
+function formatTaskStartFailure(reason: string): string {
+  if (reason.startsWith("Could not create a thread")) {
+    return reason;
+  }
+  if (reason.startsWith("Task thread created but the status message")) {
+    return reason;
+  }
+  return `Rejected: ${reason}`;
+}
+
 export async function handleTaskInteraction(input: {
   interaction: Interaction;
   orchestrator: TaskOrchestrator;
@@ -203,14 +213,11 @@ async function handleTaskModal(
         });
         return toSetupThreadRef(thread);
       },
-      onFailure: async (summary) => {
-        await interaction.editReply(
-          discordContent(`Could not start task: ${summary}`),
-        );
-      },
     });
     if (!result.ok) {
-      await interaction.editReply(discordContent(`Rejected: ${result.reason}`));
+      await interaction.editReply(
+        discordContent(formatTaskStartFailure(result.reason)),
+      );
       return;
     }
     const threadLink = `<#${result.threadId}>`;

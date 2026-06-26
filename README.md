@@ -258,6 +258,3 @@ Clone, push, and PR creation use your `GITHUB_TOKEN`. Repo access is bounded by 
 MIT. See [LICENSE](LICENSE).
 
 
-ICENSE).
-
-

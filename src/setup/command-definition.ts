@@ -6,6 +6,7 @@ export function buildSetupCommandJson(): ReturnType<
   const command = new SlashCommandBuilder()
     .setName("setup")
     .setDescription("Manage durable Threadcord setup profiles.")
+    .setDMPermission(false)
     .addSubcommand((subcommand) =>
       subcommand
         .setName("create")

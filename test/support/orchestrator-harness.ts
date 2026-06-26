@@ -444,7 +444,7 @@ export class World {
       reactionLog: [],
     };
 
-    await this.orchestrator.startTaskFromSlash({
+    const result = await this.orchestrator.startTaskFromSlash({
       initiatorMessageId: messageId,
       pending: {
         repo: "acme/web",
@@ -457,10 +457,10 @@ export class World {
         threadsCreated += 1;
         return thread;
       },
-      onFailure: async (summary) => {
-        replies.push(summary);
-      },
     });
+    if (!result.ok) {
+      replies.push(result.reason);
+    }
     await flush();
     return {
       task: this.store.findByMessageId(messageId),
