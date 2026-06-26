@@ -12,7 +12,7 @@ export function createSetupTools(runId: string) {
     defineTool({
       name: "save_threadcord_setup_profile",
       description:
-        "Validate and save the durable Threadcord setup profile discovered for this repository.",
+        "Promote this setup workspace into a durable Threadcord setup profile. The tool re-runs install, every check, and (if non-empty) a short smoke probe of start, all in the current setup workspace. Save only checks that already passed in this workspace; failing checks cause the entire save to be rejected and you must adjust and call again. Environment: install (required non-empty bash one-liner), start (optional smoke-probable command), checks (record of name -> bash one-liner, names match /^[a-zA-Z][a-zA-Z0-9_-]*$/), requiredEnv (UPPER_SNAKE names only, never values), requiredServices (string names). memoryMarkdown is <=60000 chars and must not contain anything that looks like a secret value (keys, tokens, passwords). On success the setup workspace is removed.",
       parameters: v.object({
         environment: v.object({
           install: v.string(),

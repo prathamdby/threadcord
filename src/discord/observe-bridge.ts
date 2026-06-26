@@ -236,6 +236,12 @@ async function eventSummary(
     }
     case "agent_end":
       return "Agent turn completed";
+    case "tool":
+      if (event.isError) {
+        const reason = formatFlueError(event.result) ?? "Tool failed";
+        return redact(`tool_failed: ${event.toolName}: ${reason}`);
+      }
+      return undefined;
     case "log":
       return `${event.level}: ${event.message}`;
     default:

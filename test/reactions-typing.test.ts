@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  queuePendingUserTurnMessages,
   setPendingUserTurnMessage,
-  takePendingUserTurnMessage,
+  takePendingUserTurnMessages,
 } from "../src/discord/user-turn-message.js";
 import { World, flush } from "./support/orchestrator-harness.js";
 
@@ -68,10 +69,10 @@ describe("inbound-message reactions", () => {
     await world.orchestrator.handleAgentEnd(task.flueInstanceId);
     await flush();
 
-    expect(takePendingUserTurnMessage(task.flueInstanceId)).toBeUndefined();
+    expect(takePendingUserTurnMessages(task.flueInstanceId)).toEqual([]);
   });
 
-  it("posts the agent user message after the turn-completed notice", async () => {
+  it("posts queued user messages without the turn-completed notice", async () => {
     const world = new World();
     const posts: string[] = [];
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
@@ -80,20 +81,18 @@ describe("inbound-message reactions", () => {
     const result = await world.submitRaw("m-user-msg");
     const task = result.task!;
 
-    setPendingUserTurnMessage(
-      task.flueInstanceId,
+    queuePendingUserTurnMessages(task.flueInstanceId, [
       "Shipped the fix and opened a PR.",
-    );
+    ]);
     await world.orchestrator.handleAgentEnd(task.flueInstanceId);
     await flush();
 
-    const completedIdx = posts.indexOf(
+    expect(posts).not.toContain(
       "Turn completed. Waiting for the next instruction.",
     );
-    expect(completedIdx).toBeGreaterThanOrEqual(0);
-    expect(posts[completedIdx + 1]).toBe(
+    expect(posts.filter((post) => post.startsWith("Shipped"))).toEqual([
       "Shipped the fix and opened a PR.",
-    );
+    ]);
   });
 
   it("flips eyes to cross on the initiator message when a turn fails", async () => {
