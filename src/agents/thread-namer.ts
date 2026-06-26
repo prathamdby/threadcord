@@ -1,5 +1,6 @@
 import { createAgent } from "@flue/runtime";
 import { getRuntimeConfig } from "../config.js";
+import { threadNamerDurability } from "../flue/agent-guardrails.js";
 import { composePrompt } from "./prompts/compose.js";
 
 export interface ThreadNamerInput {
@@ -8,7 +9,7 @@ export interface ThreadNamerInput {
 
 export default createAgent<ThreadNamerInput>(async ({ payload }) => ({
   model: getRuntimeConfig().defaultModel,
-  durability: { timeoutMs: 90_000, maxAttempts: 2 },
+  durability: threadNamerDurability(getRuntimeConfig()),
   instructions: composePrompt({
     role: "thread-namer",
     ctx: {

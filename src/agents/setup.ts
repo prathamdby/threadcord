@@ -1,6 +1,8 @@
 import { basename, join } from "node:path";
 import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
+import { getRuntimeConfig } from "../config.js";
+import { setupAgentDurability } from "../flue/agent-guardrails.js";
 import { getPool } from "../db.js";
 import { createSetupTools } from "../setup/tools.js";
 import { SetupStore } from "../setup/store.js";
@@ -26,10 +28,7 @@ export default createAgent(async ({ id }) => {
       cwd: checkoutPath,
       env: sandboxEnv,
     }),
-    durability: {
-      timeoutMs: 30 * 60 * 1000,
-      maxAttempts: 3,
-    },
+    durability: setupAgentDurability(getRuntimeConfig()),
     tools: createSetupTools(run.id),
     instructions: composePrompt({
       role: "setup",

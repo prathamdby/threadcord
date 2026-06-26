@@ -1,5 +1,7 @@
 import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
+import { getRuntimeConfig } from "../config.js";
+import { codingAgentDurability } from "../flue/agent-guardrails.js";
 import { createThreadMessageTools } from "../discord/thread-message-tool.js";
 import { createSetupMemoryTools } from "../setup/memory-tools.js";
 import {
@@ -35,10 +37,7 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
       cwd: turn.cwd,
       env: sandboxEnv,
     }),
-    durability: {
-      timeoutMs: 60 * 60 * 1000,
-      maxAttempts: 10,
-    },
+    durability: codingAgentDurability(getRuntimeConfig()),
     tools: [
       ...createThreadMessageTools(id),
       ...createSetupMemoryTools(turn.repo, turn.baseBranch),
