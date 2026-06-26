@@ -118,16 +118,13 @@ Allowed models are derived at startup from these provider blocks. When a Discord
 
 ## Creating tasks
 
-Run `/task create` in any channel where the bot can post and create threads. A modal asks for:
+Run `/task create` in any channel where the bot can post and create threads.
 
-| Field | Description |
-| ----- | ----------- |
-| Repository | `owner/repo` on GitHub |
-| Base branch | Branch to clone and target for PRs (for example `main`) |
-| Model | `provider/model-id` from your configured providers |
-| Task instruction | What the coding agent should do |
+1. An ephemeral message lists **ready setup profiles** in a dropdown (`owner/repo @ branch`). Discord modals only support text fields, not dropdowns, so repo and branch are chosen here (up to 25 profiles).
+2. After you pick one, a modal asks for **model** and **task instruction** (model defaults to the first allowed model at startup).
+3. The bot replies with a link to a new public thread. Progress and agent output stream there.
 
-The bot replies with a link to a new public thread. Progress and agent output stream there. The modal pre-fills the model field with your default (first allowed model at startup).
+If no setup profile is ready, run `/setup create` first.
 
 Coding agents normally create branches named `threadcord/<type>/<meaningful-name>` (for example `threadcord/feat/add-auth`). Push overrides are not exposed in the slash UI; use follow-up instructions in the thread if you need a specific push target. Only the task base branch and explicit `threadcord/*` branches are allowed as push targets.
 

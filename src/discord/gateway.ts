@@ -68,6 +68,7 @@ async function routeInteraction(
     await handleTaskInteraction({
       interaction,
       orchestrator: taskOrchestrator,
+      setupStore,
       config,
     })
   ) {
