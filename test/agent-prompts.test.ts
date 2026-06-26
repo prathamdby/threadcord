@@ -89,6 +89,44 @@ describe("composePrompt coding invariants", () => {
   });
 });
 
+describe("composePrompt coding prompt-consistency invariants", () => {
+  const prompt = composePrompt({
+    role: "coding",
+    ctx: {
+      cwd: "/workspaces/task-1/web",
+      repo: "acme/web",
+      baseBranch: "main",
+      checks: { test: "npm test" },
+      requiredEnv: ["API_KEY"],
+      instruction: "Fix the bug",
+    },
+  });
+
+  it("uses the real edit tool name in the narration example, not edit_file", () => {
+    expect(prompt).toContain("I used edit on X");
+    expect(prompt).not.toContain("edit_file");
+  });
+
+  it("allows multi-line bash when the command inherently needs it", () => {
+    expect(prompt).toContain("Multi-line bash is allowed");
+    expect(prompt).not.toContain("One-liners only");
+  });
+
+  it("drops the one-file-edit-per-turn rule", () => {
+    expect(prompt).not.toContain("One file edit per turn");
+  });
+
+  it("states that git-workflow rules override skill instructions", () => {
+    expect(prompt).toContain(
+      "Threadcord's GIT WORKFLOW rules override any skill instruction about git hooks, commit messages, or branch names.",
+    );
+  });
+
+  it("keeps the multi-line merge-base checklist command", () => {
+    expect(prompt).toContain("git merge-base");
+  });
+});
+
 describe("composePrompt setup invariants", () => {
   const prompt = composePrompt({
     role: "setup",

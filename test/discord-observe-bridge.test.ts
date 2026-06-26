@@ -677,6 +677,112 @@ describe("handleObserveEvent", () => {
   });
 });
 
+describe("tool error formatting (Flue content-array shapes)", () => {
+  it("surfaces content-array text and exit-code details for a bash failure", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "bash",
+        toolCallId: "tc-err",
+        isError: true,
+        result: {
+          content: [{ type: "text", text: "bash: npm: command not found" }],
+          details: { command: "npm test", exitCode: 127 },
+        },
+        durationMs: 3,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toContain("tool_failed: bash");
+    expect(edits[0]).toContain("bash: npm: command not found");
+    expect(edits[0]).toContain("npm test exited with code 127");
+    vi.useRealTimers();
+  });
+
+  it("surfaces text from a minimal content-array block with no type field", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "edit",
+        toolCallId: "tc-err",
+        isError: true,
+        result: { content: [{ text: "oldText not found" }] },
+        durationMs: 1,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toContain("tool_failed: edit");
+    expect(edits[0]).toContain("oldText not found");
+    vi.useRealTimers();
+  });
+
+  it("still surfaces a plain Error result message", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "custom_tool",
+        toolCallId: "tc-err",
+        isError: true,
+        result: new Error("custom tool blew up"),
+        durationMs: 1,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toContain("tool_failed: custom_tool");
+    expect(edits[0]).toContain("custom tool blew up");
+    vi.useRealTimers();
+  });
+
+  it("redacts secrets inside content-array error text", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    const secret = "ghp_aBcDeFgHiJkLmNoPqRsTuvw";
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "bash",
+        toolCallId: "tc-err",
+        isError: true,
+        result: {
+          content: [{ type: "text", text: `auth failed for ${secret}` }],
+        },
+        durationMs: 1,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toContain("tool_failed: bash");
+    expect(edits[0]).toContain("[redacted]");
+    expect(edits[0]).not.toContain(secret);
+    vi.useRealTimers();
+  });
+});
+
 describe("progress overflow rolling", () => {
   it("rolls to a second bubble and targets it for subsequent edits", async () => {
     vi.useFakeTimers();

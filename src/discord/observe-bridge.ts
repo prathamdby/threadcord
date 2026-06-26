@@ -203,18 +203,48 @@ export function submissionFailureSummary(event: FlueEvent): string | undefined {
 }
 
 function formatFlueError(error: unknown): string | undefined {
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    const obj = error as Record<string, unknown>;
+    const contentText = extractContentArrayText(obj.content);
+    const detailSuffix = formatErrorDetails(obj.details);
+    if (contentText && detailSuffix) {
+      return `${contentText}\n${detailSuffix}`;
+    }
+    if (contentText) return contentText;
+    if (detailSuffix) return detailSuffix;
+    if (typeof obj.message === "string" && obj.message.trim().length > 0) {
+      return obj.message.trim();
+    }
+  }
   if (typeof error === "string" && error.trim().length > 0) {
     return error.trim();
   }
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message.trim();
+  return undefined;
+}
+
+function extractContentArrayText(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const texts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as Record<string, unknown>;
+    if (b.type !== undefined && b.type !== "text") continue;
+    if (typeof b.text !== "string" || b.text.trim().length === 0) continue;
+    texts.push(b.text);
   }
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim().length > 0) {
-      return message.trim();
-    }
+  return texts.length > 0 ? texts.join("\n").trim() : undefined;
+}
+
+function formatErrorDetails(details: unknown): string | undefined {
+  if (!details || typeof details !== "object") return undefined;
+  const d = details as Record<string, unknown>;
+  const command = typeof d.command === "string" ? d.command.trim() : "";
+  const hasExitCode = typeof d.exitCode === "number";
+  if (command && hasExitCode) {
+    return `${command} exited with code ${d.exitCode}`;
   }
+  if (command) return command;
+  if (hasExitCode) return `exited with code ${d.exitCode}`;
   return undefined;
 }
 
