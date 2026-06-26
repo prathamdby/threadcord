@@ -4,6 +4,13 @@ import setupAgent from "../src/agents/setup.js";
 import threadNamerAgent from "../src/agents/thread-namer.js";
 import { composePrompt } from "../src/agents/compose.js";
 
+vi.mock("../src/task/git-auth.js", () => ({
+  resolveGithubHttpsGitEnv: vi.fn(async () => ({
+    GITHUB_TOKEN: "ghp_test",
+    GH_TOKEN: "ghp_test",
+  })),
+}));
+
 vi.mock("../src/task/turn-context.js", () => ({
   resolveAgentRuntimeContext: vi.fn(async () => ({
     model: "anthropic/claude-sonnet-4-5",
