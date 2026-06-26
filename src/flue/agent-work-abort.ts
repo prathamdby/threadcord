@@ -1,8 +1,6 @@
 import { createSessionStorageKey } from "@flue/runtime/adapter";
 import type { AgentExecutionStore } from "@flue/runtime/internal";
 
-const TASK_AGENT_NAMES = ["coding", "setup"] as const;
-
 let executionStore: AgentExecutionStore | undefined;
 
 export function registerFlueExecutionStore(store: AgentExecutionStore): void {
@@ -22,16 +20,10 @@ export async function abortAgentWorkForInstance(
   );
   let stopped = 0;
 
+  const sessionKey = sessionKeyForInstance(instanceId);
+
   for (const submission of await submissions.listRunningSubmissions()) {
-    const input = submission.input;
-    if (!input || input.id !== instanceId) continue;
-    if (
-      !TASK_AGENT_NAMES.includes(
-        input.agent as (typeof TASK_AGENT_NAMES)[number],
-      )
-    ) {
-      continue;
-    }
+    if (submission.sessionKey !== sessionKey) continue;
     if (!submission.attemptId) continue;
     const failed = await submissions.failSubmission(
       {
