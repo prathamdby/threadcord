@@ -1,9 +1,12 @@
 import { postgres, type PostgresQuery } from "@flue/postgres";
+import type { PersistenceAdapter } from "@flue/runtime/internal";
 import type { Pool } from "pg";
 import { Pool as PgPool } from "pg";
+import { registerFlueExecutionStore } from "./flue/agent-work-abort.js";
 
 let poolInstance: Pool | undefined;
 let flueAdapter: ReturnType<typeof createFluePostgres> | undefined;
+let persistenceAdapter: PersistenceAdapter | undefined;
 
 export function initializeDatabase(databaseUrl: string): Pool {
   if (!poolInstance) {
@@ -61,20 +64,41 @@ export function createFluePostgres(pool: Pool) {
   return postgres(createPostgresRunner(pool));
 }
 
+function fluePersistenceBase(): ReturnType<typeof createFluePostgres> {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is required for Flue persistence (db.ts connect).",
+    );
+  }
+  return createFluePostgres(new PgPool({ connectionString: url }));
+}
+
+function threadcordPersistenceAdapter(): PersistenceAdapter {
+  if (persistenceAdapter) return persistenceAdapter;
+  let base: ReturnType<typeof createFluePostgres> | undefined;
+  persistenceAdapter = {
+    async migrate() {
+      base ??= fluePersistenceBase();
+      if (base.migrate) await base.migrate();
+    },
+    async connect() {
+      base ??= fluePersistenceBase();
+      const stores = await base.connect();
+      registerFlueExecutionStore(stores.executionStore);
+      return stores;
+    },
+    async close() {
+      await base?.close?.();
+    },
+  };
+  return persistenceAdapter;
+}
+
 export const pool = new Proxy({} as Pool, {
   get(_target, prop, receiver) {
     return Reflect.get(getPool(), prop, receiver);
   },
 });
 
-export default new Proxy({} as ReturnType<typeof createFluePostgres>, {
-  get(_target, prop, receiver) {
-    if (!flueAdapter) {
-      getPool();
-    }
-    if (!flueAdapter) {
-      throw new Error("Flue postgres adapter not initialized");
-    }
-    return Reflect.get(flueAdapter, prop, receiver);
-  },
-});
+export default threadcordPersistenceAdapter();
