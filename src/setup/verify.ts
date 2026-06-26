@@ -4,6 +4,7 @@ import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
 import { wrapWorkspaceBashCommand } from "../task/workspace-env.js";
 import { redact } from "../util/redact.js";
 import type { SetupEnvironment } from "./profile.js";
+import { buildSkillsInstallShellCommand } from "./skills.js";
 
 export interface SetupCommandFailure {
   name: string;
@@ -177,6 +178,22 @@ export async function verifySetupEnvironment(
   if (installFailure) {
     failures.push(installFailure);
     return { ok: false, failures };
+  }
+
+  const skillLinks = input.environment.skills ?? [];
+  if (skillLinks.length > 0) {
+    const skillsCommand = buildSkillsInstallShellCommand(skillLinks);
+    const skillsFailure = await runCommand({
+      name: "skills",
+      command: skillsCommand,
+      cwd: input.checkoutDir,
+      env,
+      timeoutMs: installTimeoutMs,
+    });
+    if (skillsFailure) {
+      failures.push(skillsFailure);
+      return { ok: false, failures };
+    }
   }
 
   const checks = Object.entries(input.environment.checks).sort(([a], [b]) =>

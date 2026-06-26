@@ -14,7 +14,11 @@ import {
   pendingThreadId,
   toFlueInstanceId,
 } from "../ids.js";
-import { bootstrapWorkspace, runSetupInstall } from "./bootstrap.js";
+import {
+  bootstrapWorkspace,
+  runSetupInstall,
+  runSetupSkillsInstall,
+} from "./bootstrap.js";
 import type { BootstrapMode } from "./bootstrap.js";
 import { parseTaskMessage } from "./parser.js";
 import { validateTaskPolicy } from "./policy.js";
@@ -404,6 +408,15 @@ export class TaskOrchestrator {
           setupProfile.environment.install,
           this.config.GITHUB_TOKEN,
         );
+        const skillLinks = setupProfile.environment.skills ?? [];
+        if (skillLinks.length > 0) {
+          await runSetupSkillsInstall(
+            task.workspacePath,
+            checkoutPath,
+            skillLinks,
+            this.config.GITHUB_TOKEN,
+          );
+        }
       }
       // A concurrent cancel transitions the task out of running during setup;
       // re-check the store (source of truth) before dispatching, since the
@@ -571,6 +584,11 @@ function buildPrompt(
     `Admitted setup profile revision: ${task.setupProfileRevision}`,
     `Active setup profile revision: ${activeSetupProfileRevision}`,
     `Setup install command: ${setupEnvironment.install}`,
+    `Setup skills: ${
+      setupEnvironment.skills?.length
+        ? setupEnvironment.skills.join("; ")
+        : "none"
+    }`,
     `Setup checks: ${formatChecks(setupEnvironment.checks)}`,
     `Required env: ${setupEnvironment.requiredEnv.join(", ") || "none"}`,
     `Required services: ${setupEnvironment.requiredServices.join(", ") || "none"}`,

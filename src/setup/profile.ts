@@ -26,6 +26,8 @@ export interface SetupEnvironment {
   checks: Record<string, string>;
   requiredEnv: string[];
   requiredServices: string[];
+  /** Skill repo URLs; installed globally under workspace HOME after install. */
+  skills?: string[];
 }
 
 export interface SetupProfile {
@@ -147,18 +149,21 @@ export function validateSetupEnvironment(
     "requiredServices",
   );
   if (!requiredServices.ok) return requiredServices;
-  return {
-    ok: true,
-    value: {
-      install: install.value.trim(),
-      start: start.value.trim(),
-      checks: checks.value,
-      requiredEnv: [...new Set(requiredEnv.value.map((name) => name.trim()))],
-      requiredServices: [
-        ...new Set(requiredServices.value.map((service) => service.trim())),
-      ],
-    },
+  const skills = optionalSkillsField(value.skills);
+  if (!skills.ok) return skills;
+  const environment: SetupEnvironment = {
+    install: install.value.trim(),
+    start: start.value.trim(),
+    checks: checks.value,
+    requiredEnv: [...new Set(requiredEnv.value.map((name) => name.trim()))],
+    requiredServices: [
+      ...new Set(requiredServices.value.map((service) => service.trim())),
+    ],
   };
+  if (skills.value.length > 0) {
+    environment.skills = skills.value;
+  }
+  return { ok: true, value: environment };
 }
 
 export const SETUP_MEMORY_MAX_CHARS = 60_000;
@@ -317,6 +322,30 @@ function stringListField(
     strings.push(item.trim());
   }
   return { ok: true, value: strings };
+}
+
+function optionalSkillsField(value: unknown): ValidationResult<string[]> {
+  if (value === undefined) return { ok: true, value: [] };
+  if (!Array.isArray(value)) {
+    return { ok: false, message: "Environment skills must be an array." };
+  }
+  const strings: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim()) {
+      return {
+        ok: false,
+        message: "Environment skills must contain non-empty strings.",
+      };
+    }
+    if (SECRET_VALUE_HINT.test(item)) {
+      return {
+        ok: false,
+        message: "Environment skills must not contain secret values.",
+      };
+    }
+    strings.push(item.trim());
+  }
+  return { ok: true, value: [...new Set(strings)] };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

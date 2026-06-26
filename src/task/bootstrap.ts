@@ -5,6 +5,7 @@ import {
   resolveGithubHttpsGitEnv,
 } from "./git-auth.js";
 import { execa } from "./execa.js";
+import { buildSkillsInstallShellCommand } from "../setup/skills.js";
 import type { TaskRecord } from "../types.js";
 import {
   ensureWorkspaceDirs,
@@ -55,6 +56,22 @@ export async function runSetupInstall(
 ): Promise<void> {
   const gitEnv = await resolveGithubHttpsGitEnv(workspaceRoot, githubToken);
   await execa("bash", ["-c", wrapWorkspaceBashCommand(installCommand)], {
+    cwd: checkoutDir,
+    env: gitEnv,
+    timeout: 1_800_000,
+  });
+}
+
+export async function runSetupSkillsInstall(
+  workspaceRoot: string,
+  checkoutDir: string,
+  skillLinks: string[],
+  githubToken: string,
+): Promise<void> {
+  if (skillLinks.length === 0) return;
+  const gitEnv = await resolveGithubHttpsGitEnv(workspaceRoot, githubToken);
+  const command = buildSkillsInstallShellCommand(skillLinks);
+  await execa("bash", ["-c", wrapWorkspaceBashCommand(command)], {
     cwd: checkoutDir,
     env: gitEnv,
     timeout: 1_800_000,

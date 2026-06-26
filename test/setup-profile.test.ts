@@ -48,6 +48,19 @@ describe("setup profile validation", () => {
     });
   });
 
+  it("accepts optional skills array", () => {
+    const result = validateSetupEnvironment({
+      install: "npm ci",
+      skills: ["https://github.com/prathamdby/skills"],
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: expect.objectContaining({
+        skills: ["https://github.com/prathamdby/skills"],
+      }),
+    });
+  });
+
   it("rejects missing install commands and secret-looking env entries", () => {
     expect(validateSetupEnvironment({ install: "" })).toMatchObject({
       ok: false,

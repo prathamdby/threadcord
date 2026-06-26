@@ -144,6 +144,11 @@ function renderEnvironment(environment: SetupEnvironment): string {
     ...(checkLines.length > 0 ? checkLines : ["- none"]),
     `Required env: ${environment.requiredEnv.join(", ") || "none"}`,
     `Required services: ${environment.requiredServices.join(", ") || "none"}`,
+    `Skills: ${
+      environment.skills && environment.skills.length > 0
+        ? environment.skills.join("; ")
+        : "(none)"
+    }`,
   ].join("\n");
 }
 

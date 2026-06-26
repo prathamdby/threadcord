@@ -12,7 +12,7 @@ export function createSetupTools(runId: string) {
     defineTool({
       name: "save_threadcord_setup_profile",
       description:
-        "Promote this setup workspace into a durable Threadcord setup profile. The tool re-runs install, every check, and (if non-empty) a short smoke probe of start, all in the current setup workspace. Save only checks that already passed in this workspace; failing checks cause the entire save to be rejected and you must adjust and call again. Environment: install (required non-empty bash one-liner), start (optional smoke-probable command), checks (record of name -> bash one-liner, names match /^[a-zA-Z][a-zA-Z0-9_-]*$/), requiredEnv (UPPER_SNAKE names only, never values), requiredServices (string names). memoryMarkdown is <=60000 chars and must not contain anything that looks like a secret value (keys, tokens, passwords). On success the setup workspace is removed.",
+        "Promote this setup workspace into a durable Threadcord setup profile. The tool re-runs install, every check, optional skills (from environment.skills, after install), and (if non-empty) a short smoke probe of start, all in the current setup workspace. Save only checks that already passed in this workspace; failing checks cause the entire save to be rejected and you must adjust and call again. Environment: install (required non-empty bash one-liner), start (optional smoke-probable command), checks (record of name -> bash one-liner, names match /^[a-zA-Z][a-zA-Z0-9_-]*$/), requiredEnv (UPPER_SNAKE names only, never values), requiredServices (string names), skills (optional array of skill repo URLs; not set by setup agent — use profile from wizard). memoryMarkdown is <=60000 chars and must not contain anything that looks like a secret value (keys, tokens, passwords). On success the setup workspace is removed.",
       parameters: v.object({
         environment: v.object({
           install: v.string(),
@@ -20,6 +20,7 @@ export function createSetupTools(runId: string) {
           checks: v.optional(v.record(v.string(), v.string())),
           requiredEnv: v.optional(v.array(v.string())),
           requiredServices: v.optional(v.array(v.string())),
+          skills: v.optional(v.array(v.string())),
         }),
         memoryMarkdown: v.string(),
       }),
@@ -37,19 +38,26 @@ export function createSetupTools(runId: string) {
           throw new Error("Setup run is missing.");
         }
         const checkoutDir = join(run.workspacePath, basename(run.repo));
+        const profileBefore = await store.getProfileById(run.profileId);
+        const environment = { ...parsed.value.environment };
+        if (
+          profileBefore?.environment.skills?.length &&
+          !(environment.skills && environment.skills.length > 0)
+        ) {
+          environment.skills = profileBefore.environment.skills;
+        }
         const verification = await verifySetupEnvironment({
-          environment: parsed.value.environment,
+          environment,
           workspaceRoot: run.workspacePath,
           checkoutDir,
           githubToken: process.env.GITHUB_TOKEN ?? "",
         });
         if (!verification.ok) {
-          // Keep workspace so the setup agent can adjust commands and retry save.
           throw new Error(formatSetupVerifyError(verification));
         }
         const profile = await store.promoteRun({
           runId,
-          environment: parsed.value.environment,
+          environment,
           memoryMarkdown: parsed.value.memoryMarkdown,
         });
         await rm(run.workspacePath, { recursive: true, force: true }).catch(
