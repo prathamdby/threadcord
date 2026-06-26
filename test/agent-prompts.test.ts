@@ -130,7 +130,10 @@ describe("composePrompt coding prompt-consistency invariants", () => {
   });
 
   it("forbids cross-tool argument keys in TOOL USE", () => {
-    expect(prompt).toContain("Do not pass `path` to grep/glob/bash");
+    expect(prompt).toContain("Do not pass `path` to bash");
+    expect(prompt).toContain(
+      "do not pass `command` to read/write/edit/grep/glob",
+    );
     expect(prompt).toContain("must have required properties");
   });
 });

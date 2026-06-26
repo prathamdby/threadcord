@@ -31,7 +31,7 @@ Use only the parameter names below. There is no \`description\` field on built-i
 Threadcord-only tools: post_thread_message (\`message\`), post_thread_report (\`parts\` string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`).`;
 
 export const TOOL_USE = `TOOL USE
-- One tool name per call with that tool's parameters only. Do not pass \`path\` to grep/glob/bash; do not pass \`command\` to read/write/edit.
+- One tool name per call with that tool's parameters only. Do not pass \`path\` to bash; do not pass \`command\` to read/write/edit/grep/glob.
 - Grep patterns are regex (e.g. \`skills\`, \`createAgent\`). Glob patterns are filename globs (e.g. \`**/*skill*\`). Never use \`**/foo*\` as a grep pattern.
 - Prefer a single read/grep/glob per turn when arguments might be wrong; fix validation errors before batching.
 - Batch only independent reads/searches in one turn. Sequence dependent edits; re-read the file between edits on the same file.
