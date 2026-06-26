@@ -4,7 +4,7 @@ import { loadConfig, resolveTaskRequest } from "../src/config.js";
 const baseEnv = {
   DATABASE_URL: "postgres://example",
   DISCORD_BOT_TOKEN: "discord",
-  DISCORD_CHANNEL_ID: "channel",
+
   GITHUB_TOKEN: "github",
   ANTHROPIC_API_KEY: "anthropic",
   ANTHROPIC_MODELS: "claude-sonnet-4-5",
@@ -178,7 +178,7 @@ describe("loadConfig", () => {
       loadConfig({
         DATABASE_URL: "postgres://example",
         DISCORD_BOT_TOKEN: "discord",
-        DISCORD_CHANNEL_ID: "channel",
+      
         GITHUB_TOKEN: "github",
       }),
     ).toThrow(/At least one provider model must be configured/);

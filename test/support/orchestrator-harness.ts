@@ -9,7 +9,6 @@ import type { AppConfig } from "../../src/config.js";
 import type { SetupEnvironment, SetupProfile } from "../../src/setup/profile.js";
 import type { SetupStore } from "../../src/setup/store.js";
 import type {
-  ChannelMessage,
   ClaimedTurn,
   NewTaskRecord,
   TaskRecord,
@@ -18,13 +17,11 @@ import type {
   ThreadRef,
 } from "../../src/types.js";
 
-export const CHANNEL_ID = "control-channel";
 const TEST_WORKSPACE_ROOT = join(process.cwd(), "test", "tmp", "workspaces");
 
 export const config: AppConfig = {
   DATABASE_URL: "postgres://example",
   DISCORD_BOT_TOKEN: "token",
-  DISCORD_CHANNEL_ID: CHANNEL_ID,
   GITHUB_TOKEN: "github",
   WORKSPACE_ROOT: TEST_WORKSPACE_ROOT,
   MAX_CONCURRENT_TASKS: 1,
@@ -352,7 +349,8 @@ export interface ReactionRecordings {
   reactionLog: string[];
 }
 
-export interface RecordingControlMessage extends ChannelMessage, ReactionRecordings {
+export interface RecordingControlMessage extends ReactionRecordings {
+  id: string;
   replies: string[];
 }
 export interface RecordingFollowupMessage extends ThreadMessage, ReactionRecordings {
@@ -440,34 +438,29 @@ export class World {
 
     const message: RecordingControlMessage = {
       id: messageId,
-      content: `Do the work\nrepo: acme/web\nbranch: main`,
-      authorBot: false,
-      channelId: CHANNEL_ID,
       replies,
       reactCalls: [],
       unreactCalls: [],
       reactionLog: [],
-      reply: async (content) => {
-        replies.push(content);
-      },
-      react: async (emoji) => {
-        if (failure.reactionFail) throw new Error("discord: react 403");
-        message.reactCalls.push(emoji);
-        message.reactionLog.push(`react:${emoji}`);
-      },
-      unreact: async (emoji) => {
-        if (failure.reactionFail) throw new Error("discord: unreact 403");
-        message.unreactCalls.push(emoji);
-        message.reactionLog.push(`unreact:${emoji}`);
+    };
+
+    await this.orchestrator.startTaskFromSlash({
+      initiatorMessageId: messageId,
+      pending: {
+        repo: "acme/web",
+        branch: "main",
+        instruction: "Do the work",
+        model: config.defaultModel,
       },
       createThread: async () => {
         if (failure.createThread) throw new Error("discord: thread create 500");
         threadsCreated += 1;
         return thread;
       },
-    };
-
-    await this.orchestrator.handleChannelMessage(message);
+      onFailure: async (summary) => {
+        replies.push(summary);
+      },
+    });
     await flush();
     return {
       task: this.store.findByMessageId(messageId),

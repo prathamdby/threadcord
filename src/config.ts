@@ -17,7 +17,6 @@ const EnvSchema = z
   .object({
     DATABASE_URL: z.string().min(1),
     DISCORD_BOT_TOKEN: z.string().min(1),
-    DISCORD_CHANNEL_ID: z.string().min(1),
     GITHUB_TOKEN: z.string().min(1),
     WORKSPACE_ROOT: z.string().min(1).default("/workspaces"),
     MAX_CONCURRENT_TASKS: z.coerce.number().int().positive().default(3),

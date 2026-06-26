@@ -4,21 +4,21 @@ import {
   GatewayIntentBits,
   Partials,
   type Interaction,
-  ThreadAutoArchiveDuration,
   type Message,
 } from "discord.js";
-import {
-  handleSetupInteraction,
-  registerSetupCommands,
-} from "../setup/interactions.js";
+import type { AppConfig } from "../config.js";
+import { registerDiscordCommands } from "./commands.js";
+import { handleSetupInteraction } from "../setup/interactions.js";
 import type { SetupOrchestrator } from "../setup/orchestrator.js";
 import type { SetupStore } from "../setup/store.js";
+import { handleTaskInteraction } from "../task/interactions.js";
 import type { TaskOrchestrator } from "../task/orchestrator.js";
 import { clampDiscordContent } from "./limits.js";
-import type { ChannelMessage, ThreadMessage, ThreadRef } from "../types.js";
+import type { ThreadMessage } from "../types.js";
 
 export function startDiscordGateway(
   token: string,
+  config: AppConfig,
   orchestrator: TaskOrchestrator,
   setupStore: SetupStore,
   setupOrchestrator: SetupOrchestrator,
@@ -34,8 +34,8 @@ export function startDiscordGateway(
 
   client.once(Events.ClientReady, (ready) => {
     console.log(`[threadcord] Discord ready as ${ready.user.tag}`);
-    void registerSetupCommands(client).catch((error) => {
-      console.error("[threadcord] setup command registration failed", error);
+    void registerDiscordCommands(client).catch((error) => {
+      console.error("[threadcord] slash command registration failed", error);
     });
   });
 
@@ -44,7 +44,13 @@ export function startDiscordGateway(
   });
 
   client.on(Events.InteractionCreate, (interaction) => {
-    void routeInteraction(interaction, setupStore, setupOrchestrator);
+    void routeInteraction(
+      interaction,
+      config,
+      orchestrator,
+      setupStore,
+      setupOrchestrator,
+    );
   });
 
   void client.login(token);
@@ -53,9 +59,20 @@ export function startDiscordGateway(
 
 async function routeInteraction(
   interaction: Interaction,
+  config: AppConfig,
+  taskOrchestrator: TaskOrchestrator,
   setupStore: SetupStore,
   setupOrchestrator: SetupOrchestrator,
 ): Promise<void> {
+  if (
+    await handleTaskInteraction({
+      interaction,
+      orchestrator: taskOrchestrator,
+      config,
+    })
+  ) {
+    return;
+  }
   await handleSetupInteraction({
     interaction,
     store: setupStore,
@@ -69,38 +86,8 @@ async function routeMessage(
 ): Promise<void> {
   if (message.partial) message = await message.fetch();
   if (message.author.bot) return;
-
-  if (message.channel.isThread()) {
-    await orchestrator.handleThreadMessage(toThreadMessage(message));
-    return;
-  }
-  await orchestrator.handleChannelMessage(toChannelMessage(message));
-}
-
-function toChannelMessage(message: Message): ChannelMessage {
-  return {
-    id: message.id,
-    content: message.content,
-    authorBot: message.author.bot,
-    channelId: message.channelId,
-    createThread: async (name) =>
-      toThreadRef(
-        await message.startThread({
-          name,
-          autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
-        }),
-      ),
-    reply: async (content) => {
-      await message.reply(clampDiscordContent(content));
-    },
-    react: async (emoji) => {
-      await message.react(emoji);
-    },
-    unreact: async (emoji) => {
-      const me = message.client.user;
-      if (me) await message.reactions.resolve(emoji)?.users.remove(me.id);
-    },
-  };
+  if (!message.channel.isThread()) return;
+  await orchestrator.handleThreadMessage(toThreadMessage(message));
 }
 
 function toThreadMessage(message: Message): ThreadMessage {
@@ -118,28 +105,6 @@ function toThreadMessage(message: Message): ThreadMessage {
     unreact: async (emoji) => {
       const me = message.client.user;
       if (me) await message.reactions.resolve(emoji)?.users.remove(me.id);
-    },
-  };
-}
-
-function toThreadRef(
-  thread: Awaited<ReturnType<Message["startThread"]>>,
-): ThreadRef {
-  return {
-    id: thread.id,
-    send: async (content) => {
-      const message = await thread.send(clampDiscordContent(content));
-      return { id: message.id };
-    },
-    editMessage: async (messageId, content) => {
-      const message = await thread.messages.fetch(messageId);
-      await message.edit(clampDiscordContent(content));
-    },
-    sendTyping: async () => {
-      await thread.sendTyping();
-    },
-    setName: async (name) => {
-      await thread.setName(name);
     },
   };
 }

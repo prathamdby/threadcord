@@ -49,7 +49,7 @@ describe("task admission when Discord succeeds", () => {
 });
 
 describe("task admission when thread creation throws", () => {
-  it("leaves no schedulable task and replies in the control channel", async () => {
+  it("leaves no schedulable task and reports failure via onFailure", async () => {
     const world = new World();
     const result = await world.submitRaw("m-fail", { createThread: true });
 
@@ -59,9 +59,9 @@ describe("task admission when thread creation throws", () => {
     expect(task!.errorSummary).toContain("thread create");
     expect(task!.progressMessageIds?.[0]).toBe(`unattached:${task!.id}`);
     expect(world.dispatched).toHaveLength(0);
-    expect(result.replies.some((r) => r.includes("Could not create"))).toBe(
-      true,
-    );
+    expect(
+      result.replies.some((r) => r.includes("Could not create a thread")),
+    ).toBe(true);
   });
 });
 

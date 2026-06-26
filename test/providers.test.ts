@@ -9,7 +9,7 @@ import {
 const requiredEnv = {
   DATABASE_URL: "postgres://example",
   DISCORD_BOT_TOKEN: "discord",
-  DISCORD_CHANNEL_ID: "channel",
+
   GITHUB_TOKEN: "github",
 };
 
