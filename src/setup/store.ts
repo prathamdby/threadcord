@@ -131,6 +131,40 @@ export class SetupStore {
     return result.rows[0] ? rowToProfile(result.rows[0]) : undefined;
   }
 
+  async patchEnvironmentWhileRunning(
+    profileId: string,
+    partial: Partial<
+      Pick<SetupEnvironment, "install" | "start" | "skills" | "checks">
+    >,
+  ): Promise<void> {
+    const profile = await this.getProfileById(profileId);
+    if (!profile) return;
+    if (profile.status !== "running" && profile.status !== "updating") return;
+    const merged: SetupEnvironment = {
+      ...profile.environment,
+      ...(partial.install !== undefined ? { install: partial.install } : {}),
+      ...(partial.start !== undefined ? { start: partial.start } : {}),
+      ...(partial.checks !== undefined ? { checks: partial.checks } : {}),
+    };
+    if (partial.skills !== undefined) {
+      if (partial.skills.length > 0) {
+        merged.skills = partial.skills;
+      } else {
+        delete merged.skills;
+      }
+    }
+    const validated = validateSetupEnvironment(merged);
+    if (!validated.ok) throw new Error(validated.message);
+    await this.pool.query(
+      `
+        UPDATE setup_profiles
+        SET environment_json = $2::jsonb, updated_at = now()
+        WHERE id = $1 AND status IN ('running', 'updating')
+      `,
+      [profileId, JSON.stringify(validated.value)],
+    );
+  }
+
   async createOrStartRun(input: {
     repo: string;
     branch: string;

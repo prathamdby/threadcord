@@ -25,6 +25,12 @@ import {
   validateSetupEnvironment,
   validateSetupProfilePayload,
 } from "./profile.js";
+import {
+  parseSetupWizardCustomId,
+  pendingFromRunModal,
+  setupCreateRunModal,
+  type PendingSetupWizard,
+} from "./create-flow.js";
 import { openSetupRunThread } from "./discord-session.js";
 import {
   exportProfile,
@@ -48,29 +54,15 @@ export async function registerSetupCommands(client: Client): Promise<void> {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("create")
-        .setDescription("Run setup for a repository and branch.")
-        .addStringOption((option) =>
-          option.setName("repo").setDescription("owner/repo").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option.setName("branch").setDescription("Base branch").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option.setName("model").setDescription("Optional setup model"),
+        .setDescription(
+          "Run setup for a repository and branch (opens a configuration dialog).",
         ),
     )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("update")
-        .setDescription("Run setup again and replace the profile on success.")
-        .addStringOption((option) =>
-          option.setName("repo").setDescription("owner/repo").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option.setName("branch").setDescription("Base branch").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option.setName("model").setDescription("Optional setup model"),
+        .setDescription(
+          "Re-run setup and replace the profile on success (opens a dialog).",
         ),
     )
     .addSubcommand((subcommand) =>
@@ -155,7 +147,7 @@ export async function handleSetupInteraction(input: {
     interaction.isModalSubmit() &&
     interaction.customId.startsWith(SETUP_CUSTOM_ID_PREFIX)
   ) {
-    await handleSetupModal(interaction, store);
+    await handleSetupModal(interaction, store, orchestrator);
     return true;
   }
   return false;
@@ -169,60 +161,7 @@ async function handleSetupCommand(
   const subcommand = interaction.options.getSubcommand();
   try {
     if (subcommand === "create" || subcommand === "update") {
-      await interaction.deferReply();
-      const repo = requiredStringOption(interaction, "repo");
-      const branch = requiredStringOption(interaction, "branch");
-      const modelOption = interaction.options.getString("model") ?? undefined;
-      const started = await orchestrator.startSetup({
-        repo,
-        branch,
-        update: subcommand === "update",
-        ...(modelOption ? { model: modelOption } : {}),
-      });
-      const run = await store.getRun(started.runId);
-      const model = run?.model ?? modelOption ?? "default";
-      let threadOpened = false;
-      let threadId: string | undefined;
-      try {
-        const anchor = await interaction.fetchReply();
-        const threadRef = await openSetupRunThread({
-          anchorMessage: anchor,
-          store,
-          runId: started.runId,
-          repo: started.repo,
-          branch: started.branch,
-          model,
-          actionLabel: subcommand,
-        });
-        if (threadRef) {
-          orchestrator.registerSetupThread(started.runId, threadRef);
-          threadOpened = true;
-          threadId = threadRef.id;
-        }
-      } catch (error) {
-        console.error("[threadcord] setup thread creation failed", error);
-      }
-      void orchestrator.dispatchSetupAgent(started);
-      try {
-        await interaction.editReply(
-          discordContent(
-            threadOpened && threadId
-              ? [
-                  `Setup ${subcommand} started.`,
-                  `Run: ${started.runId}`,
-                  `Live log: <#${threadId}>`,
-                ].join("\n")
-              : [
-                  `Setup ${subcommand} started.`,
-                  `Run: ${started.runId}`,
-                  `Profile: ${started.profileId}`,
-                  "Could not open a Discord thread for the live log; watch server logs.",
-                ].join("\n"),
-          ),
-        );
-      } catch (error) {
-        await replyWithError(interaction, summarizeError(error));
-      }
+      await interaction.showModal(setupCreateRunModal(interaction.user.id, subcommand));
       return;
     }
     if (subcommand === "status") {
@@ -492,7 +431,92 @@ async function handleSetupButton(
 async function handleSetupModal(
   interaction: ModalSubmitInteraction,
   store: SetupStore,
+  orchestrator?: SetupOrchestrator,
 ): Promise<void> {
+  const wizard = parseSetupWizardCustomId(interaction.customId);
+  if (wizard?.kind === "create-run") {
+    if (!orchestrator) {
+      await interaction.reply({
+        content: discordContent("Setup orchestrator unavailable."),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    if (interaction.user.id !== wizard.userId) {
+      await interaction.reply({
+        content: discordContent("This setup dialog belongs to another user."),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const repo = interaction.fields.getTextInputValue("repo").trim();
+    const branch = interaction.fields.getTextInputValue("branch").trim();
+    const skillsRaw = interaction.fields.getTextInputValue("skills");
+    const install = interaction.fields.getTextInputValue("install");
+    const checks = interaction.fields.getTextInputValue("checks");
+    const key = parseSetupProfileKey(repo, branch);
+    if (!key.ok) {
+      await interaction.reply({
+        content: discordContent(key.message),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const existingProfile =
+      wizard.mode === "update"
+        ? await store.getProfile(key.value.repo, key.value.branch)
+        : undefined;
+    const pending = pendingFromRunModal({
+      mode: wizard.mode,
+      repo: key.value.repo,
+      branch: key.value.branch,
+      skillsRaw,
+      install,
+      checksRaw: checks,
+    });
+    if (!pending.install.trim()) {
+      await interaction.reply({
+        content: discordContent("Install command is required."),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const envCheck = validateSetupEnvironment({
+      install: pending.install,
+      start: existingProfile?.environment.start ?? pending.start,
+      checks: pending.checks,
+      requiredEnv: existingProfile?.environment.requiredEnv ?? [],
+      requiredServices: existingProfile?.environment.requiredServices ?? [],
+      ...(pending.skills.length > 0 ? { skills: pending.skills } : {}),
+    });
+    if (!envCheck.ok) {
+      await interaction.reply({
+        content: discordContent(envCheck.message),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    await interaction.deferReply();
+    try {
+      await finishSetupFromWizard(
+        interaction,
+        store,
+        orchestrator,
+        pending,
+        envCheck.value,
+      );
+    } catch (error) {
+      try {
+        await interaction.editReply(
+          discordContent(`Setup failed: ${summarizeError(error)}`),
+        );
+      } catch (editError) {
+        console.error("[threadcord] setup wizard failure editReply failed", editError);
+      }
+    }
+    return;
+  }
+
   const parsed = parseCustomId(interaction.customId);
   if (!parsed) {
     await interaction.reply({
@@ -519,12 +543,21 @@ async function handleSetupModal(
   let environment = draft.environment;
   let memoryMarkdown = draft.memoryMarkdown;
   if (parsed.action === "commands") {
+    const skillsField = interaction.fields.getTextInputValue("skills");
+    const skillsLines = skillsField
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
     environment = {
       ...draft.environment,
       install: interaction.fields.getTextInputValue("install"),
       start: interaction.fields.getTextInputValue("start"),
       checks: parseChecks(interaction.fields.getTextInputValue("checks")),
+      ...(skillsLines.length > 0 ? { skills: skillsLines } : {}),
     };
+    if (skillsLines.length === 0) {
+      delete environment.skills;
+    }
   } else if (parsed.action === "requirements") {
     environment = {
       ...draft.environment,
@@ -559,6 +592,7 @@ async function handleSetupModal(
     });
   }
 }
+
 
 async function respondWithDraft(
   interaction: ModalSubmitInteraction,
@@ -615,6 +649,13 @@ function commandsModal(draft: SetupDraft): ModalBuilder {
       modalRow("install", "Install command", draft.environment.install, 4000, true),
       modalRow("start", "Start command", draft.environment.start, 4000, false),
       modalRow("checks", "Checks as name=command lines", checksText(draft), 4000, false),
+      modalRow(
+        "skills",
+        "Skills (URLs, one per line)",
+        (draft.environment.skills ?? []).join("\n"),
+        4000,
+        false,
+      ),
     );
 }
 
@@ -780,6 +821,77 @@ async function readAttachmentText(attachment: Attachment): Promise<string> {
   throw new Error(
     `Failed to fetch attachment ${attachment.name}. ${errors.join("; ")}`,
   );
+}
+
+async function finishSetupFromWizard(
+  interaction: ModalSubmitInteraction,
+  store: SetupStore,
+  orchestrator: SetupOrchestrator,
+  pending: PendingSetupWizard,
+  environment: SetupEnvironment,
+): Promise<void> {
+  const actionLabel = pending.update ? "update" : "create";
+  const started = await orchestrator.startSetup({
+    repo: pending.repo,
+    branch: pending.branch,
+    update: pending.update,
+    ...(pending.model ? { model: pending.model } : {}),
+  });
+  await store.patchEnvironmentWhileRunning(started.profileId, {
+    install: environment.install,
+    checks: environment.checks,
+    skills: environment.skills ?? [],
+  });
+  const run = await store.getRun(started.runId);
+  const model = run?.model ?? pending.model ?? "default";
+  let threadOpened = false;
+  let threadId: string | undefined;
+  let replyAnchorFailed = false;
+  try {
+    const anchor = await interaction.fetchReply();
+    const threadRef = await openSetupRunThread({
+      anchorMessage: anchor,
+      store,
+      runId: started.runId,
+      repo: started.repo,
+      branch: started.branch,
+      model,
+      actionLabel,
+    });
+    if (threadRef) {
+      orchestrator.registerSetupThread(started.runId, threadRef);
+      threadOpened = true;
+      threadId = threadRef.id;
+    }
+  } catch (error) {
+    console.error("[threadcord] setup thread creation failed", error);
+    replyAnchorFailed = true;
+  }
+  void orchestrator.dispatchSetupAgent(started);
+  const skillsNote =
+    (environment.skills?.length ?? 0) > 0
+      ? `Skills (${environment.skills!.length} link(s)) install after install on profile save and on each task's first turn.`
+      : undefined;
+  const replyBody = discordContent(
+    [
+      `Setup ${actionLabel} started.`,
+      `Run: ${started.runId}`,
+      threadOpened && threadId
+        ? `Live log: <#${threadId}>`
+        : `Profile: ${started.profileId} (no Discord thread; watch server logs).`,
+      replyAnchorFailed
+        ? "Could not attach a Discord thread to this reply; watch server logs."
+        : undefined,
+      skillsNote,
+    ]
+      .filter((line): line is string => typeof line === "string")
+      .join("\n"),
+  );
+  try {
+    await interaction.editReply(replyBody);
+  } catch (error) {
+    console.error("[threadcord] setup wizard editReply failed", error);
+  }
 }
 
 async function replyWithError(
