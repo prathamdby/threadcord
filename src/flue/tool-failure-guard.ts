@@ -74,10 +74,26 @@ function formatToolFailureReason(result: unknown): string | undefined {
     return result.trim().slice(0, 240);
   }
   if (result && typeof result === "object" && !Array.isArray(result)) {
-    const message = (result as Record<string, unknown>).message;
+    const obj = result as Record<string, unknown>;
+    const fromContent = extractContentArrayText(obj.content);
+    if (fromContent) return fromContent.slice(0, 240);
+    const message = obj.message;
     if (typeof message === "string" && message.trim().length > 0) {
       return message.trim().slice(0, 240);
     }
   }
   return undefined;
+}
+
+function extractContentArrayText(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const texts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object" || Array.isArray(block)) continue;
+    const b = block as Record<string, unknown>;
+    if (b.type !== undefined && b.type !== "text") continue;
+    if (typeof b.text !== "string" || b.text.trim().length === 0) continue;
+    texts.push(b.text.trim());
+  }
+  return texts.length > 0 ? texts.join("\n").trim() : undefined;
 }

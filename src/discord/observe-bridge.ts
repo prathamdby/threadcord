@@ -7,6 +7,7 @@ import {
   resolveAgentMaxToolFailures,
 } from "../flue/agent-guardrails.js";
 import {
+  clearToolFailureGuard,
   maybeAbortOnToolFailures,
   noteAgentTurnBoundary,
 } from "../flue/tool-failure-guard.js";
@@ -105,14 +106,17 @@ export async function handleObserveEvent(
   );
   if (toolFailureTrip && (isTaskInstance || isSetupInstance)) {
     await args.onAgentFailure(instanceId, toolFailureTrip);
+    clearToolFailureGuard(instanceId);
   }
 
   const failureSummary = submissionFailureSummary(event);
   if (failureSummary && (isTaskInstance || isSetupInstance)) {
     await args.onAgentFailure(instanceId, failureSummary);
+    clearToolFailureGuard(instanceId);
   }
 
   if (event.type === "agent_end" && (isTaskInstance || isSetupInstance)) {
+    clearToolFailureGuard(instanceId);
     await args.onAgentEnd(instanceId);
   }
 

@@ -44,6 +44,22 @@ describe("tool failure guard", () => {
     expect(trip).toContain("edit");
   });
 
+  it("includes content-array error text in trip summary", async () => {
+    const id = "discord:thread:guard-4";
+    for (let i = 0; i < 9; i++) {
+      await maybeAbortOnToolFailures(toolEvent(true, id), id, 10);
+    }
+    const trip = await maybeAbortOnToolFailures(
+      {
+        ...toolEvent(true, id),
+        result: { content: [{ type: "text", text: "command not found" }] },
+      } as FlueEvent,
+      id,
+      10,
+    );
+    expect(trip).toContain("command not found");
+  });
+
   it("resets the streak after a successful tool", async () => {
     const id = "discord:thread:guard-3";
     for (let i = 0; i < 9; i++) {
