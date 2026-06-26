@@ -5,7 +5,7 @@ import { getPool } from "../db.js";
 import { createSetupTools } from "../setup/tools.js";
 import { SetupStore } from "../setup/store.js";
 import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
-import { composePrompt } from "./compose.js";
+import { composePrompt } from "./prompts/compose.js";
 
 export default createAgent(async ({ id }) => {
   const store = new SetupStore(getPool());
