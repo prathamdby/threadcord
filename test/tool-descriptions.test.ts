@@ -5,6 +5,10 @@ import {
   createThreadMessageTools,
 } from "../src/discord/thread-message-tool.js";
 import { createGitHubTools } from "../src/github/tools.js";
+import {
+  APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION,
+  createSetupMemoryTools,
+} from "../src/setup/memory-tools.js";
 import { createSetupTools } from "../src/setup/tools.js";
 
 describe("tool descriptions", () => {
@@ -53,6 +57,19 @@ describe("tool descriptions", () => {
     expect(saveTool!.description).toContain("smoke probe");
     expect(saveTool!.description).toContain("60000");
     expect(saveTool!.description).toContain("secret value");
+  });
+
+  it("append_threadcord_setup_memory description contains required contract phrases", () => {
+    expect(APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION).toContain(
+      "setup profile memory",
+    );
+    expect(APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION).toContain("4000");
+    expect(APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION).toContain("secret");
+    expect(APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION).toContain("revision");
+    const tools = createSetupMemoryTools("owner/repo", "main");
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "append_threadcord_setup_memory",
+    ]);
   });
 
   it("registers both thread message tools on the coding agent surface", () => {

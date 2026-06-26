@@ -196,6 +196,8 @@ Draft edits are isolated from the active profile. Applying a draft increments th
 
 Setup profiles store required environment variable names only. They must not contain secret values. Threadcord validates setup JSON and memory before saving, importing, or applying a draft. Draft `import` and `apply` perform structural validation only. They do not re-run commands because the setup workspace is gone.
 
+During coding turns, the agent can call `append_threadcord_setup_memory` to append Markdown to the active profile memory (gotchas, stable fixes, operator preferences). Each append increments the profile revision; new tasks use the latest revision on admission. Follow-up turns in an existing task reload memory on the next dispatch. Appends do not change install or checks.
+
 ## Why use Threadcord?
 
 ### Discord threads per task
@@ -220,6 +222,7 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 | `cancel`   | Task thread     | Stops further dispatches, frees a concurrency slot |
 | `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`  |
 | Open PR    | Agent tool      | `create_github_pull_request` after push            |
+| Learn      | Agent tool      | `append_threadcord_setup_memory` after verified repo lessons |
 | Setup      | `/setup` slash  | Durable per-repo profiles; see [Setup profiles](#setup-profiles) |
 
 ## How it works

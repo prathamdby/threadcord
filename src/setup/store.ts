@@ -12,7 +12,9 @@ import {
   type SetupRunStatus,
   newSetupId,
   parseSetupProfileKey,
+  mergeSetupMemoryMarkdown,
   validateSetupEnvironment,
+  validateSetupMemoryAppend,
   validateSetupProfilePayload,
 } from "./profile.js";
 
@@ -529,6 +531,84 @@ export class SetupStore {
       [draftId],
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async appendReadyProfileMemory(input: {
+    repo: string;
+    branch: string;
+    appendMarkdown: string;
+  }): Promise<
+    | { ok: true; profile: SetupProfile }
+    | { ok: false; reason: "not_found" | "not_ready" | "invalid"; message: string }
+  > {
+    const key = parseSetupProfileKey(input.repo, input.branch);
+    if (!key.ok) {
+      return { ok: false, reason: "invalid", message: key.message };
+    }
+    const append = validateSetupMemoryAppend(input.appendMarkdown);
+    if (!append.ok) {
+      return { ok: false, reason: "invalid", message: append.message };
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const profileResult = await client.query(
+        "SELECT * FROM setup_profiles WHERE repo = $1 AND branch = $2 FOR UPDATE",
+        [key.value.repo, key.value.branch],
+      );
+      if (!profileResult.rows[0]) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          reason: "not_found",
+          message: `No setup profile for ${key.value.repo}@${key.value.branch}.`,
+        };
+      }
+      const current = rowToProfile(profileResult.rows[0]);
+      if (current.status !== "ready") {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          reason: "not_ready",
+          message: `Setup profile is ${current.status}; memory append requires ready.`,
+        };
+      }
+      const merged = mergeSetupMemoryMarkdown(
+        current.memoryMarkdown,
+        append.value,
+      );
+      if (!merged.ok) {
+        await client.query("ROLLBACK");
+        return { ok: false, reason: "invalid", message: merged.message };
+      }
+      const updated = await client.query(
+        `
+          UPDATE setup_profiles
+          SET memory_markdown = $2,
+              revision = revision + 1,
+              updated_at = now()
+          WHERE id = $1 AND status = 'ready'
+          RETURNING *
+        `,
+        [current.id, merged.value],
+      );
+      if (!updated.rows[0]) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          reason: "not_ready",
+          message: "Setup profile changed during append; retry.",
+        };
+      }
+      await client.query("COMMIT");
+      return { ok: true, profile: rowToProfile(updated.rows[0]) };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
 
