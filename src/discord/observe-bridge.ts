@@ -236,10 +236,11 @@ function extractContentArrayText(content: unknown): string | undefined {
 }
 
 function formatErrorDetails(details: unknown): string | undefined {
-  if (!details || typeof details !== "object") return undefined;
+  if (!details || typeof details !== "object" || Array.isArray(details))
+    return undefined;
   const d = details as Record<string, unknown>;
   const command = typeof d.command === "string" ? d.command.trim() : "";
-  const hasExitCode = typeof d.exitCode === "number";
+  const hasExitCode = Number.isInteger(d.exitCode);
   if (command && hasExitCode) {
     return `${command} exited with code ${d.exitCode}`;
   }

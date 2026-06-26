@@ -781,6 +781,47 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     expect(edits[0]).not.toContain(secret);
     vi.useRealTimers();
   });
+
+  it("rejects array details and non-integer exit codes", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "bash",
+        toolCallId: "tc-arr",
+        isError: true,
+        result: {
+          content: [{ type: "text", text: "boom" }],
+          details: ["not", "an", "object"],
+        },
+        durationMs: 1,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "bash",
+        toolCallId: "tc-float",
+        isError: true,
+        result: { details: { command: "npm test", exitCode: 1.5 } },
+        durationMs: 1,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    await vi.runAllTimersAsync();
+    expect(edits.some((c) => c.includes("boom"))).toBe(true);
+    expect(
+      edits.some((c) => c.includes("npm test") && !c.includes("exited with code")),
+    ).toBe(true);
+    vi.useRealTimers();
+  });
 });
 
 describe("progress overflow rolling", () => {

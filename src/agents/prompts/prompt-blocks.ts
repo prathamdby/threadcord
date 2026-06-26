@@ -34,7 +34,7 @@ export const READ_BEFORE_EDIT = `READ BEFORE EDIT
 export const SHELL = `SHELL
 - Non-interactive flags always: --yes, --no-input, --batch, -y.
 - Append \`| cat\` to pager commands: git, less, head, tail, more.
-- Prefer one-liners. Multi-line bash is allowed when the command inherently needs it, such as subshells or pipelines.
+- Prefer one-liners. Multi-line bash is allowed when the command inherently needs it, such as heredocs or multi-line scripts.
 - Long-running commands go to background. Do not edit the command to make it short.
 - Always verify cwd before destructive ops.
 - Shell output going to Discord: summarize to <=10 lines. Full log already streams via observe-bridge.`;
