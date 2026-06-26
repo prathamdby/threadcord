@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FlueEvent } from "@flue/runtime";
+import { cacheConfig } from "../src/config.js";
 import { toFlueInstanceId } from "../src/ids.js";
 import {
   failureDiscordMessage,
@@ -19,6 +20,10 @@ import { progressMessageIdsFromRow } from "../src/task/store.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import { config, fakeSetupStore } from "./support/orchestrator-harness.js";
+
+beforeEach(() => {
+  cacheConfig(config);
+});
 
 function taskEvent(partial: Record<string, unknown>): FlueEvent {
   return {
@@ -254,6 +259,14 @@ describe("failureDiscordMessage", () => {
     expect(
       failureDiscordMessage("Stream ended without finish_reason"),
     ).toContain("stream ended before completion");
+  });
+
+  it("explains tool failure guard stops", () => {
+    expect(
+      failureDiscordMessage(
+        "Stopped after 10 consecutive tool failures (last: edit: bad args).",
+      ),
+    ).toContain("retry loop");
   });
 });
 

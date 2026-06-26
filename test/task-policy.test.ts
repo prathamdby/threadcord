@@ -17,6 +17,8 @@ const config: AppConfig = {
   GITHUB_TOKEN: "github",
   WORKSPACE_ROOT: "/workspaces",
   MAX_CONCURRENT_TASKS: 3,
+  AGENT_MAX_TOOL_FAILURES: 10,
+  AGENT_SUBMISSION_MAX_ATTEMPTS: 2,
   PORT: 3583,
   WORKSPACE_TTL_DAYS: 14,
   ANTHROPIC_API_KEY: "anthropic-key",

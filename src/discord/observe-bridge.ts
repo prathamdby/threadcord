@@ -1,6 +1,18 @@
 import { posix } from "node:path";
 import type { FlueEvent } from "@flue/runtime";
 import { observe } from "@flue/runtime";
+import { getRuntimeConfig } from "../config.js";
+import {
+  DEFAULT_AGENT_MAX_TOOL_FAILURES,
+  resolveAgentMaxToolFailures,
+} from "../flue/agent-guardrails.js";
+import {
+  clearToolFailureGuard,
+  markToolGuardFailureDelivered,
+  maybeAbortOnToolFailures,
+  noteAgentTurnBoundary,
+  shouldSkipObserveFailureDelivery,
+} from "../flue/tool-failure-guard.js";
 import { isThreadcordInstance } from "../ids.js";
 import { checkoutPathForTask } from "../task/turn-context.js";
 import {
@@ -83,12 +95,31 @@ export async function handleObserveEvent(
   const isSetupInstance = instanceId.startsWith("setup:");
   const isTaskInstance = isThreadcordInstance(instanceId);
 
+  const maxToolFailures = resolveMaxToolFailuresForObserve();
+
+  if (event.type === "turn_start" && (isTaskInstance || isSetupInstance)) {
+    noteAgentTurnBoundary(instanceId);
+  }
+
+  const toolFailureTrip =
+    isTaskInstance || isSetupInstance
+      ? await maybeAbortOnToolFailures(event, instanceId, maxToolFailures)
+      : undefined;
+  if (toolFailureTrip && (isTaskInstance || isSetupInstance)) {
+    await args.onAgentFailure(instanceId, toolFailureTrip);
+    markToolGuardFailureDelivered(instanceId);
+  }
+
   const failureSummary = submissionFailureSummary(event);
   if (failureSummary && (isTaskInstance || isSetupInstance)) {
-    await args.onAgentFailure(instanceId, failureSummary);
+    if (!shouldSkipObserveFailureDelivery(instanceId)) {
+      await args.onAgentFailure(instanceId, failureSummary);
+    }
+    clearToolFailureGuard(instanceId);
   }
 
   if (event.type === "agent_end" && (isTaskInstance || isSetupInstance)) {
+    clearToolFailureGuard(instanceId);
     await args.onAgentEnd(instanceId);
   }
 
@@ -300,8 +331,19 @@ async function resolveRepoRootForInstance(
   return undefined;
 }
 
+function resolveMaxToolFailuresForObserve(): number {
+  try {
+    return resolveAgentMaxToolFailures(getRuntimeConfig());
+  } catch {
+    return DEFAULT_AGENT_MAX_TOOL_FAILURES;
+  }
+}
+
 export function failureDiscordMessage(errorSummary: string): string {
   const summary = summarizeError(new Error(errorSummary));
+  if (/Stopped after \d+ consecutive tool failures/i.test(summary)) {
+    return `Failed: ${summary} The agent was stopped to avoid a retry loop. Fix the underlying tool issue and send a new message in this thread.`;
+  }
   if (/finish_reason/i.test(summary)) {
     return `Failed: ${summary}. The model provider stream ended before completion. This turn was not replayed.`;
   }

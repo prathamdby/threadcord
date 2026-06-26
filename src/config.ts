@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  DEFAULT_AGENT_MAX_TOOL_FAILURES,
+  DEFAULT_AGENT_SUBMISSION_MAX_ATTEMPTS,
+} from "./flue/agent-guardrails.js";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
 
 const optionalNonEmptyString = z.preprocess(
@@ -20,6 +24,16 @@ const EnvSchema = z
     GITHUB_TOKEN: z.string().min(1),
     WORKSPACE_ROOT: z.string().min(1).default("/workspaces"),
     MAX_CONCURRENT_TASKS: z.coerce.number().int().positive().default(3),
+    AGENT_MAX_TOOL_FAILURES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_AGENT_MAX_TOOL_FAILURES),
+    AGENT_SUBMISSION_MAX_ATTEMPTS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_AGENT_SUBMISSION_MAX_ATTEMPTS),
     PORT: z.coerce.number().int().positive().default(3583),
     THREADCORD_HTTP_BEARER: optionalNonEmptyString,
     WORKSPACE_TTL_DAYS: z.coerce.number().int().positive().default(14),
