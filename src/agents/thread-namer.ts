@@ -1,6 +1,6 @@
 import { createAgent } from "@flue/runtime";
 import { getRuntimeConfig } from "../config.js";
-import { composePrompt } from "./compose.js";
+import { composePrompt } from "./prompts/compose.js";
 
 export interface ThreadNamerInput {
   instruction: string;

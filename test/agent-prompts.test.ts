@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import codingAgent from "../src/agents/coding.js";
 import setupAgent from "../src/agents/setup.js";
 import threadNamerAgent from "../src/agents/thread-namer.js";
-import { composePrompt } from "../src/agents/compose.js";
+import { composePrompt } from "../src/agents/prompts/compose.js";
 
 vi.mock("../src/task/git-auth.js", () => ({
   resolveGithubHttpsGitEnv: vi.fn(async () => ({

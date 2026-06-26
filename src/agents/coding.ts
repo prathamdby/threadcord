@@ -7,7 +7,7 @@ import {
   resolveGitIdentity,
 } from "../github/tools.js";
 import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
-import { composePrompt } from "./compose.js";
+import { composePrompt } from "./prompts/compose.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
 import { workspaceEnv } from "../task/workspace-env.js";
 import type { DispatchAgentInput } from "../types.js";
