@@ -102,8 +102,11 @@ describe("composePrompt coding prompt-consistency invariants", () => {
     },
   });
 
-  it("uses the real edit tool name in the narration example, not edit_file", () => {
-    expect(prompt).toContain("I used edit on X");
+  it("documents strict tool argument names including pattern for grep and glob", () => {
+    expect(prompt).toContain("TOOL ARGUMENTS");
+    expect(prompt).toContain("grep: `pattern`");
+    expect(prompt).toContain("glob: `pattern`");
+    expect(prompt).toContain("no `description` field on built-in tools");
     expect(prompt).not.toContain("edit_file");
   });
 
@@ -124,6 +127,11 @@ describe("composePrompt coding prompt-consistency invariants", () => {
 
   it("keeps the multi-line merge-base checklist command", () => {
     expect(prompt).toContain("git merge-base");
+  });
+
+  it("forbids cross-tool argument keys in TOOL USE", () => {
+    expect(prompt).toContain("Do not pass `path` to grep/glob/bash");
+    expect(prompt).toContain("must have required properties");
   });
 });
 
