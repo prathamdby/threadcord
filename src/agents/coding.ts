@@ -1,6 +1,7 @@
 import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
 import { createThreadMessageTools } from "../discord/thread-message-tool.js";
+import { createSetupMemoryTools } from "../setup/memory-tools.js";
 import {
   createGitHubTools,
   gitIdentityEnv,
@@ -40,6 +41,7 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
     },
     tools: [
       ...createThreadMessageTools(id),
+      ...createSetupMemoryTools(turn.repo, turn.baseBranch),
       ...(githubToken ? createGitHubTools(githubToken) : []),
     ],
     instructions: composePrompt({

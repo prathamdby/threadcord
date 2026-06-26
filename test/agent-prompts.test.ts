@@ -79,6 +79,8 @@ describe("composePrompt coding invariants", () => {
     "post_thread_message",
     "post_thread_report",
     "INVESTIGATION MODE",
+    "append_threadcord_setup_memory",
+    "SETUP MEMORY (durable)",
     "Root cause",
     "cwd = /workspaces/task-1/web",
     "Repo = acme/web",

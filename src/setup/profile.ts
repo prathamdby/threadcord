@@ -161,6 +161,10 @@ export function validateSetupEnvironment(
   };
 }
 
+export const SETUP_MEMORY_MAX_CHARS = 60_000;
+
+export const SETUP_MEMORY_APPEND_MAX_CHARS = 4_000;
+
 export function validateSetupMemory(
   value: unknown,
 ): ValidationResult<string> {
@@ -171,10 +175,10 @@ export function validateSetupMemory(
   if (!trimmed) {
     return { ok: false, message: "Memory Markdown is required." };
   }
-  if (trimmed.length > 60_000) {
+  if (trimmed.length > SETUP_MEMORY_MAX_CHARS) {
     return {
       ok: false,
-      message: "Memory Markdown must be 60000 characters or fewer.",
+      message: `Memory Markdown must be ${SETUP_MEMORY_MAX_CHARS} characters or fewer.`,
     };
   }
   if (SECRET_VALUE_HINT.test(trimmed)) {
@@ -184,6 +188,41 @@ export function validateSetupMemory(
     };
   }
   return { ok: true, value: redact(trimmed) };
+}
+
+export function validateSetupMemoryAppend(
+  value: unknown,
+): ValidationResult<string> {
+  if (typeof value !== "string") {
+    return { ok: false, message: "Memory append must be a string." };
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { ok: false, message: "Memory append must be non-empty." };
+  }
+  if (trimmed.length > SETUP_MEMORY_APPEND_MAX_CHARS) {
+    return {
+      ok: false,
+      message: `Memory append must be ${SETUP_MEMORY_APPEND_MAX_CHARS} characters or fewer.`,
+    };
+  }
+  if (SECRET_VALUE_HINT.test(trimmed)) {
+    return {
+      ok: false,
+      message: "Memory append appears to contain a secret value.",
+    };
+  }
+  return { ok: true, value: redact(trimmed) };
+}
+
+export function mergeSetupMemoryMarkdown(
+  existing: string,
+  append: string,
+): ValidationResult<string> {
+  const base = existing.trimEnd();
+  const block = append.trim();
+  const merged = base.length > 0 ? `${base}\n\n${block}` : block;
+  return validateSetupMemory(merged);
 }
 
 export function validateSetupProfilePayload(input: {
