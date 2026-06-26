@@ -161,9 +161,7 @@ async function handleSetupCommand(
   const subcommand = interaction.options.getSubcommand();
   try {
     if (subcommand === "create" || subcommand === "update") {
-      await interaction.showModal(
-        setupCreateRunModal(interaction.user.id, subcommand),
-      );
+      await interaction.showModal(setupCreateRunModal(interaction.user.id, subcommand));
       return;
     }
     if (subcommand === "status") {
@@ -464,6 +462,10 @@ async function handleSetupModal(
       });
       return;
     }
+    const existingProfile =
+      wizard.mode === "update"
+        ? await store.getProfile(key.value.repo, key.value.branch)
+        : undefined;
     const pending = pendingFromRunModal({
       mode: wizard.mode,
       repo: key.value.repo,
@@ -481,10 +483,10 @@ async function handleSetupModal(
     }
     const envCheck = validateSetupEnvironment({
       install: pending.install,
-      start: pending.start,
+      start: existingProfile?.environment.start ?? pending.start,
       checks: pending.checks,
-      requiredEnv: [],
-      requiredServices: [],
+      requiredEnv: existingProfile?.environment.requiredEnv ?? [],
+      requiredServices: existingProfile?.environment.requiredServices ?? [],
       ...(pending.skills.length > 0 ? { skills: pending.skills } : {}),
     });
     if (!envCheck.ok) {
@@ -504,9 +506,13 @@ async function handleSetupModal(
         envCheck.value,
       );
     } catch (error) {
-      await interaction.editReply(
-        discordContent(`Setup failed: ${summarizeError(error)}`),
-      );
+      try {
+        await interaction.editReply(
+          discordContent(`Setup failed: ${summarizeError(error)}`),
+        );
+      } catch (editError) {
+        console.error("[threadcord] setup wizard failure editReply failed", editError);
+      }
     }
     return;
   }
@@ -833,7 +839,6 @@ async function finishSetupFromWizard(
   });
   await store.patchEnvironmentWhileRunning(started.profileId, {
     install: environment.install,
-    start: environment.start,
     checks: environment.checks,
     skills: environment.skills ?? [],
   });
@@ -841,6 +846,7 @@ async function finishSetupFromWizard(
   const model = run?.model ?? pending.model ?? "default";
   let threadOpened = false;
   let threadId: string | undefined;
+  let replyAnchorFailed = false;
   try {
     const anchor = await interaction.fetchReply();
     const threadRef = await openSetupRunThread({
@@ -859,26 +865,33 @@ async function finishSetupFromWizard(
     }
   } catch (error) {
     console.error("[threadcord] setup thread creation failed", error);
+    replyAnchorFailed = true;
   }
   void orchestrator.dispatchSetupAgent(started);
   const skillsNote =
     (environment.skills?.length ?? 0) > 0
       ? `Skills (${environment.skills!.length} link(s)) install after install on profile save and on each task's first turn.`
       : undefined;
-  await interaction.editReply(
-    discordContent(
-      [
-        `Setup ${actionLabel} started.`,
-        `Run: ${started.runId}`,
-        threadOpened && threadId
-          ? `Live log: <#${threadId}>`
-          : `Profile: ${started.profileId} (no Discord thread; watch server logs).`,
-        skillsNote,
-      ]
-        .filter((line): line is string => typeof line === "string")
-        .join("\n"),
-    ),
+  const replyBody = discordContent(
+    [
+      `Setup ${actionLabel} started.`,
+      `Run: ${started.runId}`,
+      threadOpened && threadId
+        ? `Live log: <#${threadId}>`
+        : `Profile: ${started.profileId} (no Discord thread; watch server logs).`,
+      replyAnchorFailed
+        ? "Could not attach a Discord thread to this reply; watch server logs."
+        : undefined,
+      skillsNote,
+    ]
+      .filter((line): line is string => typeof line === "string")
+      .join("\n"),
   );
+  try {
+    await interaction.editReply(replyBody);
+  } catch (error) {
+    console.error("[threadcord] setup wizard editReply failed", error);
+  }
 }
 
 async function replyWithError(

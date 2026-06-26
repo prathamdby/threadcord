@@ -25,6 +25,8 @@ export function setupCreateRunModal(
   userId: string,
   mode: "create" | "update",
   existing?: SetupEnvironment,
+  repoDefault?: string,
+  branchDefault?: string,
 ): ModalBuilder {
   const checksDefault =
     existing && Object.keys(existing.checks).length > 0
@@ -37,8 +39,22 @@ export function setupCreateRunModal(
     .setCustomId(`${SETUP_PREFIX}create-run:${mode}:${userId}`)
     .setTitle(mode === "create" ? "Setup create" : "Setup update")
     .addComponents(
-      modalRow("repo", "Repository (owner/repo)", "", 100, true, TextInputStyle.Short),
-      modalRow("branch", "Base branch", "main", 100, true, TextInputStyle.Short),
+      modalRow(
+        "repo",
+        "Repository (owner/repo)",
+        repoDefault ?? "",
+        100,
+        true,
+        TextInputStyle.Short,
+      ),
+      modalRow(
+        "branch",
+        "Base branch",
+        branchDefault ?? "main",
+        100,
+        true,
+        TextInputStyle.Short,
+      ),
       modalRow(
         "skills",
         "Skills (URLs, one per line)",

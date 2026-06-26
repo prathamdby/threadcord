@@ -143,6 +143,7 @@ export class SetupStore {
     const merged: SetupEnvironment = {
       ...profile.environment,
       ...(partial.install !== undefined ? { install: partial.install } : {}),
+      ...(partial.start !== undefined ? { start: partial.start } : {}),
       ...(partial.checks !== undefined ? { checks: partial.checks } : {}),
     };
     if (partial.skills !== undefined) {

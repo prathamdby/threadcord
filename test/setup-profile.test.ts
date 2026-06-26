@@ -48,6 +48,15 @@ describe("setup profile validation", () => {
     });
   });
 
+  it("rejects skills that do not parse", () => {
+    expect(
+      validateSetupEnvironment({
+        install: "npm ci",
+        skills: ["not-a-valid-skill-link"],
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
   it("accepts optional skills array", () => {
     const result = validateSetupEnvironment({
       install: "npm ci",

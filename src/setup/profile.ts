@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { redact } from "../util/redact.js";
+import { validateSkillLinkLines } from "./skills.js";
 
 export const SETUP_PROFILE_STATUSES = [
   "running",
@@ -345,7 +346,10 @@ function optionalSkillsField(value: unknown): ValidationResult<string[]> {
     }
     strings.push(item.trim());
   }
-  return { ok: true, value: [...new Set(strings)] };
+  const unique = [...new Set(strings)];
+  const linkCheck = validateSkillLinkLines(unique);
+  if (!linkCheck.ok) return linkCheck;
+  return { ok: true, value: unique };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

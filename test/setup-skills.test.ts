@@ -3,6 +3,7 @@ import {
   buildSkillsInstallShellCommand,
   parseSkillLink,
   parseSkillLinksInput,
+  validateSkillLinkLines,
 } from "../src/setup/skills.js";
 
 describe("setup skills", () => {
@@ -40,5 +41,11 @@ describe("setup skills", () => {
 
   it("splits multiline skill input", () => {
     expect(parseSkillLinksInput("a\n\nb\n")).toEqual(["a", "b"]);
+  });
+
+  it("rejects unrecognized skill links", () => {
+    expect(validateSkillLinkLines(["not a url at all"])).toMatchObject({
+      ok: false,
+    });
   });
 });

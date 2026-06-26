@@ -106,13 +106,37 @@ export function shellQuote(arg: string): string {
   return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
+export function validateSkillLinkLines(
+  lines: string[],
+): { ok: true; value: string[] } | { ok: false; message: string } {
+  const trimmed = lines.map((line) => line.trim()).filter(Boolean);
+  if (trimmed.length === 0) {
+    return { ok: true, value: [] };
+  }
+  const invalid: string[] = [];
+  for (const line of trimmed) {
+    if (!parseSkillLink(line)) {
+      invalid.push(line);
+    }
+  }
+  if (invalid.length > 0) {
+    return {
+      ok: false,
+      message: `Unrecognized skill link(s): ${invalid.slice(0, 3).join(", ")}${
+        invalid.length > 3 ? ` (+${invalid.length - 3} more)` : ""
+      }`,
+    };
+  }
+  return { ok: true, value: trimmed };
+}
+
 export function buildSkillsInstallShellCommand(links: string[]): string {
-  const lines = links
-    .map((line) => parseSkillLink(line))
-    .filter((parsed): parsed is ParsedSkillLink => parsed !== undefined)
-    .map((parsed) => buildSkillsAddArgv(parsed).map(shellQuote).join(" "));
-  if (lines.length === 0) {
+  const validated = validateSkillLinkLines(links);
+  if (!validated.ok || validated.value.length === 0) {
     return "true";
   }
+  const lines = validated.value
+    .map((line) => parseSkillLink(line)!)
+    .map((parsed) => buildSkillsAddArgv(parsed).map(shellQuote).join(" "));
   return lines.join(" && ");
 }
