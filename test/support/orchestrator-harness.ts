@@ -551,6 +551,11 @@ export class World {
 }
 
 export async function flush(): Promise<void> {
+  // setTimeout(0) lets poll block for threadpool I/O (the mocked bootstrap
+  // mkdir); setImmediate alone busy-spins past it and stalls runTurn on CI.
+  for (let i = 0; i < 8; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
   for (let i = 0; i < 50; i += 1) {
     await new Promise((resolve) => setImmediate(resolve));
   }
