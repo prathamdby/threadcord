@@ -100,7 +100,9 @@ export function buildToolPreview(
   }
   const fallback = firstStringField(record);
   if (fallback === undefined) return undefined;
-  return capPreview(shortenPreviewString(fallback, toolName, options?.repoRoot));
+  return capPreview(
+    shortenPreviewString(fallback, toolName, options?.repoRoot),
+  );
 }
 
 function terminalCommand(

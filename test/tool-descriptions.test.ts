@@ -36,7 +36,9 @@ describe("tool descriptions", () => {
 
   it("create_github_pull_request description contains required contract phrases", () => {
     const tools = createGitHubTools("ghp_test_token_for_description_only");
-    const prTool = tools.find((tool) => tool.name === "create_github_pull_request");
+    const prTool = tools.find(
+      (tool) => tool.name === "create_github_pull_request",
+    );
     expect(prTool).toBeDefined();
     expect(prTool!.description).toContain("already-pushed");
     expect(prTool!.description).toContain("title");

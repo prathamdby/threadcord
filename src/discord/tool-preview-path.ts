@@ -25,10 +25,7 @@ function toPosix(path: string): string {
 /**
  * Strip workspace / container prefixes so Discord shows a short repo-relative path.
  */
-export function shortenPathForPreview(
-  raw: string,
-  repoRoot?: string,
-): string {
+export function shortenPathForPreview(raw: string, repoRoot?: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return raw;
 
@@ -91,9 +88,7 @@ export function shortenPreviewString(
 }
 
 function workspaceRepoRelative(absolutePosix: string): string | undefined {
-  const workspaces = absolutePosix.match(
-    /^\/workspaces\/[^/]+\/[^/]+\/?(.*)$/,
-  );
+  const workspaces = absolutePosix.match(/^\/workspaces\/[^/]+\/[^/]+\/?(.*)$/);
   if (workspaces) {
     const tail = workspaces[1] ?? "";
     return tail.length > 0 ? tail : basename(absolutePosix);

@@ -178,7 +178,7 @@ describe("loadConfig", () => {
       loadConfig({
         DATABASE_URL: "postgres://example",
         DISCORD_BOT_TOKEN: "discord",
-      
+
         GITHUB_TOKEN: "github",
       }),
     ).toThrow(/At least one provider model must be configured/);

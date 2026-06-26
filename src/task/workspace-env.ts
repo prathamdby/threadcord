@@ -65,26 +65,26 @@ export function workspaceEnv(
 export function wrapWorkspaceBashCommand(command: string): string {
   return [
     "__threadcord_refresh_home_path() {",
-    "  local prefix=\"${THREADCORD_WORKSPACE_BIN:-}\" rest=\"$PATH\" additions=\"\" bin",
-    "  if [[ -n \"$prefix\" && \"$PATH\" == \"$prefix\"* ]]; then",
-    "    rest=\"${PATH#${prefix}:}\"",
+    '  local prefix="${THREADCORD_WORKSPACE_BIN:-}" rest="$PATH" additions="" bin',
+    '  if [[ -n "$prefix" && "$PATH" == "$prefix"* ]]; then',
+    '    rest="${PATH#${prefix}:}"',
     "  fi",
     "  local reset_nullglob=0 reset_dotglob=0",
     "  shopt -q nullglob || reset_nullglob=1",
     "  shopt -q dotglob || reset_dotglob=1",
     "  shopt -s nullglob dotglob",
-    "  local -a candidates=(\"$HOME/bin\" \"$HOME/.local/bin\" \"$HOME\"/*/bin)",
+    '  local -a candidates=("$HOME/bin" "$HOME/.local/bin" "$HOME"/*/bin)',
     "  (( reset_nullglob )) && shopt -u nullglob",
     "  (( reset_dotglob )) && shopt -u dotglob",
-    "  for bin in \"${candidates[@]}\"; do",
-    "    [[ -z \"$bin\" || \":$PATH:$additions:\" == *\":$bin:\"* ]] && continue",
-    "    additions=\"${additions:+$additions:}$bin\"",
+    '  for bin in "${candidates[@]}"; do',
+    '    [[ -z "$bin" || ":$PATH:$additions:" == *":$bin:"* ]] && continue',
+    '    additions="${additions:+$additions:}$bin"',
     "  done",
-    "  if [[ -n \"$additions\" ]]; then",
-    "    if [[ -n \"$prefix\" ]]; then",
-    "      export PATH=\"$prefix:$additions${rest:+:$rest}\"",
+    '  if [[ -n "$additions" ]]; then',
+    '    if [[ -n "$prefix" ]]; then',
+    '      export PATH="$prefix:$additions${rest:+:$rest}"',
     "    else",
-    "      export PATH=\"$additions${rest:+:$rest}\"",
+    '      export PATH="$additions${rest:+:$rest}"',
     "    fi",
     "  fi",
     "}",
@@ -94,7 +94,9 @@ export function wrapWorkspaceBashCommand(command: string): string {
   ].join("\n");
 }
 
-export async function ensureWorkspaceDirs(workspaceRoot: string): Promise<void> {
+export async function ensureWorkspaceDirs(
+  workspaceRoot: string,
+): Promise<void> {
   const paths = workspacePaths(workspaceRoot);
   await Promise.all([
     mkdir(paths.home, { recursive: true }),

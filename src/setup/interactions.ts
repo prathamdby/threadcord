@@ -56,7 +56,10 @@ export async function handleSetupInteraction(input: {
     await handleSetupCommand(interaction, store, orchestrator);
     return true;
   }
-  if (interaction.isButton() && interaction.customId.startsWith(SETUP_CUSTOM_ID_PREFIX)) {
+  if (
+    interaction.isButton() &&
+    interaction.customId.startsWith(SETUP_CUSTOM_ID_PREFIX)
+  ) {
     await handleSetupButton(interaction, store);
     return true;
   }
@@ -78,7 +81,9 @@ async function handleSetupCommand(
   const subcommand = interaction.options.getSubcommand();
   try {
     if (subcommand === "create" || subcommand === "update") {
-      await interaction.showModal(setupCreateRunModal(interaction.user.id, subcommand));
+      await interaction.showModal(
+        setupCreateRunModal(interaction.user.id, subcommand),
+      );
       return;
     }
     if (subcommand === "status") {
@@ -178,7 +183,8 @@ async function handleImportCommand(
     await interaction.editReply(discordContent("Setup profile is missing."));
     return;
   }
-  const environmentAttachment = interaction.options.getAttachment("environment");
+  const environmentAttachment =
+    interaction.options.getAttachment("environment");
   const memoryAttachment = interaction.options.getAttachment("memory");
   if (!environmentAttachment && !memoryAttachment) {
     await interaction.editReply(
@@ -244,7 +250,9 @@ async function handleSetupButton(
   }
   if (draft.discordUserId !== interaction.user.id) {
     await interaction.reply({
-      content: discordContent("Only the draft owner can edit this setup draft."),
+      content: discordContent(
+        "Only the draft owner can edit this setup draft.",
+      ),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -290,7 +298,9 @@ async function handleSetupButton(
       const updated = await store.updateDraft({
         draftId: draft.id,
         validationStatus: validation.ok ? "valid" : "invalid",
-        validationMessage: validation.ok ? "Draft is valid." : validation.message,
+        validationMessage: validation.ok
+          ? "Draft is valid."
+          : validation.message,
       });
       await interaction.editReply({
         content: discordContent(renderDraft(updated).content),
@@ -298,7 +308,9 @@ async function handleSetupButton(
       });
     } catch (error) {
       await interaction.editReply({
-        content: discordContent(`Setup action failed: ${summarizeError(error)}`),
+        content: discordContent(
+          `Setup action failed: ${summarizeError(error)}`,
+        ),
         components: [],
       });
     }
@@ -325,7 +337,9 @@ async function handleSetupButton(
       });
     } catch (error) {
       await interaction.editReply({
-        content: discordContent(`Setup action failed: ${summarizeError(error)}`),
+        content: discordContent(
+          `Setup action failed: ${summarizeError(error)}`,
+        ),
         components: [],
       });
     }
@@ -428,7 +442,10 @@ async function handleSetupModal(
           discordContent(`Setup failed: ${summarizeError(error)}`),
         );
       } catch (editError) {
-        console.error("[threadcord] setup wizard failure editReply failed", editError);
+        console.error(
+          "[threadcord] setup wizard failure editReply failed",
+          editError,
+        );
       }
     }
     return;
@@ -452,7 +469,9 @@ async function handleSetupModal(
   }
   if (draft.discordUserId !== interaction.user.id) {
     await interaction.reply({
-      content: discordContent("Only the draft owner can edit this setup draft."),
+      content: discordContent(
+        "Only the draft owner can edit this setup draft.",
+      ),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -478,7 +497,9 @@ async function handleSetupModal(
   } else if (parsed.action === "requirements") {
     environment = {
       ...draft.environment,
-      requiredEnv: parseLines(interaction.fields.getTextInputValue("requiredEnv")),
+      requiredEnv: parseLines(
+        interaction.fields.getTextInputValue("requiredEnv"),
+      ),
       requiredServices: parseLines(
         interaction.fields.getTextInputValue("requiredServices"),
       ),
@@ -494,12 +515,16 @@ async function handleSetupModal(
   try {
     const updated = await store.updateDraft({
       draftId: draft.id,
-      environment: parsedPayload.ok ? parsedPayload.value.environment : environment,
+      environment: parsedPayload.ok
+        ? parsedPayload.value.environment
+        : environment,
       memoryMarkdown: parsedPayload.ok
         ? parsedPayload.value.memoryMarkdown
         : memoryMarkdown,
       validationStatus: parsedPayload.ok ? "valid" : "invalid",
-      validationMessage: parsedPayload.ok ? "Draft is valid." : parsedPayload.message,
+      validationMessage: parsedPayload.ok
+        ? "Draft is valid."
+        : parsedPayload.message,
     });
     await respondWithDraft(interaction, updated);
   } catch (error) {
@@ -509,7 +534,6 @@ async function handleSetupModal(
     });
   }
 }
-
 
 async function respondWithDraft(
   interaction: ModalSubmitInteraction,
@@ -529,13 +553,16 @@ async function respondWithDraft(
   });
 }
 
-function draftComponents(
-  draft: SetupDraft,
-): ActionRowBuilder<ButtonBuilder>[] {
+function draftComponents(draft: SetupDraft): ActionRowBuilder<ButtonBuilder>[] {
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       button("commands", draft.id, "Commands", ButtonStyle.Secondary),
-      button("requirements", draft.id, "Env and services", ButtonStyle.Secondary),
+      button(
+        "requirements",
+        draft.id,
+        "Env and services",
+        ButtonStyle.Secondary,
+      ),
       button("memory", draft.id, "Memory", ButtonStyle.Secondary),
     ),
     new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -563,9 +590,21 @@ function commandsModal(draft: SetupDraft): ModalBuilder {
     .setCustomId(`${SETUP_CUSTOM_ID_PREFIX}commands:${draft.id}`)
     .setTitle("Setup commands")
     .addComponents(
-      modalRow("install", "Install command", draft.environment.install, 4000, true),
+      modalRow(
+        "install",
+        "Install command",
+        draft.environment.install,
+        4000,
+        true,
+      ),
       modalRow("start", "Start command", draft.environment.start, 4000, false),
-      modalRow("checks", "Checks as name=command lines", checksText(draft), 4000, false),
+      modalRow(
+        "checks",
+        "Checks as name=command lines",
+        checksText(draft),
+        4000,
+        false,
+      ),
       modalRow(
         "skills",
         "Skills (URLs, one per line)",
@@ -581,7 +620,13 @@ function requirementsModal(draft: SetupDraft): ModalBuilder {
     .setCustomId(`${SETUP_CUSTOM_ID_PREFIX}requirements:${draft.id}`)
     .setTitle("Setup requirements")
     .addComponents(
-      modalRow("requiredEnv", "Required env names", draft.environment.requiredEnv.join("\n"), 4000, false),
+      modalRow(
+        "requiredEnv",
+        "Required env names",
+        draft.environment.requiredEnv.join("\n"),
+        4000,
+        false,
+      ),
       modalRow(
         "requiredServices",
         "Required services",
@@ -715,7 +760,9 @@ async function readEnvironmentAttachment(
 
 async function readAttachmentText(attachment: Attachment): Promise<string> {
   if (attachment.size > 1024 * 1024) {
-    throw new Error(`Attachment ${attachment.name} is too large. Max size is 1MB.`);
+    throw new Error(
+      `Attachment ${attachment.name} is too large. Max size is 1MB.`,
+    );
   }
   const errors: string[] = [];
   for (let attempt = 1; attempt <= 2; attempt += 1) {

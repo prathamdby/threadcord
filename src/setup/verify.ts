@@ -77,11 +77,15 @@ async function probeStartCommand(input: {
   probeMs: number;
 }): Promise<SetupCommandFailure | undefined> {
   return new Promise((resolve) => {
-    const child = spawn("bash", ["-c", wrapWorkspaceBashCommand(input.command)], {
-      cwd: input.cwd,
-      env: input.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawn(
+      "bash",
+      ["-c", wrapWorkspaceBashCommand(input.command)],
+      {
+        cwd: input.cwd,
+        env: input.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     let stdout = "";
     let stderr = "";
     let settled = false;

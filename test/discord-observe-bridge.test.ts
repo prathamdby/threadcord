@@ -9,16 +9,16 @@ import {
   withInstanceEventLock,
   type ObserveBridgeCallbacks,
 } from "../src/discord/observe-bridge.js";
-import { PROGRESS_ROLL_THRESHOLD, clampDiscordContent } from "../src/discord/limits.js";
+import {
+  PROGRESS_ROLL_THRESHOLD,
+  clampDiscordContent,
+} from "../src/discord/limits.js";
 import { formatToolLine } from "../src/discord/tool-format.js";
 import { redact } from "../src/util/redact.js";
 import { progressMessageIdsFromRow } from "../src/task/store.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
-import {
-  config,
-  fakeSetupStore,
-} from "./support/orchestrator-harness.js";
+import { config, fakeSetupStore } from "./support/orchestrator-harness.js";
 
 function taskEvent(partial: Record<string, unknown>): FlueEvent {
   return {
@@ -139,7 +139,10 @@ async function rollingWorld(): Promise<{
     store,
     publisher: {
       edit: async (_threadId: string, messageId: string, content: string) => {
-        edits.push({ messageId, content: clampDiscordContent(redact(content)) });
+        edits.push({
+          messageId,
+          content: clampDiscordContent(redact(content)),
+        });
       },
       send: async (_threadId: string, content: string) => {
         const id = `status-${sendSeq++}`;
@@ -629,9 +632,9 @@ describe("handleObserveEvent", () => {
       state,
     );
     await vi.runAllTimersAsync();
-    expect(edits.some((line) => line.includes("tool_failed: post_thread_message"))).toBe(
-      true,
-    );
+    expect(
+      edits.some((line) => line.includes("tool_failed: post_thread_message")),
+    ).toBe(true);
     expect(edits.some((line) => line.includes("1900 chars"))).toBe(true);
     vi.useRealTimers();
   });
@@ -818,7 +821,9 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     await vi.runAllTimersAsync();
     expect(edits.some((c) => c.includes("boom"))).toBe(true);
     expect(
-      edits.some((c) => c.includes("npm test") && !c.includes("exited with code")),
+      edits.some(
+        (c) => c.includes("npm test") && !c.includes("exited with code"),
+      ),
     ).toBe(true);
     vi.useRealTimers();
   });
@@ -919,9 +924,17 @@ describe("progress overflow rolling", () => {
     vi.useFakeTimers();
     const { callbacks, edits, state, instanceId } = await rollingWorld();
 
-    await handleObserveEvent(bashEvent("echo one", instanceId), callbacks, state);
+    await handleObserveEvent(
+      bashEvent("echo one", instanceId),
+      callbacks,
+      state,
+    );
     await vi.advanceTimersByTimeAsync(100);
-    await handleObserveEvent(bashEvent("echo two", instanceId), callbacks, state);
+    await handleObserveEvent(
+      bashEvent("echo two", instanceId),
+      callbacks,
+      state,
+    );
     await vi.advanceTimersByTimeAsync(1400);
     expect(edits).toHaveLength(1);
 
@@ -1011,7 +1024,11 @@ describe("TaskStore progress-message migration", () => {
     await store.appendProgressMessageId("task-1", "status-3");
 
     const read = await store.getByInstanceId(instanceId);
-    expect(read?.progressMessageIds).toEqual(["status-1", "status-2", "status-3"]);
+    expect(read?.progressMessageIds).toEqual([
+      "status-1",
+      "status-2",
+      "status-3",
+    ]);
   });
 
   it("preserves a legacy statusMessageId when appending a rolled id", async () => {

@@ -7,7 +7,9 @@ export interface SetupProgressSession {
   progressMessageIds: string[];
 }
 
-export function setupProgressSessionFromRun(run: SetupRun): SetupProgressSession | undefined {
+export function setupProgressSessionFromRun(
+  run: SetupRun,
+): SetupProgressSession | undefined {
   if (!run.discordThreadId || !run.progressMessageIds?.length) return undefined;
   return {
     id: run.id,

@@ -148,7 +148,11 @@ async function resolveProgressStream(
   if (isThreadcordInstance(instanceId)) {
     const task = await args.store.getByInstanceId(instanceId);
     if (!task?.progressMessageIds?.length) {
-      return { id: task?.id ?? instanceId, target: undefined, store: undefined };
+      return {
+        id: task?.id ?? instanceId,
+        target: undefined,
+        store: undefined,
+      };
     }
     return {
       id: task.id,

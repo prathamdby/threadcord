@@ -75,9 +75,7 @@ describe("workspaceEnv", () => {
     expect(env.HOME).toBe("/tmp/ws/.home");
     expect(env.NPM_CONFIG_PREFIX).toBe("/tmp/ws/.npm-global");
     expect(env.XDG_CACHE_HOME).toBe("/tmp/ws/.cache");
-    expect(env.PATH).toBe(
-      workspacePathPrefix("/tmp/ws") + ":/usr/bin",
-    );
+    expect(env.PATH).toBe(workspacePathPrefix("/tmp/ws") + ":/usr/bin");
     expect(env.GITHUB_TOKEN).toBe("token");
     expect(env.GH_TOKEN).toBe("token");
   });

@@ -35,7 +35,9 @@ describe("buildToolPreview", () => {
   });
 
   it("returns the command for bash", () => {
-    expect(buildToolPreview("bash", { command: "pytest -q" })).toBe("pytest -q");
+    expect(buildToolPreview("bash", { command: "pytest -q" })).toBe(
+      "pytest -q",
+    );
   });
 
   it("returns undefined when the primary arg is missing", () => {
@@ -47,7 +49,9 @@ describe("buildToolPreview", () => {
   });
 
   it("falls back to the first string field for unknown tools", () => {
-    expect(buildToolPreview("mcp_x", { a: "first", b: "second" })).toBe("first");
+    expect(buildToolPreview("mcp_x", { a: "first", b: "second" })).toBe(
+      "first",
+    );
   });
 
   it("returns undefined when args has no string fields", () => {
@@ -96,14 +100,22 @@ describe("formatToolLine", () => {
     ["write_file", { path: "out.txt" }, '✍️ write_file: "out.txt"'],
     ["edit_file", { path: "src/auth.ts" }, '🔧 edit_file: "src/auth.ts"'],
     ["grep", { pattern: "TODO" }, '🔎 grep: "TODO"'],
-    ["web_search", { query: "vitest fake timers" }, '🔍 web_search: "vitest fake timers"'],
+    [
+      "web_search",
+      { query: "vitest fake timers" },
+      '🔍 web_search: "vitest fake timers"',
+    ],
     [
       "create_github_pull_request",
       { title: "feat: add auth" },
       '🔧 create_github_pull_request: "feat: add auth"',
     ],
     ["bash", { command: "pytest -q" }, "💻 bash\n```\npytest -q\n```"],
-    ["terminal", { command: "make build" }, "💻 terminal\n```\nmake build\n```"],
+    [
+      "terminal",
+      { command: "make build" },
+      "💻 terminal\n```\nmake build\n```",
+    ],
     ["mcp_unknown", { foo: "bar" }, '⚙️ mcp_unknown: "bar"'],
     ["mcp_unknown", { foo: 123 }, "⚙️ mcp_unknown…"],
     ["mcp_unknown", {}, "⚙️ mcp_unknown…"],

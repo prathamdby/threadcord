@@ -530,7 +530,10 @@ export class TaskOrchestrator {
     return turn;
   }
 
-  private recordInitiator(taskId: string, message: ReactionTarget & { id: string }): void {
+  private recordInitiator(
+    taskId: string,
+    message: ReactionTarget & { id: string },
+  ): void {
     this.recordInitiatorById(taskId, message.id);
     this.initiatorMessages.set(message.id, message);
   }
@@ -588,9 +591,7 @@ function buildPrompt(
     `Task id: ${task.id}`,
     `Repository: ${task.repo}`,
     `Base branch: ${task.branch}`,
-    ...(task.pushOverride
-      ? [`Push override: ${task.pushOverride}`]
-      : []),
+    ...(task.pushOverride ? [`Push override: ${task.pushOverride}`] : []),
     `Workspace: ${checkoutPath}`,
     `Model: ${task.model}`,
     `Admitted setup profile revision: ${task.setupProfileRevision}`,

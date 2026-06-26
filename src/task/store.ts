@@ -504,9 +504,10 @@ function parseTaskStatus(value: unknown): TaskStatus {
   throw new Error(`Invalid task status: ${String(value)}`);
 }
 
-export function progressMessageIdsFromRow(
-  row: QueryResultRow,
-): { progressMessageIds?: string[]; statusMessageId?: string } {
+export function progressMessageIdsFromRow(row: QueryResultRow): {
+  progressMessageIds?: string[];
+  statusMessageId?: string;
+} {
   const ids = row.progress_message_ids;
   if (Array.isArray(ids) && ids.length > 0) {
     return { progressMessageIds: ids.map(String) };
