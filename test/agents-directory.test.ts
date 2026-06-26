@@ -4,9 +4,14 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const agentsDir = join(import.meta.dirname, "..", "src", "agents");
-const agentFiles = readdirSync(agentsDir).filter(
-  (file) => file.endsWith(".ts") && !file.endsWith(".d.ts"),
-);
+const agentFiles = readdirSync(agentsDir, { withFileTypes: true })
+  .filter(
+    (dirent) =>
+      dirent.isFile() &&
+      dirent.name.endsWith(".ts") &&
+      !dirent.name.endsWith(".d.ts"),
+  )
+  .map((dirent) => dirent.name);
 
 describe("src/agents direct children are flue agents", () => {
   it.each(agentFiles.map((file) => [file.replace(/\.ts$/, ""), file]))(
