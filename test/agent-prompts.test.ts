@@ -83,6 +83,9 @@ describe("composePrompt coding invariants", () => {
     "append_threadcord_setup_memory",
     "SETUP MEMORY (durable)",
     "Root cause",
+    "## Git",
+    "Remote artifacts",
+    "## Work done",
     "cwd = /workspaces/task-1/web",
     "Repo = acme/web",
   ])("contains %s", (token) => {
