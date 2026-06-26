@@ -34,9 +34,7 @@ export function taskCreateModalCustomId(
 
 export function parseTaskCreateModalCustomId(
   customId: string,
-):
-  | { kind: "modal"; userId: string; profileId: string }
-  | undefined {
+): { kind: "modal"; userId: string; profileId: string } | undefined {
   if (!customId.startsWith(TASK_PREFIX)) return undefined;
   const rest = customId.slice(TASK_PREFIX.length);
   const parts = rest.split(":");

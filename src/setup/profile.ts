@@ -111,7 +111,10 @@ export function parseSetupProfileKey(
       message: `Invalid branch name: ${branch}.`,
     };
   }
-  return { ok: true, value: { repo: normalizedRepo, branch: normalizedBranch } };
+  return {
+    ok: true,
+    value: { repo: normalizedRepo, branch: normalizedBranch },
+  };
 }
 
 export function validateSetupEnvironment(
@@ -171,9 +174,7 @@ export const SETUP_MEMORY_MAX_CHARS = 60_000;
 
 export const SETUP_MEMORY_APPEND_MAX_CHARS = 4_000;
 
-export function validateSetupMemory(
-  value: unknown,
-): ValidationResult<string> {
+export function validateSetupMemory(value: unknown): ValidationResult<string> {
   if (typeof value !== "string") {
     return { ok: false, message: "Memory Markdown must be a string." };
   }

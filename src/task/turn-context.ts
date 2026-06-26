@@ -30,9 +30,7 @@ export function agentRuntimeContextFromTask(
     profile.status !== "ready" &&
     profile.revision !== task.setupProfileRevision
   ) {
-    throw new Error(
-      `No ready setup profile for ${task.repo}@${task.branch}`,
-    );
+    throw new Error(`No ready setup profile for ${task.repo}@${task.branch}`);
   }
 
   return {
@@ -68,9 +66,7 @@ export async function resolveAgentRuntimeContext(
     }
   }
   if (!profile) {
-    throw new Error(
-      `No ready setup profile for ${task.repo}@${task.branch}`,
-    );
+    throw new Error(`No ready setup profile for ${task.repo}@${task.branch}`);
   }
 
   return agentRuntimeContextFromTask(task, getRuntimeConfig(), profile);

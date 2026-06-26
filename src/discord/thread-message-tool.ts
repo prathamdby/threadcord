@@ -72,7 +72,4 @@ export function createThreadMessageTools(instanceId: string) {
   ];
 }
 
-export {
-  POST_THREAD_MESSAGE_DESCRIPTION,
-  POST_THREAD_REPORT_DESCRIPTION,
-};
+export { POST_THREAD_MESSAGE_DESCRIPTION, POST_THREAD_REPORT_DESCRIPTION };

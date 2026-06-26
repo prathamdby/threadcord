@@ -46,14 +46,14 @@ export async function handleTaskInteraction(input: {
     await handleTaskCommand(interaction, setupStore, config);
     return true;
   }
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("task:")) {
+  if (
+    interaction.isStringSelectMenu() &&
+    interaction.customId.startsWith("task:")
+  ) {
     await handleTaskProfileSelect(interaction, setupStore, config);
     return true;
   }
-  if (
-    interaction.isModalSubmit() &&
-    interaction.customId.startsWith("task:")
-  ) {
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("task:")) {
     await handleTaskModal(interaction, orchestrator, setupStore);
     return true;
   }

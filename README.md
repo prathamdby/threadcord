@@ -170,15 +170,15 @@ Threadcord scopes each setup and task workspace with its own `HOME`, npm global 
 
 Setup commands (Discord slash command `/setup` with subcommands; `repo` and `branch` are required options, optional `model` on create/update):
 
-| Subcommand | Purpose |
-| ---------- | ------- |
-| `create` | First-time setup when no profile exists, or when the profile is `failed`. Spawns a public thread on the slash command with a live agent log (same style as coding tasks). |
-| `update` | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). Spawns a setup thread with live log. |
-| `status` | Show profile status, revision, and last run state (ephemeral). Re-run anytime for a fresh snapshot; while setup is running, open the setup thread from your `create`/`update` command for the live agent log. |
-| `view` | View the active profile environment and memory (ephemeral). |
-| `edit` | Open a private draft editor with buttons and modals. |
-| `export` | Export environment JSON and memory Markdown as ephemeral attachments. |
-| `import` | Import environment and/or memory attachments into a draft. |
+| Subcommand | Purpose                                                                                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create`   | First-time setup when no profile exists, or when the profile is `failed`. Spawns a public thread on the slash command with a live agent log (same style as coding tasks).                                     |
+| `update`   | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). Spawns a setup thread with live log.                                                                                |
+| `status`   | Show profile status, revision, and last run state (ephemeral). Re-run anytime for a fresh snapshot; while setup is running, open the setup thread from your `create`/`update` command for the live agent log. |
+| `view`     | View the active profile environment and memory (ephemeral).                                                                                                                                                   |
+| `edit`     | Open a private draft editor with buttons and modals.                                                                                                                                                          |
+| `export`   | Export environment JSON and memory Markdown as ephemeral attachments.                                                                                                                                         |
+| `import`   | Import environment and/or memory attachments into a draft.                                                                                                                                                    |
 
 Repository names are normalized to lowercase `owner/repo`. Coding tasks require a profile in `ready` status.
 
@@ -204,16 +204,16 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 
 ## Features
 
-| Capability | Where           | What happens                                       |
-| ---------- | --------------- | -------------------------------------------------- |
+| Capability | Where           | What happens                                                                  |
+| ---------- | --------------- | ----------------------------------------------------------------------------- |
 | New task   | Control channel | Thread created, repo cloned, first turn queued (requires ready setup profile) |
-| Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`    |
-| `status`   | Task thread     | Replies with current task status                   |
-| `cancel`   | Task thread     | Stops further dispatches, frees a concurrency slot |
-| `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`  |
-| Open PR    | Agent tool      | `create_github_pull_request` after push            |
-| Learn      | Agent tool      | `append_threadcord_setup_memory` after verified repo lessons |
-| Setup      | `/setup` slash  | Durable per-repo profiles; see [Setup profiles](#setup-profiles) |
+| Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`                               |
+| `status`   | Task thread     | Replies with current task status                                              |
+| `cancel`   | Task thread     | Stops further dispatches, frees a concurrency slot                            |
+| `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`                             |
+| Open PR    | Agent tool      | `create_github_pull_request` after push                                       |
+| Learn      | Agent tool      | `append_threadcord_setup_memory` after verified repo lessons                  |
+| Setup      | `/setup` slash  | Durable per-repo profiles; see [Setup profiles](#setup-profiles)              |
 
 ## How it works
 
@@ -256,5 +256,3 @@ Clone, push, and PR creation use your `GITHUB_TOKEN`. Repo access is bounded by 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-

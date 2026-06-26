@@ -21,8 +21,7 @@ function identityCacheKey(token: string): string {
 export function gitIdentityFrom(user: AuthenticatedUser): GitIdentity {
   const name = user.name || user.login;
   const email =
-    user.email ??
-    `${user.id}+${user.login}@users.noreply.github.com`;
+    user.email ?? `${user.id}+${user.login}@users.noreply.github.com`;
   return { name, email };
 }
 
@@ -51,9 +50,7 @@ export async function resolveGitIdentity(
   }
 }
 
-export function gitIdentityEnv(
-  identity: GitIdentity,
-): Record<string, string> {
+export function gitIdentityEnv(identity: GitIdentity): Record<string, string> {
   return {
     GIT_AUTHOR_NAME: identity.name,
     GIT_AUTHOR_EMAIL: identity.email,

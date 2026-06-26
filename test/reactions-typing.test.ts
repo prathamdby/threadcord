@@ -52,7 +52,9 @@ describe("inbound-message reactions", () => {
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
     expect(result.message.reactionLog).toEqual([]);
-    expect(posts).toContain("Turn completed. Waiting for the next instruction.");
+    expect(posts).toContain(
+      "Turn completed. Waiting for the next instruction.",
+    );
   });
 
   it("drops pending user message when handleAgentEnd runs after cancel", async () => {
@@ -200,7 +202,9 @@ describe("non-fatal reaction and typing errors", () => {
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
-    expect(posts).toContain("Turn completed. Waiting for the next instruction.");
+    expect(posts).toContain(
+      "Turn completed. Waiting for the next instruction.",
+    );
   });
 
   it("does not crash the turn when sendTyping rejects", async () => {

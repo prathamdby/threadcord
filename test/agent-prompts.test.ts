@@ -25,7 +25,8 @@ vi.mock("../src/task/turn-context.js", () => ({
 }));
 
 vi.mock("../src/github/tools.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/tools.js")>();
+  const actual =
+    await importOriginal<typeof import("../src/github/tools.js")>();
   return {
     ...actual,
     resolveGitIdentity: vi.fn(async () => undefined),

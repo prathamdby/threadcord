@@ -54,7 +54,9 @@ export function renderSetupStatus(input: SetupStatusViewInput): SetupViewModel {
       `Setup profile for ${profile.repo} on ${profile.branch}`,
       `Status: ${profile.status}`,
       `Revision: ${profile.revision}`,
-      profile.errorSummary ? `Profile error: ${profile.errorSummary}` : undefined,
+      profile.errorSummary
+        ? `Profile error: ${profile.errorSummary}`
+        : undefined,
       ...runLines,
       ...liveHint,
       "",
@@ -104,7 +106,9 @@ export function renderDraft(draft: SetupDraft): SetupViewModel {
       `Setup draft ${draft.id}`,
       `Base revision: ${draft.baseRevision}`,
       `Validation: ${draft.validationStatus}`,
-      draft.validationMessage ? `Message: ${draft.validationMessage}` : undefined,
+      draft.validationMessage
+        ? `Message: ${draft.validationMessage}`
+        : undefined,
       "",
       renderEnvironment(draft.environment),
       "",

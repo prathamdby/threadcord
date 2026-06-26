@@ -6,7 +6,10 @@ import {
   type DispatchTurn,
 } from "../../src/task/orchestrator.js";
 import type { AppConfig } from "../../src/config.js";
-import type { SetupEnvironment, SetupProfile } from "../../src/setup/profile.js";
+import type {
+  SetupEnvironment,
+  SetupProfile,
+} from "../../src/setup/profile.js";
 import type { SetupStore } from "../../src/setup/store.js";
 import type {
   ClaimedTurn,
@@ -353,7 +356,8 @@ export interface RecordingControlMessage extends ReactionRecordings {
   id: string;
   replies: string[];
 }
-export interface RecordingFollowupMessage extends ThreadMessage, ReactionRecordings {
+export interface RecordingFollowupMessage
+  extends ThreadMessage, ReactionRecordings {
   replies: string[];
 }
 export interface RecordingThread extends ThreadRef {

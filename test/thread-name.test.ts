@@ -7,9 +7,12 @@ import {
 
 describe("threadName", () => {
   it("builds a logical default from repo and task id", () => {
-    expect(threadName("prathamdby/threadcord", "5a1cadef-75bd-4a0c-99a6-41d619213228")).toBe(
-      "threadcord-prathamdby-threadcord-5a1cadef",
-    );
+    expect(
+      threadName(
+        "prathamdby/threadcord",
+        "5a1cadef-75bd-4a0c-99a6-41d619213228",
+      ),
+    ).toBe("threadcord-prathamdby-threadcord-5a1cadef");
   });
 });
 
@@ -41,7 +44,6 @@ describe("extractTaskInstruction", () => {
     ].join("\n");
     expect(extractTaskInstruction(prompt)).toBe("Actual user instruction");
   });
-
 });
 
 describe("sanitizeDiscordThreadName", () => {

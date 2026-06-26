@@ -80,7 +80,9 @@ export function buildSetupCommandJson(): ReturnType<
     .addSubcommand((subcommand) =>
       subcommand
         .setName("import")
-        .setDescription("Import environment JSON or memory Markdown as a draft.")
+        .setDescription(
+          "Import environment JSON or memory Markdown as a draft.",
+        )
         .addStringOption((option) =>
           option.setName("repo").setDescription("owner/repo").setRequired(true),
         )

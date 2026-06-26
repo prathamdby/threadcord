@@ -276,16 +276,18 @@ export class SetupStore {
   async getRunByInstanceId(instanceId: string): Promise<SetupRun | undefined> {
     const runId = instanceId.startsWith("setup:") ? instanceId.slice(6) : "";
     if (!runId) return undefined;
-    const result = await this.pool.query("SELECT * FROM setup_runs WHERE id = $1", [
-      runId,
-    ]);
+    const result = await this.pool.query(
+      "SELECT * FROM setup_runs WHERE id = $1",
+      [runId],
+    );
     return result.rows[0] ? rowToRun(result.rows[0]) : undefined;
   }
 
   async getRun(runId: string): Promise<SetupRun | undefined> {
-    const result = await this.pool.query("SELECT * FROM setup_runs WHERE id = $1", [
-      runId,
-    ]);
+    const result = await this.pool.query(
+      "SELECT * FROM setup_runs WHERE id = $1",
+      [runId],
+    );
     return result.rows[0] ? rowToRun(result.rows[0]) : undefined;
   }
 
@@ -515,7 +517,9 @@ export class SetupStore {
     return rowToDraft(singleRow(result.rows));
   }
 
-  async applyDraft(draftId: string): Promise<
+  async applyDraft(
+    draftId: string,
+  ): Promise<
     | { ok: true; profile: SetupProfile }
     | { ok: false; reason: "conflict" | "invalid" | "missing" }
   > {
@@ -587,7 +591,11 @@ export class SetupStore {
     appendMarkdown: string;
   }): Promise<
     | { ok: true; profile: SetupProfile }
-    | { ok: false; reason: "not_found" | "not_ready" | "invalid"; message: string }
+    | {
+        ok: false;
+        reason: "not_found" | "not_ready" | "invalid";
+        message: string;
+      }
   > {
     const key = parseSetupProfileKey(input.repo, input.branch);
     if (!key.ok) {
@@ -669,7 +677,9 @@ function rowToProfile(row: QueryResultRow): SetupProfile {
     revision: Number(row.revision),
     environment: parseEnvironment(row.environment_json),
     memoryMarkdown: String(row.memory_markdown),
-    ...(typeof row.last_run_id === "string" ? { lastRunId: row.last_run_id } : {}),
+    ...(typeof row.last_run_id === "string"
+      ? { lastRunId: row.last_run_id }
+      : {}),
     ...(typeof row.error_summary === "string"
       ? { errorSummary: row.error_summary }
       : {}),

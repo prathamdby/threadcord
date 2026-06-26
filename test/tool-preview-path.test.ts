@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { shortenPathForPreview } from "../src/discord/tool-preview-path.js";
-import { buildToolPreview, formatToolLine } from "../src/discord/tool-format.js";
+import {
+  buildToolPreview,
+  formatToolLine,
+} from "../src/discord/tool-format.js";
 
 describe("shortenPathForPreview", () => {
   const repoRoot = "/workspaces/task-uuid/threadcord";
@@ -51,9 +54,9 @@ describe("formatToolLine path shortening", () => {
   });
 
   it("does not shorten grep pattern previews", () => {
-    expect(
-      buildToolPreview("grep", { pattern: "/workspaces/foo/bar" }),
-    ).toBe("/workspaces/foo/bar");
+    expect(buildToolPreview("grep", { pattern: "/workspaces/foo/bar" })).toBe(
+      "/workspaces/foo/bar",
+    );
   });
 
   it("shortens workspace paths inside bash commands", () => {
@@ -62,12 +65,11 @@ describe("formatToolLine path shortening", () => {
       formatToolLine(
         "bash",
         {
-          command:
-            "cd /workspaces/task-uuid/threadcord && npm test",
+          command: "cd /workspaces/task-uuid/threadcord && npm test",
         },
         { repoRoot },
       ),
-    ).toBe('💻 bash\n```\ncd . && npm test\n```');
+    ).toBe("💻 bash\n```\ncd . && npm test\n```");
   });
 
   it("shortens edit tool path via first string field", () => {

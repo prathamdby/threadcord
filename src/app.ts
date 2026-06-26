@@ -62,7 +62,9 @@ export async function createApp(): Promise<{
       await orchestrator.handleAgentEnd(instanceId);
     },
     onAgentFailure: async (instanceId, errorSummary) => {
-      if (await setupOrchestrator.handleAgentFailure(instanceId, errorSummary)) {
+      if (
+        await setupOrchestrator.handleAgentFailure(instanceId, errorSummary)
+      ) {
         return;
       }
       await orchestrator.handleAgentFailure(instanceId, errorSummary);

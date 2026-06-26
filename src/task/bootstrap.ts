@@ -1,9 +1,6 @@
 import { mkdir, rm, stat, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
-import {
-  githubHttpsCloneUrl,
-  resolveGithubHttpsGitEnv,
-} from "./git-auth.js";
+import { githubHttpsCloneUrl, resolveGithubHttpsGitEnv } from "./git-auth.js";
 import { execa } from "./execa.js";
 import { buildSkillsInstallShellCommand } from "../setup/skills.js";
 import type { TaskRecord } from "../types.js";
@@ -83,7 +80,10 @@ async function ensureCheckoutDir(
   gitEnv: NodeJS.ProcessEnv,
   checkoutDir: string,
 ): Promise<void> {
-  if (await exists(checkoutDir) && !(await exists(join(checkoutDir, ".git")))) {
+  if (
+    (await exists(checkoutDir)) &&
+    !(await exists(join(checkoutDir, ".git")))
+  ) {
     await rm(checkoutDir, { recursive: true, force: true });
   }
   if (!(await exists(checkoutDir))) {

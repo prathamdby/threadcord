@@ -49,9 +49,13 @@ describe("checkoutPathForTask", () => {
 
 describe("agentRuntimeContextFromTask", () => {
   it("copies checks and requiredEnv from a ready setup profile", () => {
-    const ctx = agentRuntimeContextFromTask(task, {
-      defaultModel: "anthropic/claude-sonnet-4-5",
-    }, readyProfile);
+    const ctx = agentRuntimeContextFromTask(
+      task,
+      {
+        defaultModel: "anthropic/claude-sonnet-4-5",
+      },
+      readyProfile,
+    );
 
     expect(ctx.checks).toEqual({
       test: "npm test",
@@ -77,7 +81,11 @@ describe("agentRuntimeContextFromTask", () => {
     const ctx = agentRuntimeContextFromTask(
       task,
       { defaultModel: "anthropic/claude-sonnet-4-5" },
-      { ...readyProfile, status: "updating", revision: task.setupProfileRevision },
+      {
+        ...readyProfile,
+        status: "updating",
+        revision: task.setupProfileRevision,
+      },
     );
     expect(ctx.checks.test).toBe("npm test");
   });

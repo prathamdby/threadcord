@@ -165,7 +165,10 @@ export class SetupOrchestrator {
   ): Promise<boolean> {
     const run = await this.store.getRunByInstanceId(instanceId);
     if (!run) return false;
-    const failed = await this.store.failRun(run.id, summarizeError(errorSummary));
+    const failed = await this.store.failRun(
+      run.id,
+      summarizeError(errorSummary),
+    );
     if (failed) {
       await rm(run.workspacePath, { recursive: true, force: true });
     }
@@ -183,7 +186,9 @@ export class SetupOrchestrator {
     const threadId = run?.discordThreadId;
     if (!threadId) return;
     const headline =
-      outcome === "succeeded" ? "Setup finished successfully." : "Setup failed.";
+      outcome === "succeeded"
+        ? "Setup finished successfully."
+        : "Setup failed.";
     await this.post(threadId, `${headline}\n${detail}`);
     if (outcome === "succeeded") {
       const profile = run
@@ -240,10 +245,14 @@ async function prepareSetupWorkspace(input: {
     cwd: checkoutDir,
     env: gitEnv,
   });
-  await execa("git", ["checkout", "-B", input.branch, `origin/${input.branch}`], {
-    cwd: checkoutDir,
-    env: gitEnv,
-  });
+  await execa(
+    "git",
+    ["checkout", "-B", input.branch, `origin/${input.branch}`],
+    {
+      cwd: checkoutDir,
+      env: gitEnv,
+    },
+  );
 }
 
 function setupCheckoutDir(workspacePath: string, repo: string): string {

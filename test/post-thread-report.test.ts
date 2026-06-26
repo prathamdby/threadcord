@@ -72,9 +72,7 @@ describe("post_thread_report delivery", () => {
     );
     await flush();
 
-    expect(posts.some((post) => post.includes("Should not post"))).toBe(
-      false,
-    );
+    expect(posts.some((post) => post.includes("Should not post"))).toBe(false);
     expect(takePendingUserTurnMessages(task.flueInstanceId)).toEqual([]);
   });
 
@@ -103,9 +101,9 @@ describe("post_thread_report tool validation", () => {
 
   it("queues valid parts through the tool execute path", async () => {
     const tool = createPostThreadReportTool(instanceId);
-    await expect(tool.execute({ parts: ["Part one", "Part two"] })).resolves.toBe(
-      "2 report part(s) queued for Discord.",
-    );
+    await expect(
+      tool.execute({ parts: ["Part one", "Part two"] }),
+    ).resolves.toBe("2 report part(s) queued for Discord.");
     expect(takePendingUserTurnMessages(instanceId)).toEqual([
       "Part one",
       "Part two",

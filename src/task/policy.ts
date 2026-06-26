@@ -40,7 +40,10 @@ function isExplicitPushBranchAllowed(
   push: string,
   baseBranch: string,
 ): boolean {
-  if (push.startsWith(THREADCORD_BRANCH_PREFIX) && push.length > THREADCORD_BRANCH_PREFIX.length) {
+  if (
+    push.startsWith(THREADCORD_BRANCH_PREFIX) &&
+    push.length > THREADCORD_BRANCH_PREFIX.length
+  ) {
     return true;
   }
   return push === baseBranch;

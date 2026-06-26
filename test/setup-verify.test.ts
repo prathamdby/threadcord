@@ -7,7 +7,10 @@ import {
   formatSetupVerifyError,
   verifySetupEnvironment,
 } from "../src/setup/verify.js";
-import { ensureWorkspaceDirs, workspacePaths } from "../src/task/workspace-env.js";
+import {
+  ensureWorkspaceDirs,
+  workspacePaths,
+} from "../src/task/workspace-env.js";
 
 describe("verifySetupEnvironment", () => {
   let workspaceRoot = "";
@@ -67,9 +70,7 @@ describe("verifySetupEnvironment", () => {
   });
 
   it("passes with a successful install and one passing check", async () => {
-    const result = await verify(
-      baseEnvironment({ checks: { build: "true" } }),
-    );
+    const result = await verify(baseEnvironment({ checks: { build: "true" } }));
     expect(result).toEqual({ ok: true });
   });
 
@@ -129,18 +130,16 @@ describe("verifySetupEnvironment", () => {
   });
 
   it("passes when start exits zero immediately", async () => {
-    const result = await verify(
-      baseEnvironment({ start: "true" }),
-      { startProbeMs: 50 },
-    );
+    const result = await verify(baseEnvironment({ start: "true" }), {
+      startProbeMs: 50,
+    });
     expect(result).toEqual({ ok: true });
   });
 
   it("fails when start exits non-zero immediately", async () => {
-    const result = await verify(
-      baseEnvironment({ start: "exit 2" }),
-      { startProbeMs: 50 },
-    );
+    const result = await verify(baseEnvironment({ start: "exit 2" }), {
+      startProbeMs: 50,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.failures[0]?.name).toBe("start");
@@ -148,10 +147,9 @@ describe("verifySetupEnvironment", () => {
   });
 
   it("passes when start stays alive through the probe window", async () => {
-    const result = await verify(
-      baseEnvironment({ start: "sleep 1" }),
-      { startProbeMs: 50 },
-    );
+    const result = await verify(baseEnvironment({ start: "sleep 1" }), {
+      startProbeMs: 50,
+    });
     expect(result).toEqual({ ok: true });
   });
 

@@ -32,7 +32,9 @@ function waitForNamerTitle(instanceId: string): {
     readyResolve = resolve;
   });
   let stopObserve: (() => void) | undefined;
-  let settle!: (outcome: { ok: true; title: string } | { ok: false; error: Error }) => void;
+  let settle!: (
+    outcome: { ok: true; title: string } | { ok: false; error: Error },
+  ) => void;
 
   const title = new Promise<string>((resolve, reject) => {
     let settled = false;
@@ -95,7 +97,11 @@ export function scheduleReadableThreadRename(
 
     const instanceId = namerInstanceId();
     const input: ThreadNamerInput = { instruction };
-    const { title: titlePromise, ready, dispose } = waitForNamerTitle(instanceId);
+    const {
+      title: titlePromise,
+      ready,
+      dispose,
+    } = waitForNamerTitle(instanceId);
     try {
       await ready;
       await dispatch(threadNamerAgent, { id: instanceId, input });

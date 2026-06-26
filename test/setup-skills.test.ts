@@ -8,9 +8,7 @@ import {
 
 describe("setup skills", () => {
   it("parses repo URL as install all skills", () => {
-    expect(
-      parseSkillLink("https://github.com/prathamdby/skills"),
-    ).toEqual({
+    expect(parseSkillLink("https://github.com/prathamdby/skills")).toEqual({
       packageArg: "https://github.com/prathamdby/skills",
       skillFlag: undefined,
     });

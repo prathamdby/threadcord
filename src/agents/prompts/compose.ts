@@ -60,9 +60,7 @@ function formatChecksList(checks?: Record<string, string> | null): string {
   if (entries.length === 0) {
     return "   (none configured)";
   }
-  return entries
-    .map(([name, cmd]) => `   - ${name}: \`${cmd}\``)
-    .join("\n");
+  return entries.map(([name, cmd]) => `   - ${name}: \`${cmd}\``).join("\n");
 }
 
 function formatRequiredEnvList(requiredEnv?: string[] | null): string {
