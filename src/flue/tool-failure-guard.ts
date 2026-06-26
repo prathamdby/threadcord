@@ -4,6 +4,8 @@ import { abortAgentWorkForInstance } from "./agent-work-abort.js";
 interface InstanceToolGuardState {
   consecutiveFailures: number;
   tripped: boolean;
+  /** Set after observe-bridge posts operator failure for a guard trip. */
+  operatorFailureDelivered?: boolean;
 }
 
 const stateByInstance = new Map<string, InstanceToolGuardState>();
@@ -28,6 +30,16 @@ export function resetToolFailureGuardsForTests(): void {
 
 export function noteAgentTurnBoundary(instanceId: string): void {
   clearToolFailureGuard(instanceId);
+}
+
+export function markToolGuardFailureDelivered(instanceId: string): void {
+  const state = stateByInstance.get(instanceId);
+  if (state) state.operatorFailureDelivered = true;
+}
+
+/** Skip a second onAgentFailure when abort already notified the operator. */
+export function shouldSkipObserveFailureDelivery(instanceId: string): boolean {
+  return stateByInstance.get(instanceId)?.operatorFailureDelivered === true;
 }
 
 /**

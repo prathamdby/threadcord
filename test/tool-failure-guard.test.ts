@@ -1,8 +1,11 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { FlueEvent } from "@flue/runtime";
 import {
+  clearToolFailureGuard,
+  markToolGuardFailureDelivered,
   maybeAbortOnToolFailures,
   resetToolFailureGuardsForTests,
+  shouldSkipObserveFailureDelivery,
 } from "../src/flue/tool-failure-guard.js";
 
 function toolEvent(
@@ -58,6 +61,17 @@ describe("tool failure guard", () => {
       10,
     );
     expect(trip).toContain("command not found");
+  });
+
+  it("skips duplicate observe failure after guard delivery", async () => {
+    const id = "discord:thread:guard-5";
+    for (let i = 0; i < 10; i++) {
+      await maybeAbortOnToolFailures(toolEvent(true, id), id, 10);
+    }
+    markToolGuardFailureDelivered(id);
+    expect(shouldSkipObserveFailureDelivery(id)).toBe(true);
+    clearToolFailureGuard(id);
+    expect(shouldSkipObserveFailureDelivery(id)).toBe(false);
   });
 
   it("resets the streak after a successful tool", async () => {

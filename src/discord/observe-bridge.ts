@@ -8,8 +8,10 @@ import {
 } from "../flue/agent-guardrails.js";
 import {
   clearToolFailureGuard,
+  markToolGuardFailureDelivered,
   maybeAbortOnToolFailures,
   noteAgentTurnBoundary,
+  shouldSkipObserveFailureDelivery,
 } from "../flue/tool-failure-guard.js";
 import { isThreadcordInstance } from "../ids.js";
 import { checkoutPathForTask } from "../task/turn-context.js";
@@ -99,19 +101,20 @@ export async function handleObserveEvent(
     noteAgentTurnBoundary(instanceId);
   }
 
-  const toolFailureTrip = await maybeAbortOnToolFailures(
-    event,
-    instanceId,
-    maxToolFailures,
-  );
+  const toolFailureTrip =
+    isTaskInstance || isSetupInstance
+      ? await maybeAbortOnToolFailures(event, instanceId, maxToolFailures)
+      : undefined;
   if (toolFailureTrip && (isTaskInstance || isSetupInstance)) {
     await args.onAgentFailure(instanceId, toolFailureTrip);
-    clearToolFailureGuard(instanceId);
+    markToolGuardFailureDelivered(instanceId);
   }
 
   const failureSummary = submissionFailureSummary(event);
   if (failureSummary && (isTaskInstance || isSetupInstance)) {
-    await args.onAgentFailure(instanceId, failureSummary);
+    if (!shouldSkipObserveFailureDelivery(instanceId)) {
+      await args.onAgentFailure(instanceId, failureSummary);
+    }
     clearToolFailureGuard(instanceId);
   }
 
