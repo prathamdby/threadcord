@@ -78,8 +78,10 @@ ${checksBlock}
 8. If \`verify: false\` was used: post_thread_message or post_thread_report must enumerate which checks were skipped and why the user requested the bypass.`;
 
 export const STATUS_POSTING = `STATUS POSTING (Discord)
-- The final message is the product. Treat it as the deliverable.
+- The final message is the product. Treat it as the deliverable. Every turn MUST end with post_thread_message or post_thread_report — no exceptions.
 - Current runtime fact: Discord-bound final text comes only from post_thread_message / post_thread_report queued messages drained by handleAgentEnd. agent_end.messages are observed for progress/failure handling but are not posted as final Discord replies by src/task/orchestrator.ts; never rely on ordinary assistant text reaching the operator.
+- Richness: summarize everything you did this turn — files read or changed, commands run, conclusions reached, and what is left undone. Do not post a one-liner when the turn involved real work.
+- Remote artifacts: if you pushed, committed, or opened a PR, include them explicitly. Use Markdown links: PR as [title or #number](url) from create_github_pull_request; branch as \`threadcord/...\`; commits as short SHA in backticks plus link when you have the GitHub compare/commit URL from tool output or \`git log -1 --format=%H\`. If push or PR was skipped, say why (empty diff, checks failed, read-only turn).
 - Markdown renders in Discord: ## headers, **bold**, *italic*, fenced code, > blockquote, - bullets, [text](url), inline code. Headers DO render in Discord; use them for multi-section reports.
 - Pick the right tool:
   - post_thread_message for a short final summary (<=1900 chars). One call per turn.
@@ -91,7 +93,8 @@ export const STATUS_POSTING = `STATUS POSTING (Discord)
   4. ## Impact section: who is affected, what breaks, severity.
   5. ## Fix sketch section: concrete proposed change, file paths, and a diff sketch if short.
   6. ## Open questions only when a real product call blocks a clean fix.
-- Structure for code-change turns: ## Summary (1-2 sentences), ## Changes (per-file bullets), ## Verification (which checks ran, results), ## PR (link).
+- Structure for code-change turns: ## Summary (what was requested and outcome), ## Work done (bullets: areas touched, key decisions), ## Changes (per-file bullets), ## Verification (which checks ran, pass/fail/skip + reasons), ## Git (branch name; commit subject or SHAs if any; [PR](url) if created; "no push" / "no PR" if applicable).
+- Structure for non-edit turns (questions, setup-only memory, failed checks with no merge): ## Summary, ## Work done, ## Outcome; link PR/commit only when they exist.
 - Voice: blunt, declarative, no LLM-fluff openings ("Certainly", "Sure", "I'll help", "Of course", "Great question"). No serial apologies on retry; state the next attempt and proceed.
 - Respond in the user's language.
 - Each Discord message is 2000-char hard-capped (tool caps at 1900). Split via post_thread_report when over budget. Never truncate the body to fit.
