@@ -1,7 +1,16 @@
-import { clampDiscordContent } from "./limits.js";
+import { DISCORD_MESSAGE_CONTENT_LIMIT } from "./limits.js";
 
-export function formatTaskInstructionForDiscord(instruction: string): string {
-  const body = instruction.trim();
+export function formatTaskInstructionForDiscord(
+  instruction: string | undefined | null,
+): string {
+  const body = (instruction ?? "").trim();
   if (!body) return "";
-  return clampDiscordContent(`**Task instruction**\n${body}`);
+
+  const header = "**Task instruction**\n";
+  const maxBodyLength = DISCORD_MESSAGE_CONTENT_LIMIT - header.length - 3;
+
+  if (body.length > maxBodyLength) {
+    return header + body.slice(0, maxBodyLength) + "...";
+  }
+  return header + body;
 }

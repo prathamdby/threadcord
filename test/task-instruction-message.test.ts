@@ -11,4 +11,18 @@ describe("formatTaskInstructionForDiscord", () => {
   it("returns empty for whitespace-only instruction", () => {
     expect(formatTaskInstructionForDiscord("   \n  ")).toBe("");
   });
+
+  it("returns empty for null or undefined", () => {
+    expect(formatTaskInstructionForDiscord(null)).toBe("");
+    expect(formatTaskInstructionForDiscord(undefined)).toBe("");
+  });
+
+  it("truncates long instructions from the end with ellipsis", () => {
+    const long = "x".repeat(2500);
+    const formatted = formatTaskInstructionForDiscord(long);
+    expect(formatted.length).toBeLessThanOrEqual(2000);
+    expect(formatted.endsWith("...")).toBe(true);
+    expect(formatted.startsWith("**Task instruction**\n")).toBe(true);
+    expect(formatted).not.toContain("[truncated");
+  });
 });
