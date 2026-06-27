@@ -32,7 +32,7 @@ export async function handleMcpInteraction(input: {
   }
   if (
     interaction.isModalSubmit() &&
-    interaction.customId.startsWith(MCP_CUSTOM_ID_PREFIX)
+    interaction.customId.startsWith(`${MCP_CUSTOM_ID_PREFIX}add:`)
   ) {
     await handleMcpModal(interaction, store, pool);
     return true;
@@ -138,6 +138,12 @@ async function handleMcpModal(
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   } catch {
+    await interaction
+      .reply({
+        content: discordContent("Failed to process request. Try again."),
+        flags: MessageFlags.Ephemeral,
+      })
+      .catch(() => {});
     return;
   }
 

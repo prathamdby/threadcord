@@ -76,6 +76,7 @@ export class McpPool {
   }
 
   private async connectAll(): Promise<void> {
+    let failures = 0;
     await Promise.all(
       this.servers.map(async (server) => {
         try {
@@ -85,6 +86,7 @@ export class McpPool {
           );
           this.connections.set(server.id, connection);
         } catch (error) {
+          failures++;
           console.error(
             `[threadcord] Failed to connect MCP server "${server.id}"`,
             error,
@@ -92,6 +94,11 @@ export class McpPool {
         }
       }),
     );
+    if (this.servers.length > 0 && failures === this.servers.length) {
+      console.warn(
+        `[threadcord] All ${this.servers.length} configured MCP server(s) failed to connect`,
+      );
+    }
   }
 
   /** Closes every cached connection and resets the pool. */
@@ -151,6 +158,8 @@ export async function getMcpTools(): Promise<ToolDefinition[]> {
 export async function closeMcpPool(): Promise<void> {
   if (!mcpPool) return;
   const pool = mcpPool;
-  mcpPool = undefined;
   await pool.close();
+  if (mcpPool === pool) {
+    mcpPool = undefined;
+  }
 }
