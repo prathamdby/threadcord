@@ -3,7 +3,6 @@ import {
   DEFAULT_AGENT_MAX_TOOL_FAILURES,
   DEFAULT_AGENT_SUBMISSION_MAX_ATTEMPTS,
 } from "./flue/agent-guardrails.js";
-import { type McpServerConfig, parseMcpServers } from "./flue/mcp.js";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
 
 const optionalNonEmptyString = z.preprocess(
@@ -43,7 +42,6 @@ const EnvSchema = z
     OPENAI_API_KEY: optionalNonEmptyString,
     OPENAI_MODELS: optionalCsvString,
     PROVIDERS: optionalCsvString,
-    MCP_SERVERS: optionalCsvString,
     NODE_ENV: z.string().optional(),
   })
   .superRefine((env, ctx) => {
@@ -68,7 +66,6 @@ export type AppConfig = z.infer<typeof EnvSchema> & {
   anthropicModels: string[];
   openaiModels: string[];
   customProviders: CustomProviderConfig[];
-  mcpServers: McpServerConfig[];
   allowedModels: string[];
   defaultModel: string;
 };
@@ -101,7 +98,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const anthropicModels = splitCsv(parsed.ANTHROPIC_MODELS);
   const openaiModels = splitCsv(parsed.OPENAI_MODELS);
   const customProviders = parseCustomProviders(env, parsed.PROVIDERS);
-  const mcpServers = parseMcpServers(env, parsed.MCP_SERVERS);
   const allowedModels = deriveAllowedModels({
     anthropicModels,
     openaiModels,
@@ -115,7 +111,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     anthropicModels,
     openaiModels,
     customProviders,
-    mcpServers,
     allowedModels,
     defaultModel: allowedModels[0]!,
   };

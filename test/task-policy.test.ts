@@ -25,7 +25,6 @@ const config: AppConfig = {
   anthropicModels: ["claude-sonnet-4-5"],
   openaiModels: [],
   customProviders: [],
-  mcpServers: [],
   allowedModels: ["anthropic/claude-sonnet-4-5"],
   defaultModel: "anthropic/claude-sonnet-4-5",
 };
