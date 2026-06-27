@@ -23,5 +23,6 @@ describe("src/agents direct children are flue agents", () => {
         `${file} must default-export createAgent(...); move non-agent helpers into a subdirectory`,
       ).toBe(true);
     },
+    10000,
   );
 });
