@@ -124,6 +124,17 @@ async function handleMcpModal(
     return;
   }
 
+  const expectedUserId = interaction.customId.slice(
+    `${MCP_CUSTOM_ID_PREFIX}add:`.length,
+  );
+  if (interaction.user.id !== expectedUserId) {
+    await interaction.reply({
+      content: discordContent("This dialog belongs to another user."),
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const id = interaction.fields.getTextInputValue("id").trim();
