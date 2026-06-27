@@ -14,7 +14,10 @@ import {
   PROGRESS_ROLL_THRESHOLD,
   clampDiscordContent,
 } from "../src/discord/limits.js";
-import { formatToolLine } from "../src/discord/tool-format.js";
+import {
+  TOOL_CALL_GENERIC_ERROR,
+  formatToolLine,
+} from "../src/discord/tool-format.js";
 import { redact } from "../src/util/redact.js";
 import { progressMessageIdsFromRow } from "../src/task/store.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
@@ -82,6 +85,7 @@ function recordingBridge(): {
     renderState: new Map(),
     timers: new Map(),
     instanceChains: new Map<string, Promise<void>>(),
+    pendingToolStarts: new Map(),
   };
   return { callbacks, edits, sends, state };
 }
@@ -164,6 +168,7 @@ async function rollingWorld(): Promise<{
     renderState: new Map(),
     timers: new Map(),
     instanceChains: new Map<string, Promise<void>>(),
+    pendingToolStarts: new Map(),
   };
   return { callbacks, sent, edits, state, instanceId, store };
 }
@@ -313,6 +318,7 @@ describe("handleObserveEvent", () => {
       renderState: new Map(),
       timers: new Map(),
       instanceChains: new Map<string, Promise<void>>(),
+      pendingToolStarts: new Map(),
     };
     const callbacks = {
       store: { getByInstanceId: async () => undefined },
@@ -622,7 +628,7 @@ describe("handleObserveEvent", () => {
     vi.useRealTimers();
   });
 
-  it("surfaces tool validation failures as tool_failed lines", async () => {
+  it("surfaces tool validation failures as formatted tool lines with generic error", async () => {
     vi.useFakeTimers();
     const { callbacks, edits, state } = recordingBridge();
     const instanceId = toFlueInstanceId("thread-1");
@@ -651,8 +657,11 @@ describe("handleObserveEvent", () => {
       state,
     );
     await vi.runAllTimersAsync();
+    expect(edits.some((line) => line.includes(TOOL_CALL_GENERIC_ERROR))).toBe(
+      true,
+    );
     expect(
-      edits.some((line) => line.includes("tool_failed: post_thread_message")),
+      edits.some((line) => line.includes("post_thread_message")),
     ).toBe(true);
     expect(edits.some((line) => line.includes("1900 chars"))).toBe(false);
     vi.useRealTimers();
@@ -722,7 +731,8 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     );
     await vi.runAllTimersAsync();
     expect(edits).toHaveLength(1);
-    expect(edits[0]).toContain("tool_failed: bash");
+    expect(edits[0]).toContain("💻 bash");
+    expect(edits[0]).toContain(TOOL_CALL_GENERIC_ERROR);
     expect(edits[0]).not.toContain("bash: npm: command not found");
     expect(edits[0]).not.toContain("npm test exited with code 127");
     vi.useRealTimers();
@@ -747,7 +757,8 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     );
     await vi.runAllTimersAsync();
     expect(edits).toHaveLength(1);
-    expect(edits[0]).toContain("tool_failed: edit");
+    expect(edits[0]).toContain("🔧 edit");
+    expect(edits[0]).toContain(TOOL_CALL_GENERIC_ERROR);
     expect(edits[0]).not.toContain("oldText not found");
     vi.useRealTimers();
   });
@@ -771,7 +782,8 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     );
     await vi.runAllTimersAsync();
     expect(edits).toHaveLength(1);
-    expect(edits[0]).toContain("tool_failed: custom_tool");
+    expect(edits[0]).toContain("⚙️ custom_tool");
+    expect(edits[0]).toContain(TOOL_CALL_GENERIC_ERROR);
     expect(edits[0]).not.toContain("custom tool blew up");
     vi.useRealTimers();
   });
@@ -798,7 +810,8 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     );
     await vi.runAllTimersAsync();
     expect(edits).toHaveLength(1);
-    expect(edits[0]).toContain("tool_failed: bash");
+    expect(edits[0]).toContain("💻 bash");
+    expect(edits[0]).toContain(TOOL_CALL_GENERIC_ERROR);
     expect(edits[0]).not.toContain("[redacted]");
     expect(edits[0]).not.toContain(secret);
     vi.useRealTimers();
@@ -838,7 +851,8 @@ describe("tool error formatting (Flue content-array shapes)", () => {
       state,
     );
     await vi.runAllTimersAsync();
-    expect(edits.some((c) => c.includes("tool_failed: bash"))).toBe(true);
+    expect(edits.some((c) => c.includes(TOOL_CALL_GENERIC_ERROR))).toBe(true);
+    expect(edits.some((c) => c.includes("💻 bash"))).toBe(true);
     expect(edits.some((c) => c.includes("boom"))).toBe(false);
     expect(edits.some((c) => c.includes("npm test"))).toBe(false);
     vi.useRealTimers();
@@ -1180,10 +1194,11 @@ describe("observe bridge + validation guard integration", () => {
     // The failure message should mention validation tool failures.
     const calls = onAgentFailure.mock.calls as unknown as [string, string][];
     expect(calls[0]?.[1]).toMatch(/validation tool failures/);
-    // Discord edits contain only tool_failed lines, not raw validation text.
-    expect(
-      edits.some((line) => line.includes("tool_failed: glob")),
-    ).toBe(true);
+    // Discord edits use formatted tool failure lines, not raw validation text.
+    expect(edits.some((line) => line.includes(TOOL_CALL_GENERIC_ERROR))).toBe(
+      true,
+    );
+    expect(edits.some((line) => line.includes("🔎 glob"))).toBe(true);
     expect(
       edits.some((line) => line.includes("must have required")),
     ).toBe(false);
