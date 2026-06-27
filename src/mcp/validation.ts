@@ -27,12 +27,20 @@ export function validateAddInputs(
     };
   }
 
+  let parsedUrl: URL;
   try {
-    new URL(url);
+    parsedUrl = new URL(url);
   } catch {
     return {
       ok: false,
       message: "Invalid URL. Provide a full URL like `https://mcp.example.com`.",
+    };
+  }
+
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    return {
+      ok: false,
+      message: "Invalid URL protocol. Use `http:` or `https:` only.",
     };
   }
 

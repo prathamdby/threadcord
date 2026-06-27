@@ -75,9 +75,9 @@ async function handleRemove(
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const id = interaction.options.getString("id", true).trim();
-  const removedFromPool = await pool.removeServer(id);
   const removedFromDb = await store.removeServer(id);
-  if (removedFromPool || removedFromDb) {
+  const removedFromPool = await pool.removeServer(id);
+  if (removedFromDb || removedFromPool) {
     await interaction.editReply(
       discordContent(`Removed MCP server \`${id}\`.`),
     );
@@ -137,65 +137,71 @@ async function handleMcpModal(
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const id = interaction.fields.getTextInputValue("id").trim();
-  const url = interaction.fields.getTextInputValue("url").trim();
-  const tokenRaw = interaction.fields.getTextInputValue("token").trim();
-  const transportRaw = interaction.fields
-    .getTextInputValue("transport")
-    .trim();
-  const headersRaw = interaction.fields.getTextInputValue("headers").trim();
-
-  const validated = validateAddInputs(id, url, tokenRaw, transportRaw, headersRaw);
-  if (!validated.ok) {
-    await interaction.editReply(discordContent(validated.message));
-    return;
-  }
-
-  const { config } = validated;
-
-  // Attempt connection (KTD1: validate before persisting)
-  let toolCount: number;
+  let replyContent: string | undefined;
   try {
-    const connection = await pool.addServer(config);
-    toolCount = connection.tools.length;
-  } catch (error) {
-    await interaction.editReply(
-      discordContent(
-        `Failed to connect to MCP server \`${id}\`: ${summarizeError(error)}`,
-      ),
-    );
-    return;
-  }
+    const id = interaction.fields.getTextInputValue("id").trim();
+    const url = interaction.fields.getTextInputValue("url").trim();
+    const tokenRaw = interaction.fields.getTextInputValue("token").trim();
+    const transportRaw = interaction.fields
+      .getTextInputValue("transport")
+      .trim();
+    const headersRaw = interaction.fields.getTextInputValue("headers").trim();
 
-  // Persist to DB (connection succeeded)
-  try {
-    await store.addServer({
+    const validated = validateAddInputs(
       id,
       url,
-      ...(validated.config.transport
-        ? { transport: validated.config.transport }
-        : {}),
-      ...(validated.customHeaders
-        ? { headers: validated.customHeaders }
-        : {}),
-      ...(validated.token ? { token: validated.token } : {}),
-    });
-  } catch (error) {
-    // Rollback: remove from pool since DB save failed
-    await pool.removeServer(id);
-    await interaction.editReply(
-      discordContent(
-        `Connected but failed to save: ${summarizeError(error)}`,
-      ),
+      tokenRaw,
+      transportRaw,
+      headersRaw,
     );
-    return;
+    if (!validated.ok) {
+      replyContent = validated.message;
+      return;
+    }
+
+    const { config } = validated;
+
+    if (await store.getServer(id)) {
+      replyContent = `MCP server \`${id}\` already exists.`;
+      return;
+    }
+
+    let toolCount: number;
+    try {
+      const connection = await pool.addServer(config);
+      toolCount = connection.tools.length;
+    } catch (error) {
+      replyContent = `Failed to connect to MCP server \`${id}\`: ${summarizeError(error)}`;
+      return;
+    }
+
+    try {
+      await store.addServer({
+        id,
+        url,
+        ...(validated.config.transport
+          ? { transport: validated.config.transport }
+          : {}),
+        ...(validated.customHeaders
+          ? { headers: validated.customHeaders }
+          : {}),
+        ...(validated.token ? { token: validated.token } : {}),
+      });
+    } catch (error) {
+      await pool.removeServer(id);
+      replyContent = `Connected but failed to save: ${summarizeError(error)}`;
+      return;
+    }
+
+    replyContent = `MCP server \`${id}\` connected (${toolCount} tool${toolCount === 1 ? "" : "s"} available).`;
+  } catch (error) {
+    replyContent =
+      replyContent ?? `MCP add failed: ${summarizeError(error)}`;
   }
 
-  await interaction.editReply(
-    discordContent(
-      `MCP server \`${id}\` connected (${toolCount} tool${toolCount === 1 ? "" : "s"} available).`,
-    ),
-  );
+  await interaction
+    .editReply(discordContent(replyContent ?? "MCP add failed."))
+    .catch(() => {});
 }
 
 function mcpAddModal(userId: string): ModalBuilder {

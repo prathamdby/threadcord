@@ -19,6 +19,13 @@ describe("validateAddInputs", () => {
     });
   });
 
+  it("rejects non-http URL protocols", () => {
+    expect(validateAddInputs("valid-id", "file:///etc/passwd", "", "", "")).toEqual({
+      ok: false,
+      message: expect.stringContaining("Invalid URL protocol"),
+    });
+  });
+
   it("rejects invalid transport values", () => {
     expect(
       validateAddInputs("valid-id", "https://x.com", "", "carrier-pigeon", ""),

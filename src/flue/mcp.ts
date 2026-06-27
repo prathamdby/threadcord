@@ -119,9 +119,9 @@ function mcpConnectOptions(config: McpServerConfig): McpServerOptions {
   };
 }
 
-function getOrCreatePool(servers?: McpServerConfig[]): McpPool {
+function getOrCreatePool(): McpPool {
   if (!mcpPool) {
-    mcpPool = new McpPool(servers ?? []);
+    mcpPool = new McpPool();
   }
   return mcpPool;
 }
@@ -133,13 +133,13 @@ export function getMcpPool(): McpPool {
 
 /** Eagerly connect configured MCP servers at startup; never throws. */
 export async function warmMcpPool(servers: McpServerConfig[]): Promise<void> {
-  if (servers.length === 0) {
-    // Ensure the singleton exists even when no servers are configured,
-    // so addServer works before any startup servers are loaded.
-    getOrCreatePool(servers);
-    return;
+  if (mcpPool) {
+    await closeMcpPool();
   }
-  await getOrCreatePool(servers).ready();
+  mcpPool = new McpPool(servers);
+  if (servers.length > 0) {
+    await mcpPool.ready();
+  }
 }
 
 /** Pooled MCP tools for an agent turn; empty when no servers are configured. */
