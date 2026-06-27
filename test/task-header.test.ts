@@ -68,7 +68,9 @@ describe("renderTaskHeader", () => {
 
     expect(header).toContain("State: failed");
     expect(header).toContain("Failure: first line second line");
-    expect(header).toContain("Next: fix the cause and send a new message in this thread.");
+    expect(header).toContain(
+      "Next: fix the cause and send a new message in this thread.",
+    );
   });
 
   it("renders terminal outcome states", () => {

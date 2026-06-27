@@ -6,8 +6,7 @@ const METADATA_KEYS = new Set<string>([...REQUIRED_KEYS, ...OPTIONAL_KEYS]);
 type RequiredKey = (typeof REQUIRED_KEYS)[number];
 
 export type ParseResult =
-  | { ok: true; request: ParsedTaskRequest }
-  | { ok: false; message: string };
+  { ok: true; request: ParsedTaskRequest } | { ok: false; message: string };
 
 /** Parses control-channel task messages: prose instruction, then trailing keyed metadata (repo, branch, optional model and push). */
 export function parseTaskMessage(content: string): ParseResult {

@@ -5,6 +5,7 @@ import type { MiddlewareHandler } from "hono";
 import type { AppConfig } from "./config.js";
 import { cacheConfig, loadConfig } from "./config.js";
 import { initializeDatabase } from "./db.js";
+import { closeMcpPool, warmMcpPool } from "./flue/mcp.js";
 import { startDiscordGateway } from "./discord/gateway.js";
 import { registerObserveBridge } from "./discord/observe-bridge.js";
 import { DiscordPublisher } from "./discord/publisher.js";
@@ -23,6 +24,7 @@ export async function createApp(): Promise<{
   cacheConfig(config);
   const pool = initializeDatabase(config.DATABASE_URL);
   registerProviders(config);
+  await warmMcpPool(config.mcpServers);
 
   const store = new TaskStore(pool, config.MAX_CONCURRENT_TASKS);
   await store.migrate();
@@ -120,6 +122,7 @@ export async function createApp(): Promise<{
     config,
     shutdown: async () => {
       clearInterval(janitor);
+      await closeMcpPool();
       await pool.end();
     },
   };

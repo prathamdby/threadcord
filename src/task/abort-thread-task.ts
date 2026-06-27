@@ -10,9 +10,9 @@ type ReactionTarget = {
 
 export interface AbortThreadTaskDeps {
   store: TaskStore;
-  clearInFlight: (instanceId: string) =>
-    | { initiator?: ReactionTarget | undefined }
-    | undefined;
+  clearInFlight: (
+    instanceId: string,
+  ) => { initiator?: ReactionTarget | undefined } | undefined;
   flipReaction: (
     initiator: ReactionTarget | undefined,
     emoji: string,

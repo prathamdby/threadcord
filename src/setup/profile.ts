@@ -74,8 +74,7 @@ export interface SetupDraft {
 }
 
 export type ValidationResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; message: string };
+  { ok: true; value: T } | { ok: false; message: string };
 
 export interface SetupProfileKey {
   repo: string;

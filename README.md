@@ -210,7 +210,7 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 | New task   | Control channel | Thread created, repo cloned, first turn queued (requires ready setup profile) |
 | Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`                               |
 | `status`   | Task thread     | Replies with current task status                                              |
-| `abort`    | Task thread     | Stops in-flight agent work and cancels the task (`/abort` or `abort`)          |
+| `abort`    | Task thread     | Stops in-flight agent work and cancels the task (`/abort` or `abort`)         |
 | `cancel`   | Task thread     | Cancels task; current turn may finish; no further dispatches                  |
 | `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`                             |
 | Open PR    | Agent tool      | `create_github_pull_request` after push                                       |

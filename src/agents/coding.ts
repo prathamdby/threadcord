@@ -2,6 +2,7 @@ import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
 import { getRuntimeConfig } from "../config.js";
 import { codingAgentDurability } from "../flue/agent-guardrails.js";
+import { getMcpTools, parseMcpServers } from "../flue/mcp.js";
 import { createThreadMessageTools } from "../discord/thread-message-tool.js";
 import { createSetupMemoryTools } from "../setup/memory-tools.js";
 import {
@@ -30,6 +31,12 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
       )
     : workspaceEnv(turn.workspaceRoot);
 
+  const mcpServers = parseMcpServers(
+    env as NodeJS.ProcessEnv,
+    stringEnv(env, "MCP_SERVERS", ""),
+  );
+  const mcpTools = await getMcpTools(mcpServers);
+
   return {
     model: turn.model,
     cwd: turn.cwd,
@@ -42,6 +49,7 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
       ...createThreadMessageTools(id),
       ...createSetupMemoryTools(turn.repo, turn.baseBranch),
       ...(githubToken ? createGitHubTools(githubToken) : []),
+      ...mcpTools,
     ],
     instructions: composePrompt({
       role: "coding",
