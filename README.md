@@ -24,6 +24,7 @@ Configuration lives in [`.env.example`](.env.example). Zod validation is in [`sr
 - [Configure model providers](#configure-model-providers)
 - [Message format](#message-format)
 - [Setup profiles](#setup-profiles)
+- [MCP tool servers](#mcp-tool-servers)
 - [Why use Threadcord?](#why-use-threadcord)
 - [Features](#features)
 - [How it works](#how-it-works)
@@ -189,6 +190,18 @@ Setup profiles store required environment variable names only. They must not con
 
 During coding turns, the agent can call `append_threadcord_setup_memory` to append Markdown to the active profile memory (gotchas, stable fixes, operator preferences). Each append increments the profile revision; new tasks use the latest revision on admission. Follow-up turns in an existing task reload memory on the next dispatch. Appends do not change install or checks.
 
+## MCP tool servers
+
+Add external MCP (Model Context Protocol) tool servers at runtime via Discord. No `.env` changes or restarts needed.
+
+| Command        | What it does                                                              |
+| -------------- | ------------------------------------------------------------------------- |
+| `/mcp add`     | Opens a modal to configure a server (id, URL, token, transport, headers). Validates the connection before saving. |
+| `/mcp remove`  | Removes a server by id. Closes the live connection and deletes from DB.   |
+| `/mcp list`    | Lists configured servers (id, URL, transport). Tokens are never shown.    |
+
+MCP servers are global — every task gets tools from all connected servers. Servers persist in Postgres and reconnect on restart.
+
 ## Why use Threadcord?
 
 ### Discord threads per task
@@ -216,6 +229,7 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 | Open PR    | Agent tool      | `create_github_pull_request` after push                                       |
 | Learn      | Agent tool      | `append_threadcord_setup_memory` after verified repo lessons                  |
 | Setup      | `/setup` slash  | Durable per-repo profiles; see [Setup profiles](#setup-profiles)              |
+| MCP tools  | `/mcp` slash    | Add, remove, and list global MCP tool servers at runtime                      |
 
 ## How it works
 
