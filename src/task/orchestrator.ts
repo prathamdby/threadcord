@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dispatch } from "@flue/runtime";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
+import { renderTaskHeader } from "../discord/task-header.js";
 import {
   clearPendingUserTurnMessage,
   takePendingUserTurnMessages,
@@ -91,6 +92,12 @@ export type RunSetupInstallTurn = (
   githubToken: string,
 ) => Promise<void>;
 
+export type EditHeaderMessage = (
+  threadId: string,
+  messageId: string,
+  content: string,
+) => Promise<void>;
+
 const defaultDispatchTurn: DispatchTurn = async (instanceId, input) => {
   await dispatch(codingAgent, { id: instanceId, input });
 };
@@ -103,6 +110,7 @@ const TERMINAL_STATUSES = new Set<TaskStatus>([
 
 export class TaskOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
+  private editHeaderMessage?: EditHeaderMessage;
   private renameDiscordThread?: RenameDiscordThread;
   private readonly taskThreads = new Map<string, ThreadRef>();
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
@@ -125,6 +133,10 @@ export class TaskOrchestrator {
     this.postMessage = postMessage;
   }
 
+  setHeaderPublisher(editHeaderMessage: EditHeaderMessage): void {
+    this.editHeaderMessage = editHeaderMessage;
+  }
+
   setThreadRenamer(renameDiscordThread: RenameDiscordThread): void {
     this.renameDiscordThread = renameDiscordThread;
   }
@@ -134,6 +146,7 @@ export class TaskOrchestrator {
   ): Promise<void> {
     const released = await this.store.releaseRunningAfterRestart();
     for (const task of released) {
+      await this.refreshHeader(task.id);
       if (!isPendingThreadId(task.discordThreadId)) {
         await notifyThread(
           task.discordThreadId,
@@ -207,6 +220,8 @@ export class TaskOrchestrator {
       };
     }
 
+    await this.createHeaderMessage(task, thread);
+
     let statusMessageId: string;
     try {
       statusMessageId = (await thread.send("Queued")).id;
@@ -234,12 +249,10 @@ export class TaskOrchestrator {
 
     const claimed = await this.store.claimNextTurn(attached.id);
     if (claimed) {
-      await thread.send("Started");
       void this.runTurn(claimed);
       return { ok: true, threadId: thread.id, startedImmediately: true };
     }
-    const position = await this.store.queuePosition(attached.id);
-    await thread.send(`Queued - position ${position}`);
+    await this.refreshHeader(attached.id);
     return { ok: true, threadId: thread.id, startedImmediately: false };
   }
 
@@ -250,7 +263,15 @@ export class TaskOrchestrator {
 
     const command = parseThreadControlCommand(message.content);
     if (command === "status") {
-      await message.reply(`Status: ${task.status}`);
+      const refreshed = await this.refreshHeader(task.id);
+      const headerMessageId = refreshed?.headerMessageId ?? task.headerMessageId;
+      if (!headerMessageId) {
+        await message.reply("No pinned header exists for this task yet.");
+        return;
+      }
+      await message.reply(
+        `Live status: ${headerJumpLink(message.guildId, task.discordThreadId, headerMessageId)}`,
+      );
       return;
     }
     if (command === "abort" || command === "cancel") {
@@ -279,6 +300,7 @@ export class TaskOrchestrator {
           ? "Aborted. The in-flight agent turn was stopped and no further turns will run."
           : "Cancelled. No further turns will be dispatched for this task.";
       await message.reply(reply);
+      await this.refreshHeader(task.id);
       return;
     }
     if (command === "done") {
@@ -292,6 +314,7 @@ export class TaskOrchestrator {
         return;
       }
       await message.reply("Task marked complete.");
+      await this.refreshHeader(task.id);
       await this.disposeInitiators(task.id, CHECK);
       this.taskThreads.delete(task.flueInstanceId);
       return;
@@ -309,6 +332,7 @@ export class TaskOrchestrator {
       message.content,
     );
     await message.reply(`Queued follow-up - position ${position}`);
+    await this.refreshHeader(task.id);
     this.recordInitiator(task.id, message);
     void this.reactSafely(message, EYES);
 
@@ -333,12 +357,8 @@ export class TaskOrchestrator {
         return;
       }
       const userMessages = takePendingUserTurnMessages(instanceId);
-      if (userMessages.length === 0) {
-        await this.post(
-          task.discordThreadId,
-          "Turn completed. Waiting for the next instruction.",
-        );
-      } else {
+      await this.refreshHeader(task.id);
+      if (userMessages.length > 0) {
         for (const message of userMessages) {
           await this.post(task.discordThreadId, message);
         }
@@ -377,6 +397,7 @@ export class TaskOrchestrator {
       task.discordThreadId,
       failureDiscordMessage(failed.errorSummary ?? errorSummary),
     );
+    await this.refreshHeader(task.id);
     const turn = this.clearInFlight(instanceId);
     await this.flipReaction(turn?.initiator, CROSS);
     await this.disposeInitiators(task.id, CROSS);
@@ -409,6 +430,10 @@ export class TaskOrchestrator {
       this.pendingInitiatorIds.get(task.id)?.delete(claimed.initiatorMessageId);
     }
     this.inFlightTurns.set(task.flueInstanceId, { initiator });
+    await this.refreshHeader(
+      task.id,
+      source === "initial" ? "initial" : "follow-up",
+    );
     try {
       const checkoutPath = await this.bootstrap(
         task,
@@ -488,6 +513,7 @@ export class TaskOrchestrator {
         "failed",
         summary,
       );
+      await this.refreshHeader(task.id);
       await this.post(task.discordThreadId, `Failed: ${summary}`);
       const turn = this.clearInFlight(task.flueInstanceId);
       await this.flipReaction(turn?.initiator, CROSS);
@@ -589,6 +615,78 @@ export class TaskOrchestrator {
       console.error("[threadcord] thread post failed", error);
     }
   }
+
+  private async createHeaderMessage(
+    task: TaskRecord,
+    thread: ThreadRef,
+  ): Promise<void> {
+    const projected: TaskRecord = {
+      ...task,
+      discordThreadId: thread.id,
+      flueInstanceId: toFlueInstanceId(thread.id),
+      status: "queued",
+    };
+    try {
+      const header = await thread.send(
+        renderTaskHeader(projected, { now: new Date() }),
+      );
+      try {
+        await this.store.setHeaderMessageId(task.id, header.id);
+      } catch (error) {
+        console.error("[threadcord] header id store failed", error);
+      }
+      try {
+        await thread.pin(header.id);
+      } catch (error) {
+        console.error("[threadcord] header pin failed", error);
+      }
+    } catch (error) {
+      console.error("[threadcord] header send failed", error);
+    }
+  }
+
+  private async refreshHeader(
+    taskId: string,
+    runningTurn?: "initial" | "follow-up",
+  ): Promise<TaskRecord | undefined> {
+    try {
+      const task = await this.store.getById(taskId);
+      if (!task?.headerMessageId) return task;
+      const queue =
+        task.status === "queued"
+          ? await this.store.queueSnapshot(task.id)
+          : undefined;
+      const content = renderTaskHeader(task, {
+        now: new Date(),
+        queue,
+        runningTurn,
+      });
+      const thread = this.taskThreads.get(task.flueInstanceId);
+      if (this.editHeaderMessage) {
+        await this.editHeaderMessage(
+          task.discordThreadId,
+          task.headerMessageId,
+          content,
+        );
+        return task;
+      }
+      if (thread) {
+        await thread.editMessage(task.headerMessageId, content);
+      }
+      return task;
+    } catch (error) {
+      console.error("[threadcord] header refresh failed", error);
+      return undefined;
+    }
+  }
+}
+
+function headerJumpLink(
+  guildId: string | undefined,
+  threadId: string,
+  messageId: string,
+): string {
+  return `https://discord.com/channels/${guildId ?? "@me"}/${threadId}/${messageId}`;
 }
 
 function buildPrompt(

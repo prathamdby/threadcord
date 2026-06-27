@@ -117,6 +117,10 @@ export class InMemoryStore {
     );
   }
 
+  async getById(taskId: string): Promise<TaskRecord | undefined> {
+    return clone(this.tasks.get(taskId));
+  }
+
   async createDraft(
     task: NewTaskRecord,
   ): Promise<{ task: TaskRecord; created: boolean }> {
@@ -172,6 +176,16 @@ export class InMemoryStore {
     return clone(task);
   }
 
+  async setHeaderMessageId(
+    taskId: string,
+    messageId: string,
+  ): Promise<TaskRecord | undefined> {
+    const task = this.tasks.get(taskId);
+    if (!task) return undefined;
+    task.headerMessageId = messageId;
+    return clone(task);
+  }
+
   seedTask(task: TaskRecord): void {
     this.tasks.set(task.id, { ...task });
   }
@@ -213,12 +227,16 @@ export class InMemoryStore {
     );
   }
 
-  async queuePosition(taskId: string): Promise<number> {
+  async queueSnapshot(
+    taskId: string,
+  ): Promise<{ position: number; depth: number }> {
     const target = this.tasks.get(taskId);
-    if (!target) return 0;
-    return [...this.tasks.values()].filter(
-      (t) => t.status === "queued" && t.createdAt <= target.createdAt,
-    ).length;
+    const queued = [...this.tasks.values()].filter((t) => t.status === "queued");
+    if (!target) return { position: 0, depth: queued.length };
+    return {
+      position: queued.filter((t) => t.createdAt <= target.createdAt).length,
+      depth: queued.length,
+    };
   }
 
   async transition(
@@ -344,6 +362,9 @@ function byCreatedThenId(a: TaskRecord, b: TaskRecord): number {
 export interface ThreadFailure {
   createThread?: boolean;
   statusSend?: boolean;
+  headerSend?: boolean;
+  headerPin?: boolean;
+  headerEdit?: boolean;
   reactionFail?: boolean;
   typingFail?: boolean;
 }
@@ -364,6 +385,8 @@ export interface RecordingFollowupMessage
 }
 export interface RecordingThread extends ThreadRef {
   sends: string[];
+  pins: string[];
+  edits: { messageId: string; content: string }[];
   sendTypingCalls: number;
 }
 
@@ -423,18 +446,35 @@ export class World {
     const threadId = this.threadIdFor(messageId);
     const replies: string[] = [];
     const sends: string[] = [];
+    const pins: string[] = [];
+    const edits: { messageId: string; content: string }[] = [];
     let threadsCreated = 0;
+    let sendCount = 0;
 
     const thread: RecordingThread = {
       id: threadId,
       sends,
+      pins,
+      edits,
       sendTypingCalls: 0,
       send: async (content) => {
+        if (failure.headerSend && sendCount === 0) {
+          sendCount += 1;
+          throw new Error("discord: header send 500");
+        }
         if (failure.statusSend) throw new Error("discord: status send 500");
+        sendCount += 1;
         sends.push(content);
         return { id: `status-${this.counter++}` };
       },
-      editMessage: async () => {},
+      pin: async (messageId) => {
+        if (failure.headerPin) throw new Error("discord: header pin 500");
+        pins.push(messageId);
+      },
+      editMessage: async (messageId, content) => {
+        if (failure.headerEdit) throw new Error("discord: header edit 500");
+        edits.push({ messageId, content });
+      },
       sendTyping: async () => {
         if (failure.typingFail) throw new Error("discord: sendTyping 403");
         thread.sendTypingCalls += 1;

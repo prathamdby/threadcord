@@ -31,7 +31,13 @@ describe("task admission when Discord succeeds", () => {
     expect(task!.progressMessageIds).toBeDefined();
     expect(result.threadsCreated).toBe(1);
     expect(result.sends).toContain("Queued");
-    expect(result.sends).toContain("Started");
+    expect(result.sends[0]).toContain("**Threadcord task**");
+    expect(result.sends).not.toContain("Started");
+    expect(task!.headerMessageId).toBeDefined();
+    expect(result.thread.pins).toEqual([task!.headerMessageId]);
+    expect(
+      result.thread.edits.some((edit) => edit.content.includes("State: running")),
+    ).toBe(true);
     expect(world.dispatched).toContain(task!.flueInstanceId);
   });
 
@@ -42,9 +48,73 @@ describe("task admission when Discord succeeds", () => {
 
     expect(second.task!.status).toBe("queued");
     expect(second.sends.some((s) => s.startsWith("Queued - position"))).toBe(
-      true,
+      false,
     );
+    expect(
+      second.thread.edits.some((edit) =>
+        edit.content.includes("Queue: position 1 of 1"),
+      ),
+    ).toBe(true);
     expect(world.dispatched).not.toContain(second.task!.flueInstanceId);
+  });
+});
+
+describe("task status header", () => {
+  it("refreshes the header and replies with its jump link", async () => {
+    const world = new World();
+    const result = await world.submitRaw("m-status");
+    const task = result.task!;
+
+    const message = await world.sendThreadMessage(task.id, "status-1", "status");
+
+    expect(message.replies).toEqual([
+      `Live status: https://discord.com/channels/@me/${task.discordThreadId}/${task.headerMessageId}`,
+    ]);
+    expect(message.replies[0]).not.toContain("Status: running");
+    expect(
+      result.thread.edits.some((edit) => edit.messageId === task.headerMessageId),
+    ).toBe(true);
+  });
+});
+
+describe("task admission when header message throws", () => {
+  it("still admits the task with no header id", async () => {
+    const world = new World();
+    const result = await world.submitRaw("m-no-header", { headerSend: true });
+
+    expect(result.task!.status).toBe("running");
+    expect(result.task!.headerMessageId).toBeUndefined();
+    expect(result.sends).toEqual(["Queued"]);
+    expect(world.dispatched).toContain(result.task!.flueInstanceId);
+  });
+});
+
+describe("task admission when header pin throws", () => {
+  it("still admits the task with an editable header", async () => {
+    const world = new World();
+    const result = await world.submitRaw("m-pin-fail", { headerPin: true });
+
+    expect(result.task!.status).toBe("running");
+    expect(result.task!.headerMessageId).toBeDefined();
+    expect(result.thread.pins).toEqual([]);
+    expect(
+      result.thread.edits.some((edit) => edit.content.includes("State: running")),
+    ).toBe(true);
+    expect(world.dispatched).toContain(result.task!.flueInstanceId);
+  });
+});
+
+describe("task header edit failures", () => {
+  it("do not fail turn completion", async () => {
+    const world = new World();
+    const result = await world.submitRaw("m-edit-fail", { headerEdit: true });
+    const task = result.task!;
+
+    await expect(
+      world.orchestrator.handleAgentEnd(task.flueInstanceId),
+    ).resolves.toBeUndefined();
+
+    expect(world.store.snapshot(task.id).status).toBe("waiting");
   });
 });
 
