@@ -662,7 +662,10 @@ export class TaskOrchestrator {
       try {
         await thread.pin(header.id);
       } catch (error) {
-        console.error("[threadcord] header pin failed", error);
+        console.error(
+          "[threadcord] header pin failed (optional: grant Manage Messages permission to the bot); task continues normally",
+          error instanceof Error ? error.message : error,
+        );
       }
       return header.id;
     } catch (error) {

@@ -36,7 +36,7 @@ Configuration lives in [`.env.example`](.env.example). Zod validation is in [`sr
 
 1. Create a bot in the Discord developer portal.
 2. Turn on the **Message Content** intent.
-3. Grant View Channel, Send Messages, Create Public Threads, Send Messages in Threads, Read Message History.
+3. Grant View Channel, Send Messages, Create Public Threads, Send Messages in Threads, Read Message History. Optionally grant Manage Messages so the bot can pin task header messages — pinning is best-effort and task operation works without it.
 4. Copy the bot token into `.env` as `DISCORD_BOT_TOKEN`. Invite the bot where you will use `/task` and `/setup`.
 
 ### 2. Docker Compose (recommended)
@@ -268,6 +268,20 @@ Instructions and status lines post to your server. [`redact.ts`](src/util/redact
 ### GitHub
 
 Clone, push, and PR creation use your `GITHUB_TOKEN`. Repo access is bounded by that token's scope. Limit who can run `/task create` and post in task threads accordingly.
+
+## Troubleshooting
+
+### Task header is not pinned
+
+The bot needs the **Manage Messages** permission to pin the task header message. Without it, pinning fails silently (logged server-side) and the task continues normally. The header is still posted and editable — only the pin is missing.
+
+### Restart leaves tasks in `waiting`
+
+After a restart, tasks that were `running` are moved to `waiting`. If a Discord thread is no longer accessible (archived, deleted, or permissions changed), the restart notification for that task is logged and skipped. Other tasks and scheduler slots are unaffected.
+
+### Agent turns end with generic failure
+
+When the agent hits repeated tool validation errors (wrong argument schemas), the turn is aborted early to stop error spirals. Discord receives a generic failure message; detailed validation text stays in server logs. Adjust `AGENT_MAX_VALIDATION_FAILURES` in `.env` to tune the threshold.
 
 ## License
 
