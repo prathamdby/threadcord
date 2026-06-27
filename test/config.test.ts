@@ -173,6 +173,19 @@ describe("loadConfig", () => {
     ).toThrow(/Invalid provider id/);
   });
 
+  it("defaults AGENT_MAX_VALIDATION_FAILURES to 3", () => {
+    const config = loadConfig(baseEnv);
+    expect(config.AGENT_MAX_VALIDATION_FAILURES).toBe(3);
+  });
+
+  it("accepts a custom AGENT_MAX_VALIDATION_FAILURES", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      AGENT_MAX_VALIDATION_FAILURES: "5",
+    });
+    expect(config.AGENT_MAX_VALIDATION_FAILURES).toBe(5);
+  });
+
   it("requires at least one configured provider model", () => {
     expect(() =>
       loadConfig({

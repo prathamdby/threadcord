@@ -4,7 +4,9 @@ import { observe } from "@flue/runtime";
 import { getRuntimeConfig } from "../config.js";
 import {
   DEFAULT_AGENT_MAX_TOOL_FAILURES,
+  DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
   resolveAgentMaxToolFailures,
+  resolveAgentMaxValidationFailures,
 } from "../flue/agent-guardrails.js";
 import {
   clearToolFailureGuard,
@@ -95,7 +97,7 @@ export async function handleObserveEvent(
   const isSetupInstance = instanceId.startsWith("setup:");
   const isTaskInstance = isThreadcordInstance(instanceId);
 
-  const maxToolFailures = resolveMaxToolFailuresForObserve();
+  const maxFailures = resolveMaxFailuresForObserve();
 
   if (event.type === "turn_start" && (isTaskInstance || isSetupInstance)) {
     noteAgentTurnBoundary(instanceId);
@@ -103,7 +105,12 @@ export async function handleObserveEvent(
 
   const toolFailureTrip =
     isTaskInstance || isSetupInstance
-      ? await maybeAbortOnToolFailures(event, instanceId, maxToolFailures)
+      ? await maybeAbortOnToolFailures(
+          event,
+          instanceId,
+          maxFailures.maxFailures,
+          maxFailures.maxValidationFailures,
+        )
       : undefined;
   if (toolFailureTrip && (isTaskInstance || isSetupInstance)) {
     await args.onAgentFailure(instanceId, toolFailureTrip);
@@ -336,11 +343,21 @@ async function resolveRepoRootForInstance(
   return undefined;
 }
 
-function resolveMaxToolFailuresForObserve(): number {
+function resolveMaxFailuresForObserve(): {
+  maxFailures: number;
+  maxValidationFailures: number;
+} {
   try {
-    return resolveAgentMaxToolFailures(getRuntimeConfig());
+    const c = getRuntimeConfig();
+    return {
+      maxFailures: resolveAgentMaxToolFailures(c),
+      maxValidationFailures: resolveAgentMaxValidationFailures(c),
+    };
   } catch {
-    return DEFAULT_AGENT_MAX_TOOL_FAILURES;
+    return {
+      maxFailures: DEFAULT_AGENT_MAX_TOOL_FAILURES,
+      maxValidationFailures: DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
+    };
   }
 }
 

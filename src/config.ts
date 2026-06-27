@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   DEFAULT_AGENT_MAX_TOOL_FAILURES,
+  DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
   DEFAULT_AGENT_SUBMISSION_MAX_ATTEMPTS,
 } from "./flue/agent-guardrails.js";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
@@ -29,6 +30,11 @@ const EnvSchema = z
       .int()
       .positive()
       .default(DEFAULT_AGENT_MAX_TOOL_FAILURES),
+    AGENT_MAX_VALIDATION_FAILURES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_AGENT_MAX_VALIDATION_FAILURES),
     AGENT_SUBMISSION_MAX_ATTEMPTS: z.coerce
       .number()
       .int()
