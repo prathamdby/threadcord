@@ -13,8 +13,7 @@ export interface SetupCommandFailure {
 }
 
 export type SetupVerifyResult =
-  | { ok: true }
-  | { ok: false; failures: SetupCommandFailure[] };
+  { ok: true } | { ok: false; failures: SetupCommandFailure[] };
 
 export interface VerifySetupEnvironmentInput {
   environment: SetupEnvironment;

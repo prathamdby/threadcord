@@ -8,6 +8,9 @@ import {
 } from "discord.js";
 import type { AppConfig } from "../config.js";
 import { registerDiscordCommands } from "./commands.js";
+import { handleMcpInteraction } from "../mcp/interactions.js";
+import { getMcpPool } from "../flue/mcp.js";
+import type { McpStore } from "../mcp/store.js";
 import { handleSetupInteraction } from "../setup/interactions.js";
 import type { SetupOrchestrator } from "../setup/orchestrator.js";
 import type { SetupStore } from "../setup/store.js";
@@ -22,6 +25,7 @@ export function startDiscordGateway(
   orchestrator: TaskOrchestrator,
   setupStore: SetupStore,
   setupOrchestrator: SetupOrchestrator,
+  mcpStore: McpStore,
 ): Client {
   const client = new Client({
     intents: [
@@ -50,6 +54,7 @@ export function startDiscordGateway(
       orchestrator,
       setupStore,
       setupOrchestrator,
+      mcpStore,
     );
   });
 
@@ -63,7 +68,17 @@ async function routeInteraction(
   taskOrchestrator: TaskOrchestrator,
   setupStore: SetupStore,
   setupOrchestrator: SetupOrchestrator,
+  mcpStore: McpStore,
 ): Promise<void> {
+  if (
+    await handleMcpInteraction({
+      interaction,
+      store: mcpStore,
+      pool: getMcpPool(),
+    })
+  ) {
+    return;
+  }
   if (
     await handleTaskInteraction({
       interaction,

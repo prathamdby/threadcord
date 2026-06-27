@@ -223,7 +223,9 @@ export class InMemoryStore {
     taskId: string,
   ): Promise<{ position: number; depth: number }> {
     const target = this.tasks.get(taskId);
-    const queued = [...this.tasks.values()].filter((t) => t.status === "queued");
+    const queued = [...this.tasks.values()].filter(
+      (t) => t.status === "queued",
+    );
     if (!target) return { position: 0, depth: queued.length };
     return {
       position: queued.filter((t) => t.createdAt <= target.createdAt).length,

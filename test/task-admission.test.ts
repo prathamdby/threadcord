@@ -36,7 +36,9 @@ describe("task admission when Discord succeeds", () => {
     expect(task!.headerMessageId).toBeDefined();
     expect(result.thread.pins).toEqual([task!.headerMessageId]);
     expect(
-      result.thread.edits.some((edit) => edit.content.includes("State: running")),
+      result.thread.edits.some((edit) =>
+        edit.content.includes("State: running"),
+      ),
     ).toBe(true);
     expect(world.dispatched).toContain(task!.flueInstanceId);
   });
@@ -65,14 +67,20 @@ describe("task status header", () => {
     const result = await world.submitRaw("m-status");
     const task = result.task!;
 
-    const message = await world.sendThreadMessage(task.id, "status-1", "status");
+    const message = await world.sendThreadMessage(
+      task.id,
+      "status-1",
+      "status",
+    );
 
     expect(message.replies).toEqual([
       `Live status: https://discord.com/channels/@me/${task.discordThreadId}/${task.headerMessageId}`,
     ]);
     expect(message.replies[0]).not.toContain("Status: running");
     expect(
-      result.thread.edits.some((edit) => edit.messageId === task.headerMessageId),
+      result.thread.edits.some(
+        (edit) => edit.messageId === task.headerMessageId,
+      ),
     ).toBe(true);
   });
 });
@@ -98,7 +106,9 @@ describe("task admission when header pin throws", () => {
     expect(result.task!.headerMessageId).toBeDefined();
     expect(result.thread.pins).toEqual([]);
     expect(
-      result.thread.edits.some((edit) => edit.content.includes("State: running")),
+      result.thread.edits.some((edit) =>
+        edit.content.includes("State: running"),
+      ),
     ).toBe(true);
     expect(world.dispatched).toContain(result.task!.flueInstanceId);
   });

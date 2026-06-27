@@ -5,6 +5,10 @@ import type { MiddlewareHandler } from "hono";
 import type { AppConfig } from "./config.js";
 import { cacheConfig, loadConfig } from "./config.js";
 import { initializeDatabase } from "./db.js";
+import { closeMcpPool, warmMcpPool, type McpServerConfig } from "./flue/mcp.js";
+import type { McpTransport } from "@flue/runtime";
+import { McpStore, type McpServerRow } from "./mcp/store.js";
+import { buildHeaders } from "./mcp/validation.js";
 import { startDiscordGateway } from "./discord/gateway.js";
 import { registerObserveBridge } from "./discord/observe-bridge.js";
 import { DiscordPublisher } from "./discord/publisher.js";
@@ -28,6 +32,12 @@ export async function createApp(): Promise<{
   await store.migrate();
   const setupStore = new SetupStore(pool);
   await setupStore.migrate();
+  const mcpStore = new McpStore(pool);
+  await mcpStore.migrate();
+
+  // Load persisted MCP servers and warm the connection pool
+  const mcpServers = await mcpStore.listServers();
+  await warmMcpPool(mcpServers.map(rowToMcpConfig));
 
   const orchestrator = new TaskOrchestrator(config, store, setupStore);
   const setupOrchestrator = new SetupOrchestrator(config, setupStore);
@@ -37,6 +47,7 @@ export async function createApp(): Promise<{
     orchestrator,
     setupStore,
     setupOrchestrator,
+    mcpStore,
   );
   const publisher = new DiscordPublisher(discordClient);
   orchestrator.setMilestonePublisher(async (threadId, content) => {
@@ -120,6 +131,7 @@ export async function createApp(): Promise<{
     config,
     shutdown: async () => {
       clearInterval(janitor);
+      await closeMcpPool();
       await pool.end();
     },
   };
@@ -159,4 +171,16 @@ function registerProviders(config: AppConfig): void {
       ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
     });
   }
+}
+
+function rowToMcpConfig(row: McpServerRow): McpServerConfig {
+  const mergedHeaders = buildHeaders(row.headers, row.token);
+  return {
+    id: row.id,
+    url: row.url,
+    ...(row.transport
+      ? { transport: row.transport as McpTransport }
+      : {}),
+    ...(mergedHeaders ? { headers: mergedHeaders } : {}),
+  };
 }
