@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dispatch } from "@flue/runtime";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
+import { formatTaskInstructionForDiscord } from "../discord/task-instruction-message.js";
 import { renderTaskHeader } from "../discord/task-header.js";
 import {
   clearPendingUserTurnMessage,
@@ -235,6 +236,20 @@ export class TaskOrchestrator {
     }
 
     const headerMessageId = await this.createHeaderMessage(task, thread);
+
+    const instructionPost = formatTaskInstructionForDiscord(
+      taskRequest.instruction,
+    );
+    if (instructionPost) {
+      try {
+        await thread.send(instructionPost);
+      } catch (error) {
+        console.error(
+          "[threadcord] task instruction post failed (task continues)",
+          summarizeError(error),
+        );
+      }
+    }
 
     let statusMessageId: string;
     try {
