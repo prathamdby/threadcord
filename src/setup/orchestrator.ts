@@ -124,7 +124,10 @@ export class SetupOrchestrator {
     } catch (error) {
       await rm(input.workspacePath, { recursive: true, force: true });
       const summary = summarizeError(error);
-      console.error(`[threadcord] setup run ${input.runId} dispatch failure:`, summary);
+      console.error(
+        `[threadcord] setup run ${input.runId} dispatch failure:`,
+        summary,
+      );
       await this.store.failRun(input.runId, summary);
       await this.notifyRunFinished(
         input.runId,

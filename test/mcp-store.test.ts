@@ -102,10 +102,7 @@ describeWithDb("McpStore with Postgres", (store) => {
     await s.addServer({ id: `${prefix}-a`, url: "https://a.example.com" });
     const all = await s.listServers();
     const ours = all.filter((srv) => srv.id.startsWith(prefix));
-    expect(ours.map((srv) => srv.id)).toEqual([
-      `${prefix}-a`,
-      `${prefix}-b`,
-    ]);
+    expect(ours.map((srv) => srv.id)).toEqual([`${prefix}-a`, `${prefix}-b`]);
     await s.removeServer(`${prefix}-a`);
     await s.removeServer(`${prefix}-b`);
   });

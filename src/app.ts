@@ -178,9 +178,7 @@ function rowToMcpConfig(row: McpServerRow): McpServerConfig {
   return {
     id: row.id,
     url: row.url,
-    ...(row.transport
-      ? { transport: row.transport as McpTransport }
-      : {}),
+    ...(row.transport ? { transport: row.transport as McpTransport } : {}),
     ...(mergedHeaders ? { headers: mergedHeaders } : {}),
   };
 }

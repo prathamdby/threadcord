@@ -194,11 +194,11 @@ During coding turns, the agent can call `append_threadcord_setup_memory` to appe
 
 Add external MCP (Model Context Protocol) tool servers at runtime via Discord. No `.env` changes or restarts needed.
 
-| Command        | What it does                                                              |
-| -------------- | ------------------------------------------------------------------------- |
-| `/mcp add`     | Opens a modal to configure a server (id, URL, token, transport, headers). Validates the connection before saving. |
-| `/mcp remove`  | Removes a server by id. Closes the live connection and deletes from DB.   |
-| `/mcp list`    | Lists configured servers (id, URL, transport). Tokens are never shown.    |
+| Command       | What it does                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `/mcp add`    | Opens a modal to configure a server (id, URL, token, transport, headers). Validates the connection before saving. |
+| `/mcp remove` | Removes a server by id. Closes the live connection and deletes from DB.                                           |
+| `/mcp list`   | Lists configured servers (id, URL, transport). Tokens are never shown.                                            |
 
 MCP servers are global — every task gets tools from all connected servers. Servers persist in Postgres and reconnect on restart.
 
