@@ -50,6 +50,29 @@ const TERMINAL_TOOLS = new Set(["bash", "terminal"]);
 const DEFAULT_EMOJI = "⚙️";
 const ELLIPSIS = "…";
 
+/** Short user-facing text for failed tool rows in Discord progress (no raw errors). */
+export const TOOL_CALL_GENERIC_ERROR = "Tool could not be completed.";
+
+/** Discord-facing tool label (MCP tools: mcp__server__tool -> "server tool"). */
+export function displayToolName(toolName: string): string {
+  if (!toolName.startsWith("mcp__")) {
+    return toolName;
+  }
+  const parts = toolName.split("__").filter((p) => p.length > 0);
+  if (parts[0] === "mcp") {
+    parts.shift();
+  }
+  if (parts.length === 0) {
+    return toolName;
+  }
+  if (parts.length === 1) {
+    return parts[0]!.replaceAll("_", " ");
+  }
+  const server = parts[0]!;
+  const rest = parts.slice(1).join("_").replaceAll("_", " ");
+  return `${server} ${rest}`;
+}
+
 export function getToolEmoji(toolName: string): string {
   return TOOL_EMOJI[toolName] ?? DEFAULT_EMOJI;
 }
@@ -138,19 +161,64 @@ function terminalBody(command: string): string {
   return body;
 }
 
+function mcpPrimaryArgKey(toolName: string): string | undefined {
+  if (!toolName.startsWith("mcp__")) return undefined;
+  const lower = toolName.toLowerCase();
+  if (lower.includes("search") || lower.includes("fetch")) {
+    return "query";
+  }
+  return undefined;
+}
+
+function buildToolPreviewWithMcp(
+  toolName: string,
+  args: unknown,
+  options?: FormatToolPreviewOptions,
+): string | undefined {
+  const record = asRecord(args);
+  if (!record) return undefined;
+  const mcpKey = mcpPrimaryArgKey(toolName);
+  if (mcpKey !== undefined) {
+    const value = record[mcpKey];
+    if (typeof value === "string" && value.length > 0) {
+      return capPreview(value);
+    }
+  }
+  return buildToolPreview(toolName, args, options);
+}
+
 export function formatToolLine(
   toolName: string,
   args: unknown,
   options?: FormatToolPreviewOptions,
 ): string {
+  const label = displayToolName(toolName);
   const emoji = getToolEmoji(toolName);
   const command = terminalCommand(toolName, args, options);
   if (command !== undefined) {
-    return `${emoji} ${toolName}\n\`\`\`\n${terminalBody(command)}\n\`\`\``;
+    return `${emoji} ${label}\n\`\`\`\n${terminalBody(command)}\n\`\`\``;
   }
-  const preview = buildToolPreview(toolName, args, options);
+  const preview = buildToolPreviewWithMcp(toolName, args, options);
   if (preview !== undefined) {
-    return `${emoji} ${toolName}: "${preview}"`;
+    return `${emoji} ${label}: "${preview}"`;
   }
-  return `${emoji} ${toolName}${ELLIPSIS}`;
+  return `${emoji} ${label}${ELLIPSIS}`;
+}
+
+export function formatToolFailureLine(
+  toolName: string,
+  args: unknown,
+  options?: FormatToolPreviewOptions,
+): string {
+  const label = displayToolName(toolName);
+  const emoji = getToolEmoji(toolName);
+  const command = terminalCommand(toolName, args, options);
+  if (command !== undefined) {
+    return `${emoji} ${label}\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``;
+  }
+  const preview = buildToolPreviewWithMcp(toolName, args, options);
+  if (preview !== undefined) {
+    return `${emoji} ${label}: "${preview}"\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``;
+  }
+  return `${emoji} ${label}\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``;
 }

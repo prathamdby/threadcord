@@ -1,11 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
+  TOOL_CALL_GENERIC_ERROR,
   buildToolPreview,
+  displayToolName,
+  formatToolFailureLine,
   formatToolLine,
   getToolEmoji,
   isTerminalBlock,
   isTerminalTool,
 } from "../src/discord/tool-format.js";
+
+describe("displayToolName", () => {
+  it("leaves built-in tool names unchanged", () => {
+    expect(displayToolName("read")).toBe("read");
+  });
+
+  it("formats MCP tool names with server and action", () => {
+    expect(displayToolName("mcp__exa__web_search_exa")).toBe(
+      "exa web search exa",
+    );
+  });
+});
 
 describe("getToolEmoji", () => {
   it.each([
@@ -147,6 +162,30 @@ describe("formatToolLine", () => {
   it("truncates a long non-terminal preview with ... inside the quotes", () => {
     expect(formatToolLine("read_file", { path: "x".repeat(50) })).toBe(
       `📖 read_file: "${"x".repeat(37)}..."`,
+    );
+  });
+
+  it("formats MCP search tools with spaced labels and query preview", () => {
+    expect(
+      formatToolLine("mcp__exa__web_search_exa", {
+        query: "threadcord discord tools",
+      }),
+    ).toBe('⚙️ exa web search exa: "threadcord discord tools"');
+  });
+});
+
+describe("formatToolFailureLine", () => {
+  it("shows generic error in a code block for bash failures", () => {
+    expect(
+      formatToolFailureLine("bash", { command: "npm test" }),
+    ).toBe(`💻 bash\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``);
+  });
+
+  it("keeps preview and adds generic error for non-terminal tools", () => {
+    expect(
+      formatToolFailureLine("glob", { pattern: "**/*.ts" }),
+    ).toBe(
+      `🔎 glob: "**/*.ts"\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``,
     );
   });
 });

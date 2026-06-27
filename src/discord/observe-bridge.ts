@@ -35,7 +35,11 @@ import {
   type ProgressStreamStore,
   type ProgressStreamTarget,
 } from "./progress-stream.js";
-import { formatToolLine, isTerminalBlock } from "./tool-format.js";
+import {
+  formatToolFailureLine,
+  formatToolLine,
+  isTerminalBlock,
+} from "./tool-format.js";
 
 const PROGRESS_EDIT_INTERVAL_MS = 1500;
 
@@ -47,10 +51,16 @@ export interface ObserveBridgeCallbacks {
   onAgentFailure: (instanceId: string, errorSummary: string) => Promise<void>;
 }
 
+interface PendingToolStart {
+  toolName: string;
+  args: unknown;
+}
+
 interface ObserveBridgeState {
   renderState: Map<string, InstanceRenderState>;
   timers: Map<string, NodeJS.Timeout>;
   instanceChains: Map<string, Promise<void>>;
+  pendingToolStarts: Map<string, PendingToolStart>;
 }
 
 export function registerObserveBridge(args: ObserveBridgeCallbacks): void {
@@ -58,6 +68,7 @@ export function registerObserveBridge(args: ObserveBridgeCallbacks): void {
     renderState: new Map(),
     timers: new Map(),
     instanceChains: new Map(),
+    pendingToolStarts: new Map(),
   };
 
   observe((event) => {
@@ -90,6 +101,7 @@ export async function handleObserveEvent(
     renderState: new Map(),
     timers: new Map(),
     instanceChains: new Map(),
+    pendingToolStarts: new Map(),
   },
 ): Promise<void> {
   const instanceId = "instanceId" in event ? event.instanceId : undefined;
@@ -133,11 +145,23 @@ export async function handleObserveEvent(
 
   if (!isTaskInstance && !isSetupInstance) return;
 
-  const line = await eventSummary(event, instanceId, args);
+  const line = await eventSummary(event, instanceId, args, state);
   if (!line) return;
 
-  const terminal =
-    event.type === "tool_start" && isTerminalBlock(event.toolName, event.args);
+  let terminal = false;
+  if (event.type === "tool_start") {
+    terminal = isTerminalBlock(event.toolName, event.args);
+  } else if (event.type === "tool" && event.isError) {
+    const toolCallId =
+      "toolCallId" in event && typeof event.toolCallId === "string"
+        ? event.toolCallId
+        : undefined;
+    const pending =
+      toolCallId !== undefined
+        ? state.pendingToolStarts.get(`${instanceId}:${toolCallId}`)
+        : undefined;
+    terminal = isTerminalBlock(event.toolName, pending?.args);
+  }
 
   const inst = state.renderState.get(instanceId) ?? newInstanceRenderState();
   const outcome = appendRenderedLine(inst, line, terminal);
@@ -279,15 +303,35 @@ function formatErrorDetails(details: unknown): string | undefined {
   return undefined;
 }
 
+function pendingToolKey(
+  instanceId: string,
+  toolCallId: string | undefined,
+): string | undefined {
+  if (toolCallId === undefined) return undefined;
+  return `${instanceId}:${toolCallId}`;
+}
+
 async function eventSummary(
   event: FlueEvent,
   instanceId: string,
   bridge: ObserveBridgeCallbacks,
+  state: ObserveBridgeState,
 ): Promise<string | undefined> {
   switch (event.type) {
     case "turn_start":
       return "Model turn started";
     case "tool_start": {
+      const toolCallId =
+        "toolCallId" in event && typeof event.toolCallId === "string"
+          ? event.toolCallId
+          : undefined;
+      const key = pendingToolKey(instanceId, toolCallId);
+      if (key !== undefined) {
+        state.pendingToolStarts.set(key, {
+          toolName: event.toolName,
+          args: event.args,
+        });
+      }
       const repoRoot = await resolveRepoRootForInstance(instanceId, bridge);
       return formatToolLine(
         event.toolName,
@@ -297,7 +341,17 @@ async function eventSummary(
     }
     case "agent_end":
       return "Agent turn completed";
-    case "tool":
+    case "tool": {
+      const toolCallId =
+        "toolCallId" in event && typeof event.toolCallId === "string"
+          ? event.toolCallId
+          : undefined;
+      const key = pendingToolKey(instanceId, toolCallId);
+      const pending =
+        key !== undefined ? state.pendingToolStarts.get(key) : undefined;
+      if (key !== undefined && !event.isError) {
+        state.pendingToolStarts.delete(key);
+      }
       if (event.isError) {
         const reason = formatFlueError(event.result) ?? "Tool failed";
         console.error(
@@ -305,9 +359,20 @@ async function eventSummary(
           event.toolName,
           redact(reason),
         );
-        return `tool_failed: ${event.toolName}`;
+        if (key !== undefined) {
+          state.pendingToolStarts.delete(key);
+        }
+        const repoRoot = await resolveRepoRootForInstance(instanceId, bridge);
+        const formatOpts =
+          repoRoot !== undefined ? { repoRoot } : undefined;
+        return formatToolFailureLine(
+          event.toolName,
+          pending?.args,
+          formatOpts,
+        );
       }
       return undefined;
+    }
     case "log":
       return `${event.level}: ${event.message}`;
     default:
