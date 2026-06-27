@@ -88,6 +88,8 @@ describe("composePrompt coding invariants", () => {
     "## Work done",
     "cwd = /workspaces/task-1/web",
     "Repo = acme/web",
+    "Minimum structure",
+    "substantive body",
   ])("contains %s", (token) => {
     expect(prompt).toContain(token);
   });

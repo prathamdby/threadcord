@@ -20,6 +20,8 @@ describe("tool descriptions", () => {
     expect(POST_THREAD_MESSAGE_DESCRIPTION).toContain(
       "never both in the same turn",
     );
+    expect(POST_THREAD_MESSAGE_DESCRIPTION).toContain("## section header");
+    expect(POST_THREAD_MESSAGE_DESCRIPTION).toContain("substantive body");
   });
 
   it("post_thread_report description contains required contract phrases", () => {
@@ -32,6 +34,8 @@ describe("tool descriptions", () => {
     expect(POST_THREAD_REPORT_DESCRIPTION).toContain(
       "never both in the same turn",
     );
+    expect(POST_THREAD_REPORT_DESCRIPTION).toContain("## section header");
+    expect(POST_THREAD_REPORT_DESCRIPTION).toContain("substantive body");
   });
 
   it("create_github_pull_request description contains required contract phrases", () => {
