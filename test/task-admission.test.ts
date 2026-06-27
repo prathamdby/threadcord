@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { formatTaskInstructionForDiscord } from "../src/discord/task-instruction-message.js";
 import { InMemoryStore, World, flush } from "./support/orchestrator-harness.js";
 import type { NewTaskRecord } from "../src/types.js";
 
@@ -32,6 +33,9 @@ describe("task admission when Discord succeeds", () => {
     expect(result.threadsCreated).toBe(1);
     expect(result.sends).toContain("Queued");
     expect(result.sends[0]).toContain("**Threadcord task**");
+    expect(result.sends).toContain(
+      formatTaskInstructionForDiscord("Do the work"),
+    );
     expect(result.sends).not.toContain("Started");
     expect(task!.headerMessageId).toBeDefined();
     expect(result.thread.pins).toEqual([task!.headerMessageId]);
@@ -92,7 +96,10 @@ describe("task admission when header message throws", () => {
 
     expect(result.task!.status).toBe("running");
     expect(result.task!.headerMessageId).toBeUndefined();
-    expect(result.sends).toEqual(["Queued"]);
+    expect(result.sends).toEqual([
+      formatTaskInstructionForDiscord("Do the work"),
+      "Queued",
+    ]);
     expect(world.dispatched).toContain(result.task!.flueInstanceId);
   });
 });
