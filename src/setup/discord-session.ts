@@ -16,6 +16,10 @@ export function toSetupThreadRef(
       const message = await thread.send(clampDiscordContent(content));
       return { id: message.id };
     },
+    pin: async (messageId) => {
+      const message = await thread.messages.fetch(messageId);
+      await message.pin();
+    },
     editMessage: async (messageId, content) => {
       await thread.messages.edit(messageId, clampDiscordContent(content));
     },

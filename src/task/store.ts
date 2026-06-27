@@ -31,6 +31,7 @@ export class TaskStore {
         status TEXT NOT NULL,
         initial_turn_started BOOLEAN NOT NULL DEFAULT false,
         status_message_id TEXT,
+        header_message_id TEXT,
         error_summary TEXT,
         setup_profile_revision INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -48,6 +49,10 @@ export class TaskStore {
     await this.pool.query(`
       ALTER TABLE tasks
       ADD COLUMN IF NOT EXISTS progress_message_ids TEXT[]
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS header_message_id TEXT
     `);
     await this.pool.query(`
       UPDATE tasks
@@ -68,6 +73,9 @@ export class TaskStore {
     await this.pool.query(`
       ALTER TABLE tasks ADD CONSTRAINT tasks_attached_unless_draft_check
       CHECK (status = 'draft' OR progress_message_ids IS NOT NULL OR status_message_id IS NOT NULL)
+    `);
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status)
     `);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS task_followups (
@@ -121,6 +129,7 @@ export class TaskStore {
     threadId: string,
     flueInstanceId: string,
     statusMessageId: string,
+    headerMessageId?: string,
   ): Promise<TaskRecord | undefined> {
     const result = await this.pool.query(
       `
@@ -128,12 +137,19 @@ export class TaskStore {
         SET discord_thread_id = $2,
             flue_instance_id = $3,
             progress_message_ids = ARRAY[$4],
+            header_message_id = $5,
             status = 'queued',
             updated_at = now()
         WHERE id = $1 AND status = 'draft'
         RETURNING *
       `,
-      [taskId, threadId, flueInstanceId, statusMessageId],
+      [
+        taskId,
+        threadId,
+        flueInstanceId,
+        statusMessageId,
+        headerMessageId ?? null,
+      ],
     );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
@@ -288,17 +304,26 @@ export class TaskStore {
     }
   }
 
-  async queuePosition(taskId: string): Promise<number> {
+  async queueSnapshot(
+    taskId: string,
+  ): Promise<{ position: number; depth: number }> {
     const result = await this.pool.query(
       `
-        SELECT COUNT(*)::int AS position
+        SELECT
+          COUNT(*) FILTER (
+            WHERE created_at <= (SELECT created_at FROM tasks WHERE id = $1)
+          )::int AS position,
+          COUNT(*)::int AS depth
         FROM tasks
         WHERE status = 'queued'
-          AND created_at <= (SELECT created_at FROM tasks WHERE id = $1)
       `,
       [taskId],
     );
-    return Number(singleRow(result.rows).position);
+    const row = singleRow(result.rows);
+    return {
+      position: Number(row.position),
+      depth: Number(row.depth),
+    };
   }
 
   async transition(
@@ -538,6 +563,9 @@ function rowToTask(row: QueryResultRow): TaskRecord {
     status: parseTaskStatus(row.status),
     initialTurnStarted: Boolean(row.initial_turn_started),
     ...progressMessageIdsFromRow(row),
+    ...(typeof row.header_message_id === "string"
+      ? { headerMessageId: row.header_message_id }
+      : {}),
     ...(typeof row.error_summary === "string"
       ? { errorSummary: row.error_summary }
       : {}),

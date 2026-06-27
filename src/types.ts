@@ -36,6 +36,7 @@ export interface TaskRecord extends Omit<TaskRequest, "model"> {
   initialTurnStarted: boolean;
   progressMessageIds?: string[];
   statusMessageId?: string;
+  headerMessageId?: string;
   errorSummary?: string;
   setupProfileRevision: number;
   createdAt: Date;
@@ -67,6 +68,7 @@ export interface ThreadMessage {
   content: string;
   authorBot: boolean;
   channelId: string;
+  guildId?: string | null | undefined;
   reply(content: string): Promise<void>;
   react(emoji: string): Promise<void>;
   unreact(emoji: string): Promise<void>;
@@ -75,6 +77,7 @@ export interface ThreadMessage {
 export interface ThreadRef {
   id: string;
   send(content: string): Promise<{ id: string }>;
+  pin(messageId: string): Promise<void>;
   editMessage(messageId: string, content: string): Promise<void>;
   sendTyping(): Promise<void>;
   setName(name: string): Promise<void>;
