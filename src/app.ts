@@ -6,6 +6,7 @@ import type { AppConfig } from "./config.js";
 import { cacheConfig, loadConfig } from "./config.js";
 import { initializeDatabase } from "./db.js";
 import { closeMcpPool, warmMcpPool, type McpServerConfig } from "./flue/mcp.js";
+import type { McpTransport } from "@flue/runtime";
 import { McpStore, type McpServerRow } from "./mcp/store.js";
 import { buildHeaders } from "./mcp/validation.js";
 import { startDiscordGateway } from "./discord/gateway.js";
@@ -178,7 +179,7 @@ function rowToMcpConfig(row: McpServerRow): McpServerConfig {
     id: row.id,
     url: row.url,
     ...(row.transport
-      ? { transport: row.transport as import("@flue/runtime").McpTransport }
+      ? { transport: row.transport as McpTransport }
       : {}),
     ...(mergedHeaders ? { headers: mergedHeaders } : {}),
   };

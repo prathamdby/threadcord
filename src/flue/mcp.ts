@@ -1,6 +1,7 @@
 import {
   connectMcpServer,
   type McpServerConnection,
+  type McpServerOptions,
   type McpTransport,
   type ToolDefinition,
 } from "@flue/runtime";
@@ -49,11 +50,10 @@ export class McpPool {
     if (this.connections.has(config.id)) {
       throw new Error(`MCP server "${config.id}" is already connected.`);
     }
-    const connection = await connectMcpServer(config.id, {
-      url: config.url,
-      ...(config.transport ? { transport: config.transport } : {}),
-      ...(config.headers ? { headers: config.headers } : {}),
-    });
+    const connection = await connectMcpServer(
+      config.id,
+      mcpConnectOptions(config),
+    );
     this.connections.set(config.id, connection);
     return connection;
   }
@@ -79,11 +79,10 @@ export class McpPool {
     await Promise.all(
       this.servers.map(async (server) => {
         try {
-          const connection = await connectMcpServer(server.id, {
-            url: server.url,
-            ...(server.transport ? { transport: server.transport } : {}),
-            ...(server.headers ? { headers: server.headers } : {}),
-          });
+          const connection = await connectMcpServer(
+            server.id,
+            mcpConnectOptions(server),
+          );
           this.connections.set(server.id, connection);
         } catch (error) {
           console.error(
@@ -111,6 +110,14 @@ export class McpPool {
 }
 
 let mcpPool: McpPool | undefined;
+
+function mcpConnectOptions(config: McpServerConfig): McpServerOptions {
+  return {
+    url: config.url,
+    ...(config.transport ? { transport: config.transport } : {}),
+    ...(config.headers ? { headers: config.headers } : {}),
+  };
+}
 
 function getOrCreatePool(servers?: McpServerConfig[]): McpPool {
   if (!mcpPool) {
