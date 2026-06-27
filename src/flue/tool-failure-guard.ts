@@ -103,7 +103,8 @@ export async function maybeAbortOnToolFailures(
 
   if (state.tripped) return undefined;
 
-  const result = "result" in event ? (event as { result: unknown }).result : undefined;
+  const result =
+    "result" in event ? (event as { result: unknown }).result : undefined;
   const isValidation = isValidationFailure(result);
   if (isValidation) {
     state.consecutiveValidationFailures += 1;
@@ -139,7 +140,8 @@ async function tripGuard(
     "toolName" in event && typeof event.toolName === "string"
       ? event.toolName
       : "tool";
-  const result = "result" in event ? (event as { result: unknown }).result : undefined;
+  const result =
+    "result" in event ? (event as { result: unknown }).result : undefined;
   const reason = formatToolFailureReason(result);
   const threshold =
     kind === "validation"

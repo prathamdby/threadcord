@@ -103,13 +103,9 @@ describe("validateFinalOutput", () => {
     });
 
     it("rejects a report with only placeholder words", () => {
-      const content = [
-        "## Summary",
-        "Done.",
-        "",
-        "## Changes",
-        "None.",
-      ].join("\n");
+      const content = ["## Summary", "Done.", "", "## Changes", "None."].join(
+        "\n",
+      );
       expect(validateFinalOutput(content)).not.toBeUndefined();
     });
 

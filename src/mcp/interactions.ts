@@ -126,9 +126,7 @@ async function handleList(
   }
   const servers = await store.listServers();
   if (servers.length === 0) {
-    await interaction.editReply(
-      discordContent("(no MCP servers configured)"),
-    );
+    await interaction.editReply(discordContent("(no MCP servers configured)"));
     return;
   }
   const lines = servers.map((server) => {
@@ -136,9 +134,7 @@ async function handleList(
     return `• \`${server.id}\` — ${server.url} (${transport})`;
   });
   await interaction.editReply(
-    discordContent(
-      `**MCP Servers (${servers.length})**\n${lines.join("\n")}`,
-    ),
+    discordContent(`**MCP Servers (${servers.length})**\n${lines.join("\n")}`),
   );
 }
 

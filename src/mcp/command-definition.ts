@@ -10,9 +10,7 @@ export function buildMcpCommandJson(): ReturnType<
     .addSubcommand((subcommand) =>
       subcommand
         .setName("add")
-        .setDescription(
-          "Add an MCP server (opens a configuration dialog).",
-        ),
+        .setDescription("Add an MCP server (opens a configuration dialog)."),
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -26,9 +24,7 @@ export function buildMcpCommandJson(): ReturnType<
         ),
     )
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName("list")
-        .setDescription("List configured MCP servers."),
+      subcommand.setName("list").setDescription("List configured MCP servers."),
     );
   return command.toJSON();
 }
