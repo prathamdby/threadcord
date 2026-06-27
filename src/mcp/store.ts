@@ -55,6 +55,7 @@ export class McpStore {
   }
 
   async removeServer(id: string): Promise<boolean> {
+    validateServerId(id);
     const result = await this.pool.query(
       "DELETE FROM mcp_servers WHERE id = $1",
       [id],
