@@ -4,7 +4,14 @@ import {
   setPendingUserTurnMessage,
   takePendingUserTurnMessages,
 } from "../src/discord/user-turn-message.js";
-import { World, flush } from "./support/orchestrator-harness.js";
+import { TaskOrchestrator } from "../src/task/orchestrator.js";
+import {
+  config,
+  fakeSetupStore,
+  InMemoryStore,
+  World,
+  flush,
+} from "./support/orchestrator-harness.js";
 
 const EYES = "👀";
 const CHECK = "✅";
@@ -144,6 +151,57 @@ describe("persistent typing indicator", () => {
 
     expect(result.task!.status).toBe("running");
     expect(result.thread.sendTypingCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it("can send typing by thread id after a restart", async () => {
+    const store = new InMemoryStore(1);
+    const dispatched: string[] = [];
+    const typingThreadIds: string[] = [];
+    const orchestrator = new TaskOrchestrator(
+      config,
+      store as never,
+      fakeSetupStore,
+      async (instanceId) => {
+        dispatched.push(instanceId);
+      },
+      async () => "/workspaces/task-restart/web",
+      async () => {},
+    );
+    orchestrator.setTypingPublisher(async (threadId) => {
+      typingThreadIds.push(threadId);
+    });
+    store.seedTask({
+      id: "task-restart",
+      discordMessageId: "init-1",
+      discordThreadId: "thread-restart",
+      flueInstanceId: "discord:thread:thread-restart",
+      workspacePath: "/workspaces/task-restart",
+      repo: "acme/web",
+      branch: "main",
+      model: config.defaultModel,
+      instruction: "Do the work",
+      setupProfileRevision: 2,
+      status: "waiting",
+      initialTurnStarted: true,
+      progressMessageIds: ["status-1"],
+      headerMessageId: "header-1",
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    });
+
+    await orchestrator.handleThreadMessage({
+      id: "followup-1",
+      content: "next turn",
+      authorBot: false,
+      channelId: "thread-restart",
+      reply: async () => {},
+      react: async () => {},
+      unreact: async () => {},
+    });
+    await flush();
+
+    expect(dispatched).toEqual(["discord:thread:thread-restart"]);
+    expect(typingThreadIds).toContain("thread-restart");
   });
 
   it("stops the typing loop when the turn ends", async () => {

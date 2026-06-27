@@ -12,6 +12,13 @@ export class DiscordPublisher {
     return channel.send(clampDiscordContent(redact(content)));
   }
 
+  async sendTyping(threadId: string): Promise<void> {
+    const channel = await this.client.channels.fetch(threadId);
+    if (!channel?.isSendable())
+      throw new Error(`Discord thread ${threadId} is not sendable`);
+    await channel.sendTyping();
+  }
+
   async edit(
     threadId: string,
     messageId: string,

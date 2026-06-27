@@ -153,12 +153,14 @@ export class InMemoryStore {
     threadId: string,
     flueInstanceId: string,
     statusMessageId: string,
+    headerMessageId?: string,
   ): Promise<TaskRecord | undefined> {
     const task = this.tasks.get(taskId);
     if (!task || task.status !== "draft") return undefined;
     task.discordThreadId = threadId;
     task.flueInstanceId = flueInstanceId;
     task.progressMessageIds = [statusMessageId];
+    if (headerMessageId) task.headerMessageId = headerMessageId;
     task.status = "queued";
     return clone(task);
   }
@@ -173,16 +175,6 @@ export class InMemoryStore {
       task.progressMessageIds ??
       (task.statusMessageId ? [task.statusMessageId] : []);
     task.progressMessageIds = [...base, messageId];
-    return clone(task);
-  }
-
-  async setHeaderMessageId(
-    taskId: string,
-    messageId: string,
-  ): Promise<TaskRecord | undefined> {
-    const task = this.tasks.get(taskId);
-    if (!task) return undefined;
-    task.headerMessageId = messageId;
     return clone(task);
   }
 

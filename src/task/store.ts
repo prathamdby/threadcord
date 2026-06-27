@@ -75,6 +75,9 @@ export class TaskStore {
       CHECK (status = 'draft' OR progress_message_ids IS NOT NULL OR status_message_id IS NOT NULL)
     `);
     await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status)
+    `);
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS task_followups (
         id BIGSERIAL PRIMARY KEY,
         task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -126,6 +129,7 @@ export class TaskStore {
     threadId: string,
     flueInstanceId: string,
     statusMessageId: string,
+    headerMessageId?: string,
   ): Promise<TaskRecord | undefined> {
     const result = await this.pool.query(
       `
@@ -133,12 +137,19 @@ export class TaskStore {
         SET discord_thread_id = $2,
             flue_instance_id = $3,
             progress_message_ids = ARRAY[$4],
+            header_message_id = $5,
             status = 'queued',
             updated_at = now()
         WHERE id = $1 AND status = 'draft'
         RETURNING *
       `,
-      [taskId, threadId, flueInstanceId, statusMessageId],
+      [
+        taskId,
+        threadId,
+        flueInstanceId,
+        statusMessageId,
+        headerMessageId ?? null,
+      ],
     );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }
@@ -163,23 +174,6 @@ export class TaskStore {
         RETURNING *
       `,
       [taskId, [messageId]],
-    );
-    return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
-  }
-
-  async setHeaderMessageId(
-    taskId: string,
-    messageId: string,
-  ): Promise<TaskRecord | undefined> {
-    const result = await this.pool.query(
-      `
-        UPDATE tasks
-        SET header_message_id = $2,
-            updated_at = now()
-        WHERE id = $1
-        RETURNING *
-      `,
-      [taskId, messageId],
     );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
   }

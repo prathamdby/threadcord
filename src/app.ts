@@ -45,6 +45,9 @@ export async function createApp(): Promise<{
   orchestrator.setHeaderPublisher(async (threadId, messageId, content) => {
     await publisher.edit(threadId, messageId, content);
   });
+  orchestrator.setTypingPublisher(async (threadId) => {
+    await publisher.sendTyping(threadId);
+  });
   setupOrchestrator.setMilestonePublisher(async (threadId, content) => {
     await publisher.send(threadId, content);
   });

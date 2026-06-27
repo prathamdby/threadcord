@@ -98,6 +98,8 @@ export type EditHeaderMessage = (
   content: string,
 ) => Promise<void>;
 
+export type SendThreadTyping = (threadId: string) => Promise<void>;
+
 const defaultDispatchTurn: DispatchTurn = async (instanceId, input) => {
   await dispatch(codingAgent, { id: instanceId, input });
 };
@@ -111,6 +113,7 @@ const TERMINAL_STATUSES = new Set<TaskStatus>([
 export class TaskOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
   private editHeaderMessage?: EditHeaderMessage;
+  private sendThreadTyping?: SendThreadTyping;
   private renameDiscordThread?: RenameDiscordThread;
   private readonly taskThreads = new Map<string, ThreadRef>();
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
@@ -135,6 +138,10 @@ export class TaskOrchestrator {
 
   setHeaderPublisher(editHeaderMessage: EditHeaderMessage): void {
     this.editHeaderMessage = editHeaderMessage;
+  }
+
+  setTypingPublisher(sendThreadTyping: SendThreadTyping): void {
+    this.sendThreadTyping = sendThreadTyping;
   }
 
   setThreadRenamer(renameDiscordThread: RenameDiscordThread): void {
@@ -220,7 +227,7 @@ export class TaskOrchestrator {
       };
     }
 
-    await this.createHeaderMessage(task, thread);
+    const headerMessageId = await this.createHeaderMessage(task, thread);
 
     let statusMessageId: string;
     try {
@@ -239,6 +246,7 @@ export class TaskOrchestrator {
       thread.id,
       toFlueInstanceId(thread.id),
       statusMessageId,
+      headerMessageId,
     );
     if (!attached) {
       return { ok: false, reason: "Could not attach task to thread." };
@@ -498,10 +506,9 @@ export class TaskOrchestrator {
         );
       }
       await this.dispatchTurn(task.flueInstanceId, input);
-      const thread = this.taskThreads.get(task.flueInstanceId);
       const inFlight = this.inFlightTurns.get(task.flueInstanceId);
-      if (thread && inFlight) {
-        inFlight.typingTimer = this.startTypingLoop(thread);
+      if (inFlight) {
+        inFlight.typingTimer = this.startTypingLoop(task);
       }
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {
@@ -551,9 +558,16 @@ export class TaskOrchestrator {
     }
   }
 
-  private startTypingLoop(thread: ThreadRef): NodeJS.Timeout {
+  private startTypingLoop(task: TaskRecord): NodeJS.Timeout | undefined {
+    const hasThread = this.taskThreads.has(task.flueInstanceId);
+    if (!hasThread && !this.sendThreadTyping) return undefined;
     const ping = (): void => {
-      void thread.sendTyping().catch(() => {});
+      const thread = this.taskThreads.get(task.flueInstanceId);
+      if (thread) {
+        void thread.sendTyping().catch(() => {});
+        return;
+      }
+      void this.sendThreadTyping?.(task.discordThreadId).catch(() => {});
     };
     ping();
     const timer = setInterval(ping, this.typingIntervalMs);
@@ -619,7 +633,7 @@ export class TaskOrchestrator {
   private async createHeaderMessage(
     task: TaskRecord,
     thread: ThreadRef,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const projected: TaskRecord = {
       ...task,
       discordThreadId: thread.id,
@@ -631,17 +645,14 @@ export class TaskOrchestrator {
         renderTaskHeader(projected, { now: new Date() }),
       );
       try {
-        await this.store.setHeaderMessageId(task.id, header.id);
-      } catch (error) {
-        console.error("[threadcord] header id store failed", error);
-      }
-      try {
         await thread.pin(header.id);
       } catch (error) {
         console.error("[threadcord] header pin failed", error);
       }
+      return header.id;
     } catch (error) {
       console.error("[threadcord] header send failed", error);
+      return undefined;
     }
   }
 
