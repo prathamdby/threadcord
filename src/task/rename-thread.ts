@@ -21,55 +21,63 @@ function namerInstanceId(): string {
 
 const NAMER_OBSERVE_TIMEOUT_MS = 120_000;
 
-/** Subscribe before dispatch so early namer events are not missed. */
-function waitForNamerTitle(instanceId: string): {
+interface NamerHandle {
   title: Promise<string>;
   ready: Promise<void>;
   dispose: () => void;
-} {
+}
+
+/** Subscribe before dispatch so early namer events are not missed. */
+function waitForNamerTitle(instanceId: string): NamerHandle {
   let readyResolve!: () => void;
   const ready = new Promise<void>((resolve) => {
     readyResolve = resolve;
   });
   let stopObserve: (() => void) | undefined;
+
   let settle!: (
     outcome: { ok: true; title: string } | { ok: false; error: Error },
   ) => void;
 
+  // Immediate .catch prevents unhandled rejection if the timeout fires
+  // before the caller awaits the promise.
+  let titleResolve!: (value: string) => void;
+  let titleReject!: (error: Error) => void;
   const title = new Promise<string>((resolve, reject) => {
-    let settled = false;
-    settle = (outcome) => {
-      if (settled) return;
-      settled = true;
-      stopObserve?.();
-      stopObserve = undefined;
-      if (outcome.ok) resolve(outcome.title);
-      else reject(outcome.error);
-    };
-    const chunks: string[] = [];
-    stopObserve = observe((event) => {
-      if (!("instanceId" in event) || event.instanceId !== instanceId) return;
-      if (event.type === "text_delta" && typeof event.text === "string") {
-        chunks.push(event.text);
-      }
-      if (event.type === "agent_end") {
-        settle({ ok: true, title: chunks.join("").trim() });
-        return;
-      }
-      const summary = submissionFailureSummary(event);
-      if (summary) {
-        settle({ ok: false, error: new Error(summary) });
-      }
-    });
-    readyResolve();
+    titleResolve = resolve;
+    titleReject = reject;
   });
+  // Attach an immediate no-op catch to prevent unhandled rejection.
+  title.catch(() => {});
+
+  settle = (outcome) => {
+    stopObserve?.();
+    stopObserve = undefined;
+    if (outcome.ok) titleResolve(outcome.title);
+    else titleReject(outcome.error);
+  };
+
+  const chunks: string[] = [];
+  stopObserve = observe((event) => {
+    if (!("instanceId" in event) || event.instanceId !== instanceId) return;
+    if (event.type === "text_delta" && typeof event.text === "string") {
+      chunks.push(event.text);
+    }
+    if (event.type === "agent_end") {
+      settle({ ok: true, title: chunks.join("").trim() });
+      return;
+    }
+    const summary = submissionFailureSummary(event);
+    if (summary) {
+      settle({ ok: false, error: new Error(summary) });
+    }
+  });
+  readyResolve();
 
   const timeout = setTimeout(() => {
     settle({ ok: false, error: new Error("Thread namer observe timed out") });
   }, NAMER_OBSERVE_TIMEOUT_MS);
   if (typeof timeout.unref === "function") timeout.unref();
-
-  void title.finally(() => clearTimeout(timeout));
 
   return {
     title,
@@ -85,6 +93,9 @@ function waitForNamerTitle(instanceId: string): {
 /**
  * Dispatches a small naming agent in parallel with the main coding turn, then
  * renames the Discord thread when the namer finishes.
+ *
+ * All failure paths (timeout, dispatch rejection, empty title, rename
+ * rejection) are caught and logged. No unhandled promise rejection can escape.
  */
 export function scheduleReadableThreadRename(
   threadId: string,
@@ -97,11 +108,8 @@ export function scheduleReadableThreadRename(
 
     const instanceId = namerInstanceId();
     const input: ThreadNamerInput = { instruction };
-    const {
-      title: titlePromise,
-      ready,
-      dispose,
-    } = waitForNamerTitle(instanceId);
+    const { title: titlePromise, ready, dispose } =
+      waitForNamerTitle(instanceId);
     try {
       await ready;
       await dispatch(threadNamerAgent, { id: instanceId, input });

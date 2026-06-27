@@ -4,7 +4,9 @@ import { observe } from "@flue/runtime";
 import { getRuntimeConfig } from "../config.js";
 import {
   DEFAULT_AGENT_MAX_TOOL_FAILURES,
+  DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
   resolveAgentMaxToolFailures,
+  resolveAgentMaxValidationFailures,
 } from "../flue/agent-guardrails.js";
 import {
   clearToolFailureGuard,
@@ -22,6 +24,7 @@ import {
 import type { SetupStore } from "../setup/store.js";
 import type { TaskStore } from "../task/store.js";
 import { redact } from "../util/redact.js";
+import { extractContentArrayText } from "../util/extract-text.js";
 import type { DiscordPublisher } from "./publisher.js";
 import {
   appendRenderedLine,
@@ -95,7 +98,7 @@ export async function handleObserveEvent(
   const isSetupInstance = instanceId.startsWith("setup:");
   const isTaskInstance = isThreadcordInstance(instanceId);
 
-  const maxToolFailures = resolveMaxToolFailuresForObserve();
+  const maxFailures = resolveMaxFailuresForObserve();
 
   if (event.type === "turn_start" && (isTaskInstance || isSetupInstance)) {
     noteAgentTurnBoundary(instanceId);
@@ -103,7 +106,12 @@ export async function handleObserveEvent(
 
   const toolFailureTrip =
     isTaskInstance || isSetupInstance
-      ? await maybeAbortOnToolFailures(event, instanceId, maxToolFailures)
+      ? await maybeAbortOnToolFailures(
+          event,
+          instanceId,
+          maxFailures.maxFailures,
+          maxFailures.maxValidationFailures,
+        )
       : undefined;
   if (toolFailureTrip && (isTaskInstance || isSetupInstance)) {
     await args.onAgentFailure(instanceId, toolFailureTrip);
@@ -257,19 +265,6 @@ function formatFlueError(error: unknown): string | undefined {
   return undefined;
 }
 
-function extractContentArrayText(content: unknown): string | undefined {
-  if (!Array.isArray(content)) return undefined;
-  const texts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block as Record<string, unknown>;
-    if (b.type !== undefined && b.type !== "text") continue;
-    if (typeof b.text !== "string" || b.text.trim().length === 0) continue;
-    texts.push(b.text);
-  }
-  return texts.length > 0 ? texts.join("\n").trim() : undefined;
-}
-
 function formatErrorDetails(details: unknown): string | undefined {
   if (!details || typeof details !== "object" || Array.isArray(details))
     return undefined;
@@ -336,11 +331,25 @@ async function resolveRepoRootForInstance(
   return undefined;
 }
 
-function resolveMaxToolFailuresForObserve(): number {
+function resolveMaxFailuresForObserve(): {
+  maxFailures: number;
+  maxValidationFailures: number;
+} {
   try {
-    return resolveAgentMaxToolFailures(getRuntimeConfig());
+    const c = getRuntimeConfig();
+    const maxFailures = resolveAgentMaxToolFailures(c);
+    const maxValidationFailures = resolveAgentMaxValidationFailures(c);
+    if (maxValidationFailures >= maxFailures) {
+      console.warn(
+        `[threadcord] AGENT_MAX_VALIDATION_FAILURES (${maxValidationFailures}) >= AGENT_MAX_TOOL_FAILURES (${maxFailures}); validation guard will not trip before the generic threshold`,
+      );
+    }
+    return { maxFailures, maxValidationFailures };
   } catch {
-    return DEFAULT_AGENT_MAX_TOOL_FAILURES;
+    return {
+      maxFailures: DEFAULT_AGENT_MAX_TOOL_FAILURES,
+      maxValidationFailures: DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
+    };
   }
 }
 

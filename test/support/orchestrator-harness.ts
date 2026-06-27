@@ -29,6 +29,7 @@ export const config: AppConfig = {
   WORKSPACE_ROOT: TEST_WORKSPACE_ROOT,
   MAX_CONCURRENT_TASKS: 1,
   AGENT_MAX_TOOL_FAILURES: 10,
+  AGENT_MAX_VALIDATION_FAILURES: 3,
   AGENT_SUBMISSION_MAX_ATTEMPTS: 2,
   PORT: 3583,
   WORKSPACE_TTL_DAYS: 14,
@@ -574,8 +575,12 @@ export class World {
     return message;
   }
 
-  async restart(): Promise<void> {
-    await this.orchestrator.resumeAfterRestart(async () => {});
+  async restart(
+    notifyThread?: (threadId: string, content: string) => Promise<void>,
+  ): Promise<void> {
+    await this.orchestrator.resumeAfterRestart(
+      notifyThread ?? (async () => {}),
+    );
     await flush();
   }
 }

@@ -79,6 +79,7 @@ ${checksBlock}
 
 export const STATUS_POSTING = `STATUS POSTING (Discord)
 - The final message is the product. Treat it as the deliverable. Every turn MUST end with post_thread_message or post_thread_report — no exceptions.
+- Minimum structure: every final message or report part must contain at least one ## section header with substantive body text (at least 20 chars of concrete detail). Thin outputs like "## Summary\nDone." are rejected at the tool boundary. If the tool returns a validation error, expand with concrete facts from the turn — files read, commands run, conclusions reached, what remains.
 - Current runtime fact: Discord-bound final text comes only from post_thread_message / post_thread_report queued messages drained by handleAgentEnd. agent_end.messages are observed for progress/failure handling but are not posted as final Discord replies by src/task/orchestrator.ts; never rely on ordinary assistant text reaching the operator.
 - Richness: summarize everything you did this turn — files read or changed, commands run, conclusions reached, and what is left undone. Do not post a one-liner when the turn involved real work.
 - Remote artifacts: if you pushed, committed, or opened a PR, include them explicitly. Use Markdown links: PR as [title or #number](url) from create_github_pull_request; branch as \`threadcord/...\`; commits as short SHA in backticks plus link when you have the GitHub compare/commit URL from tool output or \`git log -1 --format=%H\`. If push or PR was skipped, say why (empty diff, checks failed, read-only turn).

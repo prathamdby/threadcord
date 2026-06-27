@@ -20,9 +20,11 @@ import { progressMessageIdsFromRow } from "../src/task/store.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import { config, fakeSetupStore } from "./support/orchestrator-harness.js";
+import { resetToolFailureGuardsForTests } from "../src/flue/tool-failure-guard.js";
 
 beforeEach(() => {
   cacheConfig(config);
+  resetToolFailureGuardsForTests();
 });
 
 function taskEvent(partial: Record<string, unknown>): FlueEvent {
@@ -1143,5 +1145,107 @@ describe("TaskOrchestrator.handleAgentFailure", () => {
 
     await orchestrator.handleAgentEnd(toFlueInstanceId("thread-1"));
     expect(store.snapshot(task.id).status).toBe("failed");
+  });
+});
+
+describe("observe bridge + validation guard integration", () => {
+  it("stops schema-error spirals with a single generic failure path", async () => {
+    vi.useFakeTimers();
+    const { callbacks, edits, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    const onAgentFailure = vi.fn(async (_id: string, _summary: string) => {});
+    (callbacks as unknown as { onAgentFailure: typeof onAgentFailure }).onAgentFailure = onAgentFailure;
+
+    // Send 3 consecutive validation-shaped tool failures.
+    for (let i = 0; i < 3; i++) {
+      await handleObserveEvent(
+        taskEvent({
+          type: "tool",
+          toolName: "glob",
+          toolCallId: `tc-val-${i}`,
+          isError: true,
+          result: "Validation failed: must have required properties",
+          durationMs: 1,
+          instanceId,
+        }),
+        callbacks,
+        state,
+      );
+    }
+
+    await vi.runAllTimersAsync();
+
+    // The guard should have called onAgentFailure exactly once.
+    expect(onAgentFailure).toHaveBeenCalledTimes(1);
+    // The failure message should mention validation tool failures.
+    const calls = onAgentFailure.mock.calls as unknown as [string, string][];
+    expect(calls[0]?.[1]).toMatch(/validation tool failures/);
+    // Discord edits contain only tool_failed lines, not raw validation text.
+    expect(
+      edits.some((line) => line.includes("tool_failed: glob")),
+    ).toBe(true);
+    expect(
+      edits.some((line) => line.includes("must have required")),
+    ).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("resets validation streak on success and does not abort prematurely", async () => {
+    vi.useFakeTimers();
+    const { callbacks, state } = recordingBridge();
+    const instanceId = toFlueInstanceId("thread-1");
+    const onAgentFailure = vi.fn(async (_id: string, _summary: string) => {});
+    (callbacks as unknown as { onAgentFailure: typeof onAgentFailure }).onAgentFailure = onAgentFailure;
+
+    // 2 validation failures (below threshold of 3).
+    for (let i = 0; i < 2; i++) {
+      await handleObserveEvent(
+        taskEvent({
+          type: "tool",
+          toolName: "bash",
+          toolCallId: `tc-val-${i}`,
+          isError: true,
+          result: "invalid_type: Expected string, received number",
+          durationMs: 1,
+          instanceId,
+        }),
+        callbacks,
+        state,
+      );
+    }
+    // A successful tool call resets the streak.
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool",
+        toolName: "bash",
+        toolCallId: "tc-ok",
+        isError: false,
+        result: "ok",
+        durationMs: 1,
+        instanceId,
+      }),
+      callbacks,
+      state,
+    );
+    // 2 more validation failures — should not trip (streak was reset).
+    for (let i = 0; i < 2; i++) {
+      await handleObserveEvent(
+        taskEvent({
+          type: "tool",
+          toolName: "bash",
+          toolCallId: `tc-val2-${i}`,
+          isError: true,
+          result: "invalid_type: Expected string, received number",
+          durationMs: 1,
+          instanceId,
+        }),
+        callbacks,
+        state,
+      );
+    }
+    await vi.runAllTimersAsync();
+
+    expect(onAgentFailure).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

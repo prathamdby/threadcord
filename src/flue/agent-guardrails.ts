@@ -4,11 +4,18 @@ import type { DurabilityConfig } from "@flue/runtime";
 /** Default cap on consecutive tool errors before the turn is aborted. */
 export const DEFAULT_AGENT_MAX_TOOL_FAILURES = 10;
 
+/** Default cap on consecutive validation/schema tool errors before the turn is aborted. */
+export const DEFAULT_AGENT_MAX_VALIDATION_FAILURES = 3;
+
 /** Default Flue submission attempts (initial run + retries after interruption). */
 export const DEFAULT_AGENT_SUBMISSION_MAX_ATTEMPTS = 2;
 
 export function resolveAgentMaxToolFailures(config: AppConfig): number {
   return config.AGENT_MAX_TOOL_FAILURES;
+}
+
+export function resolveAgentMaxValidationFailures(config: AppConfig): number {
+  return config.AGENT_MAX_VALIDATION_FAILURES;
 }
 
 export function codingAgentDurability(config: AppConfig): DurabilityConfig {
