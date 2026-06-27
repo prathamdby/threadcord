@@ -187,15 +187,21 @@ async function handleMcpModal(
           });
           replyContent = `MCP server \`${id}\` connected (${toolCount} tool${toolCount === 1 ? "" : "s"} available).`;
         } catch (error) {
+          let rollbackFailed = false;
           try {
             await pool.removeServer(id);
           } catch (rollbackError) {
+            rollbackFailed = true;
             console.warn(
               `[threadcord] Failed to roll back MCP server "${id}" after save error`,
               rollbackError,
             );
           }
           replyContent = `Connected but failed to save: ${summarizeError(error)}`;
+          if (rollbackFailed) {
+            replyContent +=
+              " (cleanup failed; server may still be connected in memory).";
+          }
         }
       } catch (error) {
         replyContent = `Failed to connect to MCP server \`${id}\`: ${summarizeError(error)}`;
@@ -207,7 +213,9 @@ async function handleMcpModal(
 
   await interaction
     .editReply(discordContent(replyContent ?? "MCP add failed."))
-    .catch(() => {});
+    .catch((error) => {
+      console.warn("[threadcord] Failed to edit MCP modal reply", error);
+    });
 }
 
 function mcpAddModal(userId: string): ModalBuilder {
