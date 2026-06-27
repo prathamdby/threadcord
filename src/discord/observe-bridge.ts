@@ -337,10 +337,14 @@ function resolveMaxFailuresForObserve(): {
 } {
   try {
     const c = getRuntimeConfig();
-    return {
-      maxFailures: resolveAgentMaxToolFailures(c),
-      maxValidationFailures: resolveAgentMaxValidationFailures(c),
-    };
+    const maxFailures = resolveAgentMaxToolFailures(c);
+    const maxValidationFailures = resolveAgentMaxValidationFailures(c);
+    if (maxValidationFailures >= maxFailures) {
+      console.warn(
+        `[threadcord] AGENT_MAX_VALIDATION_FAILURES (${maxValidationFailures}) >= AGENT_MAX_TOOL_FAILURES (${maxFailures}); validation guard will not trip before the generic threshold`,
+      );
+    }
+    return { maxFailures, maxValidationFailures };
   } catch {
     return {
       maxFailures: DEFAULT_AGENT_MAX_TOOL_FAILURES,

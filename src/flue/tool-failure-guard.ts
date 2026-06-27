@@ -107,6 +107,8 @@ export async function maybeAbortOnToolFailures(
   const isValidation = isValidationFailure(result);
   if (isValidation) {
     state.consecutiveValidationFailures += 1;
+  } else {
+    state.consecutiveValidationFailures = 0;
   }
   state.consecutiveFailures += 1;
 

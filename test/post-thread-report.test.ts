@@ -1,6 +1,6 @@
 import { ToolInputValidationError } from "@flue/runtime";
 import { describe, expect, it } from "vitest";
-import { createPostThreadReportTool } from "../src/discord/thread-message-tool.js";
+import { createPostThreadMessageTool, createPostThreadReportTool } from "../src/discord/thread-message-tool.js";
 import {
   queuePendingUserTurnMessages,
   setPendingUserTurnMessage,
@@ -160,5 +160,38 @@ describe("post_thread_report tool validation", () => {
         parts: [VALID_PART, "## Summary\nDone."],
       }),
     ).rejects.toThrow(/Part 2/);
+  });
+});
+
+describe("post_thread_message validation", () => {
+  const instanceId = "discord:thread:msg-val";
+
+  it("accepts a concise multi-section message", async () => {
+    const tool = createPostThreadMessageTool(`${instanceId}-ok`);
+    await expect(
+      tool.execute({
+        message: [
+          "## Summary",
+          "Fixed the login redirect loop in auth.ts.",
+          "",
+          "## Verification",
+          "Ran npm test — all 12 tests pass.",
+        ].join("\n"),
+      }),
+    ).resolves.toBe("Message queued for Discord.");
+  });
+
+  it("rejects thin content with ## header but no substance", async () => {
+    const tool = createPostThreadMessageTool(`${instanceId}-thin`);
+    await expect(tool.execute({ message: "## Summary\nDone." })).rejects.toThrow(
+      /substantive body text/,
+    );
+  });
+
+  it("rejects content with no ## headers", async () => {
+    const tool = createPostThreadMessageTool(`${instanceId}-nohdr`);
+    await expect(
+      tool.execute({ message: "Fixed the bug. Tests pass." }),
+    ).rejects.toThrow(/## section header/);
   });
 });

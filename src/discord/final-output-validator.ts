@@ -30,7 +30,9 @@ export function validateFinalOutput(content: string): string | undefined {
   // Check that at least one section has substantive body text.
   const sections = splitByHeaders(trimmed);
   const hasSubstantiveSection = sections.some(
-    (section) => countBodyChars(section.body) >= MIN_SECTION_BODY_CHARS,
+    (section) =>
+      /^##\s+\S/.test(section.header) &&
+      countBodyChars(section.body) >= MIN_SECTION_BODY_CHARS,
   );
 
   if (!hasSubstantiveSection) {

@@ -123,5 +123,11 @@ describe("validateFinalOutput", () => {
       ].join("\n");
       expect(validateFinalOutput(content)).not.toBeUndefined();
     });
+
+    it("rejects substantive preamble before an empty ## section", () => {
+      const content =
+        "Fixed parser crash and verified the failing input now passes.\n## Summary";
+      expect(validateFinalOutput(content)).not.toBeUndefined();
+    });
   });
 });

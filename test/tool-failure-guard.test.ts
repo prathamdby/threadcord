@@ -288,4 +288,19 @@ describe("tool failure guard — validation-specific threshold", () => {
     );
     expect(trip).toMatch(/10 consecutive validation tool failures/);
   });
+
+  it("resets validation streak after a non-validation tool failure", async () => {
+    const id = "discord:thread:val-8";
+    await maybeAbortOnToolFailures(validationErrorEvent("glob", id), id, 10, 3);
+    await maybeAbortOnToolFailures(toolEvent(true, id), id, 10, 3);
+    await maybeAbortOnToolFailures(validationErrorEvent("glob", id), id, 10, 3);
+    await maybeAbortOnToolFailures(toolEvent(true, id), id, 10, 3);
+    const trip = await maybeAbortOnToolFailures(
+      validationErrorEvent("glob", id),
+      id,
+      10,
+      3,
+    );
+    expect(trip).toBeUndefined();
+  });
 });
