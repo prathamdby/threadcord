@@ -263,9 +263,7 @@ describe("submissionFailureSummary", () => {
 
 describe("failureDiscordMessage", () => {
   it("returns a generic message for provider stream cutoffs", () => {
-    const message = failureDiscordMessage(
-      "Stream ended without finish_reason",
-    );
+    const message = failureDiscordMessage("Stream ended without finish_reason");
     expect(message).toContain("encountered an error");
     expect(message).not.toContain("stream ended before completion");
     expect(message).not.toContain("finish_reason");
@@ -660,9 +658,9 @@ describe("handleObserveEvent", () => {
     expect(edits.some((line) => line.includes(TOOL_CALL_GENERIC_ERROR))).toBe(
       true,
     );
-    expect(
-      edits.some((line) => line.includes("post_thread_message")),
-    ).toBe(true);
+    expect(edits.some((line) => line.includes("post_thread_message"))).toBe(
+      true,
+    );
     expect(edits.some((line) => line.includes("1900 chars"))).toBe(false);
     vi.useRealTimers();
   });
@@ -1168,7 +1166,9 @@ describe("observe bridge + validation guard integration", () => {
     const { callbacks, edits, state } = recordingBridge();
     const instanceId = toFlueInstanceId("thread-1");
     const onAgentFailure = vi.fn(async (_id: string, _summary: string) => {});
-    (callbacks as unknown as { onAgentFailure: typeof onAgentFailure }).onAgentFailure = onAgentFailure;
+    (
+      callbacks as unknown as { onAgentFailure: typeof onAgentFailure }
+    ).onAgentFailure = onAgentFailure;
 
     // Send 3 consecutive validation-shaped tool failures.
     for (let i = 0; i < 3; i++) {
@@ -1199,9 +1199,9 @@ describe("observe bridge + validation guard integration", () => {
       true,
     );
     expect(edits.some((line) => line.includes("🔎 glob"))).toBe(true);
-    expect(
-      edits.some((line) => line.includes("must have required")),
-    ).toBe(false);
+    expect(edits.some((line) => line.includes("must have required"))).toBe(
+      false,
+    );
     vi.useRealTimers();
   });
 
@@ -1210,7 +1210,9 @@ describe("observe bridge + validation guard integration", () => {
     const { callbacks, state } = recordingBridge();
     const instanceId = toFlueInstanceId("thread-1");
     const onAgentFailure = vi.fn(async (_id: string, _summary: string) => {});
-    (callbacks as unknown as { onAgentFailure: typeof onAgentFailure }).onAgentFailure = onAgentFailure;
+    (
+      callbacks as unknown as { onAgentFailure: typeof onAgentFailure }
+    ).onAgentFailure = onAgentFailure;
 
     // 2 validation failures (below threshold of 3).
     for (let i = 0; i < 2; i++) {

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildHeaders,
-  validateAddInputs,
-} from "../src/mcp/validation.js";
+import { buildHeaders, validateAddInputs } from "../src/mcp/validation.js";
 
 describe("validateAddInputs", () => {
   it("rejects invalid server ids", () => {
@@ -20,7 +17,9 @@ describe("validateAddInputs", () => {
   });
 
   it("rejects non-http URL protocols", () => {
-    expect(validateAddInputs("valid-id", "file:///etc/passwd", "", "", "")).toEqual({
+    expect(
+      validateAddInputs("valid-id", "file:///etc/passwd", "", "", ""),
+    ).toEqual({
       ok: false,
       message: expect.stringContaining("Invalid URL protocol"),
     });

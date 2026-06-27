@@ -1,6 +1,9 @@
 import { ToolInputValidationError } from "@flue/runtime";
 import { describe, expect, it } from "vitest";
-import { createPostThreadMessageTool, createPostThreadReportTool } from "../src/discord/thread-message-tool.js";
+import {
+  createPostThreadMessageTool,
+  createPostThreadReportTool,
+} from "../src/discord/thread-message-tool.js";
 import {
   queuePendingUserTurnMessages,
   setPendingUserTurnMessage,
@@ -183,9 +186,9 @@ describe("post_thread_message validation", () => {
 
   it("rejects thin content with ## header but no substance", async () => {
     const tool = createPostThreadMessageTool(`${instanceId}-thin`);
-    await expect(tool.execute({ message: "## Summary\nDone." })).rejects.toThrow(
-      /substantive body text/,
-    );
+    await expect(
+      tool.execute({ message: "## Summary\nDone." }),
+    ).rejects.toThrow(/substantive body text/);
   });
 
   it("rejects content with no ## headers", async () => {

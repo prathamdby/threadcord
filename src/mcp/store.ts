@@ -87,7 +87,9 @@ function validateServerId(id: string): void {
   }
 }
 
-function parseStoredHeaders(value: unknown): Record<string, string> | undefined {
+function parseStoredHeaders(
+  value: unknown,
+): Record<string, string> | undefined {
   if (value == null) return undefined;
   if (typeof value !== "object" || Array.isArray(value)) return undefined;
   const headers = value as Record<string, unknown>;

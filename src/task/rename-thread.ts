@@ -108,8 +108,11 @@ export function scheduleReadableThreadRename(
 
     const instanceId = namerInstanceId();
     const input: ThreadNamerInput = { instruction };
-    const { title: titlePromise, ready, dispose } =
-      waitForNamerTitle(instanceId);
+    const {
+      title: titlePromise,
+      ready,
+      dispose,
+    } = waitForNamerTitle(instanceId);
     try {
       await ready;
       await dispatch(threadNamerAgent, { id: instanceId, input });

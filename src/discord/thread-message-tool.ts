@@ -68,9 +68,7 @@ export function createPostThreadReportTool(instanceId: string) {
         const part = input.parts[i]!;
         const validationError = validateFinalOutput(part);
         if (validationError) {
-          throw new Error(
-            `Part ${i + 1}: ${validationError}`,
-          );
+          throw new Error(`Part ${i + 1}: ${validationError}`);
         }
       }
       queuePendingUserTurnMessages(instanceId, input.parts);

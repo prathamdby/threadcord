@@ -116,18 +116,8 @@ describe("tool failure guard — validation-specific threshold", () => {
   it("trips at the validation threshold, not the generic threshold", async () => {
     const id = "discord:thread:val-1";
     // 2 validation failures should not trip (threshold is 3).
-    await maybeAbortOnToolFailures(
-      validationErrorEvent("glob", id),
-      id,
-      10,
-      3,
-    );
-    await maybeAbortOnToolFailures(
-      validationErrorEvent("bash", id),
-      id,
-      10,
-      3,
-    );
+    await maybeAbortOnToolFailures(validationErrorEvent("glob", id), id, 10, 3);
+    await maybeAbortOnToolFailures(validationErrorEvent("bash", id), id, 10, 3);
     // 3rd validation failure should trip.
     const trip = await maybeAbortOnToolFailures(
       validationErrorEvent("read", id),
@@ -135,7 +125,9 @@ describe("tool failure guard — validation-specific threshold", () => {
       10,
       3,
     );
-    expect(trip).toMatch(/Stopped after 3 consecutive validation tool failures/);
+    expect(trip).toMatch(
+      /Stopped after 3 consecutive validation tool failures/,
+    );
     expect(trip).toContain("read");
   });
 
@@ -149,12 +141,7 @@ describe("tool failure guard — validation-specific threshold", () => {
     );
     expect(trip).toBeUndefined();
 
-    await maybeAbortOnToolFailures(
-      validationErrorEvent("edit", id),
-      id,
-      10,
-      3,
-    );
+    await maybeAbortOnToolFailures(validationErrorEvent("edit", id), id, 10, 3);
     const trip3 = await maybeAbortOnToolFailures(
       validationErrorEvent("edit", id),
       id,
@@ -166,27 +153,12 @@ describe("tool failure guard — validation-specific threshold", () => {
 
   it("resets validation streak after a successful tool call", async () => {
     const id = "discord:thread:val-3";
-    await maybeAbortOnToolFailures(
-      validationErrorEvent("glob", id),
-      id,
-      10,
-      3,
-    );
-    await maybeAbortOnToolFailures(
-      validationErrorEvent("glob", id),
-      id,
-      10,
-      3,
-    );
+    await maybeAbortOnToolFailures(validationErrorEvent("glob", id), id, 10, 3);
+    await maybeAbortOnToolFailures(validationErrorEvent("glob", id), id, 10, 3);
     // Success resets both streaks.
     await maybeAbortOnToolFailures(toolEvent(false, id), id, 10, 3);
     // Now 2 more validation failures should not trip.
-    await maybeAbortOnToolFailures(
-      validationErrorEvent("glob", id),
-      id,
-      10,
-      3,
-    );
+    await maybeAbortOnToolFailures(validationErrorEvent("glob", id), id, 10, 3);
     const trip = await maybeAbortOnToolFailures(
       validationErrorEvent("glob", id),
       id,
