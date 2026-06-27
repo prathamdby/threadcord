@@ -255,18 +255,22 @@ describe("submissionFailureSummary", () => {
 });
 
 describe("failureDiscordMessage", () => {
-  it("names provider stream cutoffs explicitly", () => {
-    expect(
-      failureDiscordMessage("Stream ended without finish_reason"),
-    ).toContain("stream ended before completion");
+  it("returns a generic message for provider stream cutoffs", () => {
+    const message = failureDiscordMessage(
+      "Stream ended without finish_reason",
+    );
+    expect(message).toContain("encountered an error");
+    expect(message).not.toContain("stream ended before completion");
+    expect(message).not.toContain("finish_reason");
   });
 
-  it("explains tool failure guard stops", () => {
-    expect(
-      failureDiscordMessage(
-        "Stopped after 10 consecutive tool failures (last: edit: bad args).",
-      ),
-    ).toContain("retry loop");
+  it("returns a generic message for tool failure guard stops", () => {
+    const message = failureDiscordMessage(
+      "Stopped after 10 consecutive tool failures (last: edit: bad args).",
+    );
+    expect(message).toContain("encountered an error");
+    expect(message).not.toContain("retry loop");
+    expect(message).not.toContain("consecutive tool failures");
   });
 });
 
@@ -648,7 +652,7 @@ describe("handleObserveEvent", () => {
     expect(
       edits.some((line) => line.includes("tool_failed: post_thread_message")),
     ).toBe(true);
-    expect(edits.some((line) => line.includes("1900 chars"))).toBe(true);
+    expect(edits.some((line) => line.includes("1900 chars"))).toBe(false);
     vi.useRealTimers();
   });
 
@@ -717,8 +721,8 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     await vi.runAllTimersAsync();
     expect(edits).toHaveLength(1);
     expect(edits[0]).toContain("tool_failed: bash");
-    expect(edits[0]).toContain("bash: npm: command not found");
-    expect(edits[0]).toContain("npm test exited with code 127");
+    expect(edits[0]).not.toContain("bash: npm: command not found");
+    expect(edits[0]).not.toContain("npm test exited with code 127");
     vi.useRealTimers();
   });
 
@@ -742,7 +746,7 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     await vi.runAllTimersAsync();
     expect(edits).toHaveLength(1);
     expect(edits[0]).toContain("tool_failed: edit");
-    expect(edits[0]).toContain("oldText not found");
+    expect(edits[0]).not.toContain("oldText not found");
     vi.useRealTimers();
   });
 
@@ -766,7 +770,7 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     await vi.runAllTimersAsync();
     expect(edits).toHaveLength(1);
     expect(edits[0]).toContain("tool_failed: custom_tool");
-    expect(edits[0]).toContain("custom tool blew up");
+    expect(edits[0]).not.toContain("custom tool blew up");
     vi.useRealTimers();
   });
 
@@ -793,7 +797,7 @@ describe("tool error formatting (Flue content-array shapes)", () => {
     await vi.runAllTimersAsync();
     expect(edits).toHaveLength(1);
     expect(edits[0]).toContain("tool_failed: bash");
-    expect(edits[0]).toContain("[redacted]");
+    expect(edits[0]).not.toContain("[redacted]");
     expect(edits[0]).not.toContain(secret);
     vi.useRealTimers();
   });
@@ -832,12 +836,9 @@ describe("tool error formatting (Flue content-array shapes)", () => {
       state,
     );
     await vi.runAllTimersAsync();
-    expect(edits.some((c) => c.includes("boom"))).toBe(true);
-    expect(
-      edits.some(
-        (c) => c.includes("npm test") && !c.includes("exited with code"),
-      ),
-    ).toBe(true);
+    expect(edits.some((c) => c.includes("tool_failed: bash"))).toBe(true);
+    expect(edits.some((c) => c.includes("boom"))).toBe(false);
+    expect(edits.some((c) => c.includes("npm test"))).toBe(false);
     vi.useRealTimers();
   });
 });

@@ -16,6 +16,8 @@ import type { SetupStore } from "./store.js";
 import type { ThreadRef } from "../types.js";
 
 const SETUP_TYPING_INTERVAL_MS = 9000;
+const GENERIC_SETUP_FAILURE_DETAIL =
+  "The setup run encountered an error. Details have been logged.";
 
 export class SetupOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
@@ -122,8 +124,13 @@ export class SetupOrchestrator {
     } catch (error) {
       await rm(input.workspacePath, { recursive: true, force: true });
       const summary = summarizeError(error);
+      console.error(`[threadcord] setup run ${input.runId} dispatch failure:`, summary);
       await this.store.failRun(input.runId, summary);
-      await this.notifyRunFinished(input.runId, "failed", summary);
+      await this.notifyRunFinished(
+        input.runId,
+        "failed",
+        GENERIC_SETUP_FAILURE_DETAIL,
+      );
     }
   }
 
@@ -154,7 +161,15 @@ export class SetupOrchestrator {
           : "Profile saved.",
       );
     } else if (run.status === "failed" && run.errorSummary) {
-      await this.notifyRunFinished(run.id, "failed", run.errorSummary);
+      console.error(
+        `[threadcord] setup run ${run.id} failure details:`,
+        run.errorSummary,
+      );
+      await this.notifyRunFinished(
+        run.id,
+        "failed",
+        GENERIC_SETUP_FAILURE_DETAIL,
+      );
     }
     return true;
   }
@@ -165,6 +180,10 @@ export class SetupOrchestrator {
   ): Promise<boolean> {
     const run = await this.store.getRunByInstanceId(instanceId);
     if (!run) return false;
+    console.error(
+      `[threadcord] setup run ${run.id} agent failure details:`,
+      summarizeError(errorSummary),
+    );
     const failed = await this.store.failRun(
       run.id,
       summarizeError(errorSummary),

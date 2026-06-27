@@ -21,7 +21,7 @@ import {
 } from "../setup/progress-session.js";
 import type { SetupStore } from "../setup/store.js";
 import type { TaskStore } from "../task/store.js";
-import { redact, summarizeError } from "../util/redact.js";
+import { redact } from "../util/redact.js";
 import type { DiscordPublisher } from "./publisher.js";
 import {
   appendRenderedLine,
@@ -305,7 +305,12 @@ async function eventSummary(
     case "tool":
       if (event.isError) {
         const reason = formatFlueError(event.result) ?? "Tool failed";
-        return redact(`tool_failed: ${event.toolName}: ${reason}`);
+        console.error(
+          `[threadcord] tool call error on ${instanceId}`,
+          event.toolName,
+          redact(reason),
+        );
+        return `tool_failed: ${event.toolName}`;
       }
       return undefined;
     case "log":
@@ -339,13 +344,9 @@ function resolveMaxToolFailuresForObserve(): number {
   }
 }
 
-export function failureDiscordMessage(errorSummary: string): string {
-  const summary = summarizeError(new Error(errorSummary));
-  if (/Stopped after \d+ consecutive tool failures/i.test(summary)) {
-    return `Failed: ${summary} The agent was stopped to avoid a retry loop. Fix the underlying tool issue and send a new message in this thread.`;
-  }
-  if (/finish_reason/i.test(summary)) {
-    return `Failed: ${summary}. The model provider stream ended before completion. This turn was not replayed.`;
-  }
-  return `Failed: ${summary}. This turn was not replayed automatically.`;
+const GENERIC_AGENT_FAILURE_MESSAGE =
+  "The agent encountered an error during this turn. The turn was not replayed automatically. Details have been logged.";
+
+export function failureDiscordMessage(_errorSummary: string): string {
+  return GENERIC_AGENT_FAILURE_MESSAGE;
 }

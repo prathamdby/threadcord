@@ -401,6 +401,10 @@ export class TaskOrchestrator {
 
     takePendingUserTurnMessages(instanceId);
 
+    console.error(
+      `[threadcord] task ${task.id} agent failure details:`,
+      summarizeError(errorSummary),
+    );
     await this.post(
       task.discordThreadId,
       failureDiscordMessage(failed.errorSummary ?? errorSummary),
@@ -514,6 +518,7 @@ export class TaskOrchestrator {
     } catch (error) {
       const summary = summarizeError(error);
       takePendingUserTurnMessages(task.flueInstanceId);
+      console.error(`[threadcord] task ${task.id} turn failure details:`, summary);
       await this.store.transition(
         task.id,
         ["queued", "waiting", "running"],
@@ -521,7 +526,10 @@ export class TaskOrchestrator {
         summary,
       );
       await this.refreshHeader(task.id);
-      await this.post(task.discordThreadId, `Failed: ${summary}`);
+      await this.post(
+        task.discordThreadId,
+        failureDiscordMessage(summary),
+      );
       const turn = this.clearInFlight(task.flueInstanceId);
       await this.flipReaction(turn?.initiator, CROSS);
       await this.disposeInitiators(task.id, CROSS);
