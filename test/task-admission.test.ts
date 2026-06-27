@@ -242,6 +242,80 @@ describe("milestone post failures", () => {
   });
 });
 
+describe("restart reconciliation with bad Discord threads", () => {
+  it("continues processing later tasks when one thread notification throws", async () => {
+    const world = new World(2);
+
+    // Seed two running tasks so restart releases both (simulating a crash mid-turn).
+    const result1 = await world.submitRaw("m-bad");
+    const result2 = await world.submitRaw("m-good");
+    const badThreadId = result1.task!.discordThreadId;
+    const goodTaskId = result2.task!.id;
+
+    expect(result1.task!.status).toBe("running");
+    expect(result2.task!.status).toBe("running");
+
+    // Restart: releaseRunningAfterRestart moves them to waiting, then
+    // notifications fire. The notify callback throws for the bad thread.
+    let notifyCalls = 0;
+    await world.restart(async (threadId, _content) => {
+      notifyCalls++;
+      if (threadId === badThreadId) {
+        throw new Error("discord: channel not sendable");
+      }
+    });
+
+    // Both tasks were visited.
+    expect(notifyCalls).toBe(2);
+    // The good task is still waiting (not broken by the bad one).
+    expect(world.store.snapshot(goodTaskId).status).toBe("waiting");
+    // The bad task is also still waiting (notification failure doesn't change state).
+    expect(world.store.snapshot(result1.task!.id).status).toBe("waiting");
+  });
+
+  it("fills scheduler slots after restart even when a notification fails", async () => {
+    const world = new World(1);
+
+    // Fill the single concurrency slot with a running task.
+    const resultRunning = await world.submitRaw("m-running");
+    expect(resultRunning.task!.status).toBe("running");
+
+    // Queue a second task that can't run yet.
+    const resultQueued = await world.submitRaw("m-queued");
+    expect(resultQueued.task!.status).toBe("queued");
+
+    // Restart: releaseRunningAfterRestart moves the running task to waiting,
+    // freeing the slot. The notification throws, but the queued task should
+    // still be claimed and dispatched.
+    world.dispatched.length = 0;
+    await world.restart(async () => {
+      throw new Error("discord: channel not sendable");
+    });
+
+    // The queued task was dispatched despite the notification failure.
+    expect(world.dispatched).toContain(resultQueued.task!.flueInstanceId);
+  });
+
+  it("still cleans up abandoned drafts after a notification failure", async () => {
+    const world = new World(1);
+
+    // Seed a running task (simulating a crash mid-turn).
+    const result = await world.submitRaw("m-running");
+    expect(result.task!.status).toBe("running");
+
+    // Also seed an abandoned draft.
+    const input = draftInput("m-draft");
+    await world.store.createDraft(input);
+
+    await world.restart(async () => {
+      throw new Error("discord: channel not sendable");
+    });
+
+    // The draft was still cleaned up despite the notification failure.
+    expect(world.store.snapshot(input.id).status).toBe("failed");
+  });
+});
+
 describe("restart reconciliation of leftover drafts", () => {
   it("fails an abandoned draft instead of resurrecting it as waiting work", async () => {
     const world = new World();

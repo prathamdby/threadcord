@@ -574,8 +574,12 @@ export class World {
     return message;
   }
 
-  async restart(): Promise<void> {
-    await this.orchestrator.resumeAfterRestart(async () => {});
+  async restart(
+    notifyThread?: (threadId: string, content: string) => Promise<void>,
+  ): Promise<void> {
+    await this.orchestrator.resumeAfterRestart(
+      notifyThread ?? (async () => {}),
+    );
     await flush();
   }
 }

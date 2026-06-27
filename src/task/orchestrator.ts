@@ -155,10 +155,17 @@ export class TaskOrchestrator {
     for (const task of released) {
       await this.refreshHeader(task.id);
       if (!isPendingThreadId(task.discordThreadId)) {
-        await notifyThread(
-          task.discordThreadId,
-          "Resumed after restart. Ready for the next instruction.",
-        );
+        try {
+          await notifyThread(
+            task.discordThreadId,
+            "Resumed after restart. Ready for the next instruction.",
+          );
+        } catch (error) {
+          console.error(
+            `[threadcord] restart notification failed for task ${task.id} (thread ${task.discordThreadId}):`,
+            summarizeError(error),
+          );
+        }
       }
     }
     await this.store.failAbandonedDrafts();
