@@ -10,6 +10,7 @@ import {
 } from "discord.js";
 import { clampDiscordContent } from "../discord/limits.js";
 import { summarizeError } from "../util/redact.js";
+import type { McpTransport } from "@flue/runtime";
 import type { McpPool, McpServerConfig } from "../flue/mcp.js";
 import type { McpStore, McpServerRow } from "./store.js";
 import { buildHeaders, validateAddInputs } from "./validation.js";
@@ -261,9 +262,7 @@ function serverRowToPoolConfig(row: McpServerRow): McpServerConfig {
   return {
     id: row.id,
     url: row.url,
-    ...(row.transport
-      ? { transport: row.transport as McpServerConfig["transport"] }
-      : {}),
+    ...(row.transport ? { transport: row.transport as McpTransport } : {}),
     ...(mergedHeaders ? { headers: mergedHeaders } : {}),
   };
 }
