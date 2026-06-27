@@ -1177,7 +1177,6 @@ describe("observe bridge + validation guard integration", () => {
 
     // The guard should have called onAgentFailure exactly once.
     expect(onAgentFailure).toHaveBeenCalledTimes(1);
-    expect(onAgentFailure).toHaveBeenCalledTimes(1);
     // The failure message should mention validation tool failures.
     const calls = onAgentFailure.mock.calls as unknown as [string, string][];
     expect(calls[0]?.[1]).toMatch(/validation tool failures/);

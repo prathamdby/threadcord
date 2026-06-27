@@ -24,6 +24,7 @@ import {
 import type { SetupStore } from "../setup/store.js";
 import type { TaskStore } from "../task/store.js";
 import { redact } from "../util/redact.js";
+import { extractContentArrayText } from "../util/extract-text.js";
 import type { DiscordPublisher } from "./publisher.js";
 import {
   appendRenderedLine,
@@ -262,19 +263,6 @@ function formatFlueError(error: unknown): string | undefined {
     return error.trim();
   }
   return undefined;
-}
-
-function extractContentArrayText(content: unknown): string | undefined {
-  if (!Array.isArray(content)) return undefined;
-  const texts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block as Record<string, unknown>;
-    if (b.type !== undefined && b.type !== "text") continue;
-    if (typeof b.text !== "string" || b.text.trim().length === 0) continue;
-    texts.push(b.text);
-  }
-  return texts.length > 0 ? texts.join("\n").trim() : undefined;
 }
 
 function formatErrorDetails(details: unknown): string | undefined {

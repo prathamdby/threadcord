@@ -1,5 +1,6 @@
 import type { FlueEvent } from "@flue/runtime";
 import { abortAgentWorkForInstance } from "./agent-work-abort.js";
+import { extractContentArrayText } from "../util/extract-text.js";
 
 interface InstanceToolGuardState {
   consecutiveFailures: number;
@@ -47,11 +48,7 @@ export function shouldSkipObserveFailureDelivery(instanceId: string): boolean {
   return stateByInstance.get(instanceId)?.operatorFailureDelivered === true;
 }
 
-/**
- * Detects whether a tool failure result is a schema/input validation error
- * (wrong argument shapes, missing required fields, type mismatches) as opposed
- * to ordinary command/file/service failures.
- */
+/** Classify a tool failure result as a schema/input validation error. */
 function isValidationFailure(result: unknown): boolean {
   const text = extractResultText(result);
   if (!text) return false;
@@ -64,7 +61,7 @@ function isValidationFailure(result: unknown): boolean {
     lower.includes("invalid literal") ||
     lower.includes("invalid union") ||
     lower.includes("did not match") ||
-    lower.includes("expected") && lower.includes("received")
+    (lower.includes("expected") && lower.includes("received"))
   );
 }
 
@@ -78,19 +75,6 @@ function extractResultText(result: unknown): string | undefined {
   }
   if (result instanceof Error) return result.message;
   return undefined;
-}
-
-function extractContentArrayText(content: unknown): string | undefined {
-  if (!Array.isArray(content)) return undefined;
-  const texts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object" || Array.isArray(block)) continue;
-    const b = block as Record<string, unknown>;
-    if (b.type !== undefined && b.type !== "text") continue;
-    if (typeof b.text !== "string" || b.text.trim().length === 0) continue;
-    texts.push(b.text.trim());
-  }
-  return texts.length > 0 ? texts.join("\n").trim() : undefined;
 }
 
 /**

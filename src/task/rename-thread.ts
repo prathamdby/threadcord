@@ -39,10 +39,8 @@ function waitForNamerTitle(instanceId: string): NamerHandle {
     outcome: { ok: true; title: string } | { ok: false; error: Error },
   ) => void;
 
-  // The title promise is created with an immediately-attached .catch so that
-  // a timeout or failure rejection never surfaces as an unhandled rejection
-  // if it fires before the caller awaits it. The caller still awaits
-  // titlePromise inside a try/catch; this early handler is the safety net.
+  // Immediate .catch prevents unhandled rejection if the timeout fires
+  // before the caller awaits the promise.
   let titleResolve!: (value: string) => void;
   let titleReject!: (error: Error) => void;
   const title = new Promise<string>((resolve, reject) => {
