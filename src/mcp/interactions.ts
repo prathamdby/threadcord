@@ -10,9 +10,9 @@ import {
 } from "discord.js";
 import { clampDiscordContent } from "../discord/limits.js";
 import { summarizeError } from "../util/redact.js";
-import type { McpPool } from "../flue/mcp.js";
-import type { McpStore } from "./store.js";
-import { validateAddInputs } from "./validation.js";
+import type { McpPool, McpServerConfig } from "../flue/mcp.js";
+import type { McpStore, McpServerRow } from "./store.js";
+import { buildHeaders, validateAddInputs } from "./validation.js";
 
 const MCP_CUSTOM_ID_PREFIX = "mcp:";
 
@@ -73,17 +73,45 @@ async function handleRemove(
   store: McpStore,
   pool: McpPool,
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
   const id = interaction.options.getString("id", true).trim();
-  const removedFromDb = await store.removeServer(id);
+  const existing = await store.getServer(id);
   const removedFromPool = await pool.removeServer(id);
-  if (removedFromDb || removedFromPool) {
-    await interaction.editReply(
-      discordContent(`Removed MCP server \`${id}\`.`),
-    );
-  } else {
+  if (!existing && !removedFromPool) {
     await interaction.editReply(
       discordContent(`MCP server \`${id}\` not found.`),
+    );
+    return;
+  }
+
+  try {
+    const removedFromDb = await store.removeServer(id);
+    if (removedFromDb || removedFromPool) {
+      await interaction.editReply(
+        discordContent(`Removed MCP server \`${id}\`.`),
+      );
+      return;
+    }
+    await interaction.editReply(
+      discordContent(`MCP server \`${id}\` not found.`),
+    );
+  } catch (error) {
+    if (existing && removedFromPool) {
+      try {
+        await pool.addServer(serverRowToPoolConfig(existing));
+      } catch (rollbackError) {
+        console.warn(
+          `[threadcord] Failed to restore MCP server "${id}" after remove error`,
+          rollbackError,
+        );
+      }
+    }
+    await interaction.editReply(
+      discordContent(
+        `Failed to remove MCP server \`${id}\`: ${summarizeError(error)}`,
+      ),
     );
   }
 }
@@ -92,7 +120,9 @@ async function handleList(
   interaction: ChatInputCommandInteraction,
   store: McpStore,
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
   const servers = await store.listServers();
   if (servers.length === 0) {
     await interaction.editReply(
@@ -137,13 +167,21 @@ async function handleMcpModal(
 
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  } catch {
-    await interaction
-      .reply({
-        content: discordContent("Failed to process request. Try again."),
-        flags: MessageFlags.Ephemeral,
-      })
-      .catch(() => {});
+  } catch (error) {
+    console.warn("[threadcord] Failed to defer MCP add modal reply", error);
+    if (interaction.isRepliable()) {
+      await interaction
+        .reply({
+          content: discordContent("Failed to process request. Try again."),
+          flags: MessageFlags.Ephemeral,
+        })
+        .catch((replyError) => {
+          console.warn(
+            "[threadcord] Failed to reply after MCP modal defer error",
+            replyError,
+          );
+        });
+    }
     return;
   }
 
@@ -216,6 +254,18 @@ async function handleMcpModal(
     .catch((error) => {
       console.warn("[threadcord] Failed to edit MCP modal reply", error);
     });
+}
+
+function serverRowToPoolConfig(row: McpServerRow): McpServerConfig {
+  const mergedHeaders = buildHeaders(row.headers, row.token);
+  return {
+    id: row.id,
+    url: row.url,
+    ...(row.transport
+      ? { transport: row.transport as McpServerConfig["transport"] }
+      : {}),
+    ...(mergedHeaders ? { headers: mergedHeaders } : {}),
+  };
 }
 
 function mcpAddModal(userId: string): ModalBuilder {
