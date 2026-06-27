@@ -33,7 +33,8 @@ export function validateAddInputs(
   } catch {
     return {
       ok: false,
-      message: "Invalid URL. Provide a full URL like `https://mcp.example.com`.",
+      message:
+        "Invalid URL. Provide a full URL like `https://mcp.example.com`.",
     };
   }
 
