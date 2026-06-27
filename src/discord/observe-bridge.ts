@@ -145,26 +145,11 @@ export async function handleObserveEvent(
 
   if (!isTaskInstance && !isSetupInstance) return;
 
-  const line = await eventSummary(event, instanceId, args, state);
-  if (!line) return;
-
-  let terminal = false;
-  if (event.type === "tool_start") {
-    terminal = isTerminalBlock(event.toolName, event.args);
-  } else if (event.type === "tool" && event.isError) {
-    const toolCallId =
-      "toolCallId" in event && typeof event.toolCallId === "string"
-        ? event.toolCallId
-        : undefined;
-    const pending =
-      toolCallId !== undefined
-        ? state.pendingToolStarts.get(`${instanceId}:${toolCallId}`)
-        : undefined;
-    terminal = isTerminalBlock(event.toolName, pending?.args);
-  }
+  const summary = await eventSummary(event, instanceId, args, state);
+  if (!summary) return;
 
   const inst = state.renderState.get(instanceId) ?? newInstanceRenderState();
-  const outcome = appendRenderedLine(inst, line, terminal);
+  const outcome = appendRenderedLine(inst, summary.line, summary.terminal);
   state.renderState.set(instanceId, inst);
 
   const stream = await resolveProgressStream(instanceId, args);
@@ -303,12 +288,36 @@ function formatErrorDetails(details: unknown): string | undefined {
   return undefined;
 }
 
+interface ObserveProgressLine {
+  line: string;
+  terminal: boolean;
+}
+
 function pendingToolKey(
   instanceId: string,
-  toolCallId: string | undefined,
+  event: FlueEvent,
 ): string | undefined {
-  if (toolCallId === undefined) return undefined;
-  return `${instanceId}:${toolCallId}`;
+  if (
+    typeof event === "object" &&
+    event !== null &&
+    "toolCallId" in event &&
+    typeof event.toolCallId === "string"
+  ) {
+    return `${instanceId}:${event.toolCallId}`;
+  }
+  return undefined;
+}
+
+function clearPendingToolStartsForInstance(
+  state: ObserveBridgeState,
+  instanceId: string,
+): void {
+  const prefix = `${instanceId}:`;
+  for (const key of state.pendingToolStarts.keys()) {
+    if (key.startsWith(prefix)) {
+      state.pendingToolStarts.delete(key);
+    }
+  }
 }
 
 async function eventSummary(
@@ -316,16 +325,12 @@ async function eventSummary(
   instanceId: string,
   bridge: ObserveBridgeCallbacks,
   state: ObserveBridgeState,
-): Promise<string | undefined> {
+): Promise<ObserveProgressLine | undefined> {
   switch (event.type) {
     case "turn_start":
-      return "Model turn started";
+      return { line: "Model turn started", terminal: false };
     case "tool_start": {
-      const toolCallId =
-        "toolCallId" in event && typeof event.toolCallId === "string"
-          ? event.toolCallId
-          : undefined;
-      const key = pendingToolKey(instanceId, toolCallId);
+      const key = pendingToolKey(instanceId, event);
       if (key !== undefined) {
         state.pendingToolStarts.set(key, {
           toolName: event.toolName,
@@ -333,48 +338,54 @@ async function eventSummary(
         });
       }
       const repoRoot = await resolveRepoRootForInstance(instanceId, bridge);
-      return formatToolLine(
+      const line = formatToolLine(
         event.toolName,
         event.args,
         repoRoot !== undefined ? { repoRoot } : undefined,
       );
+      return {
+        line,
+        terminal: isTerminalBlock(event.toolName, event.args),
+      };
     }
-    case "agent_end":
-      return "Agent turn completed";
+    case "agent_end": {
+      clearPendingToolStartsForInstance(state, instanceId);
+      return { line: "Agent turn completed", terminal: false };
+    }
     case "tool": {
-      const toolCallId =
-        "toolCallId" in event && typeof event.toolCallId === "string"
-          ? event.toolCallId
-          : undefined;
-      const key = pendingToolKey(instanceId, toolCallId);
+      const key = pendingToolKey(instanceId, event);
       const pending =
         key !== undefined ? state.pendingToolStarts.get(key) : undefined;
-      if (key !== undefined && !event.isError) {
-        state.pendingToolStarts.delete(key);
-      }
-      if (event.isError) {
-        const reason = formatFlueError(event.result) ?? "Tool failed";
-        console.error(
-          `[threadcord] tool call error on ${instanceId}`,
-          event.toolName,
-          redact(reason),
-        );
+      if (!event.isError) {
         if (key !== undefined) {
           state.pendingToolStarts.delete(key);
         }
-        const repoRoot = await resolveRepoRootForInstance(instanceId, bridge);
-        const formatOpts =
-          repoRoot !== undefined ? { repoRoot } : undefined;
-        return formatToolFailureLine(
-          event.toolName,
-          pending?.args,
-          formatOpts,
-        );
+        return undefined;
       }
-      return undefined;
+      const reason = formatFlueError(event.result) ?? "Tool failed";
+      console.error(
+        `[threadcord] tool call error on ${instanceId}`,
+        event.toolName,
+        redact(reason),
+      );
+      const repoRoot = await resolveRepoRootForInstance(instanceId, bridge);
+      const formatOpts = repoRoot !== undefined ? { repoRoot } : undefined;
+      const line = formatToolFailureLine(
+        event.toolName,
+        pending?.args,
+        formatOpts,
+      );
+      const terminal = isTerminalBlock(event.toolName, pending?.args);
+      if (key !== undefined) {
+        state.pendingToolStarts.delete(key);
+      }
+      return { line, terminal };
     }
     case "log":
-      return `${event.level}: ${event.message}`;
+      return {
+        line: `${event.level}: ${event.message}`,
+        terminal: false,
+      };
     default:
       return undefined;
   }
