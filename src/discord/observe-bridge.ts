@@ -21,6 +21,7 @@ import {
 } from "../setup/progress-session.js";
 import type { SetupStore } from "../setup/store.js";
 import type { TaskStore } from "../task/store.js";
+import { redact } from "../util/redact.js";
 import type { DiscordPublisher } from "./publisher.js";
 import {
   appendRenderedLine,
@@ -307,7 +308,7 @@ async function eventSummary(
         console.error(
           `[threadcord] tool call error on ${instanceId}`,
           event.toolName,
-          reason,
+          redact(reason),
         );
         return `tool_failed: ${event.toolName}`;
       }

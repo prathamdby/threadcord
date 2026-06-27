@@ -403,7 +403,7 @@ export class TaskOrchestrator {
 
     console.error(
       `[threadcord] task ${task.id} agent failure details:`,
-      errorSummary,
+      summarizeError(errorSummary),
     );
     await this.post(
       task.discordThreadId,

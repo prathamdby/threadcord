@@ -182,7 +182,7 @@ export class SetupOrchestrator {
     if (!run) return false;
     console.error(
       `[threadcord] setup run ${run.id} agent failure details:`,
-      errorSummary,
+      summarizeError(errorSummary),
     );
     const failed = await this.store.failRun(
       run.id,
