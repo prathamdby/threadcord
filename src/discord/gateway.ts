@@ -97,7 +97,7 @@ function toThreadMessage(message: Message): ThreadMessage {
     content: message.content,
     authorBot: message.author.bot,
     channelId: message.channelId,
-    guildId: message.guildId ?? undefined,
+    guildId: message.guildId,
     reply: async (content) => {
       await message.reply(clampDiscordContent(content));
     },

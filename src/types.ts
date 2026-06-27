@@ -68,7 +68,7 @@ export interface ThreadMessage {
   content: string;
   authorBot: boolean;
   channelId: string;
-  guildId?: string | undefined;
+  guildId?: string | null | undefined;
   reply(content: string): Promise<void>;
   react(emoji: string): Promise<void>;
   unreact(emoji: string): Promise<void>;

@@ -441,7 +441,6 @@ export class World {
     const pins: string[] = [];
     const edits: { messageId: string; content: string }[] = [];
     let threadsCreated = 0;
-    let sendCount = 0;
 
     const thread: RecordingThread = {
       id: threadId,
@@ -450,12 +449,10 @@ export class World {
       edits,
       sendTypingCalls: 0,
       send: async (content) => {
-        if (failure.headerSend && sendCount === 0) {
-          sendCount += 1;
+        if (failure.headerSend && content.includes("**Threadcord task**")) {
           throw new Error("discord: header send 500");
         }
         if (failure.statusSend) throw new Error("discord: status send 500");
-        sendCount += 1;
         sends.push(content);
         return { id: `status-${this.counter++}` };
       },

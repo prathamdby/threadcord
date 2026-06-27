@@ -272,7 +272,7 @@ export class TaskOrchestrator {
     const command = parseThreadControlCommand(message.content);
     if (command === "status") {
       const refreshed = await this.refreshHeader(task.id);
-      const headerMessageId = refreshed?.headerMessageId ?? task.headerMessageId;
+      const headerMessageId = refreshed?.headerMessageId;
       if (!headerMessageId) {
         await message.reply("No pinned header exists for this task yet.");
         return;
@@ -693,7 +693,7 @@ export class TaskOrchestrator {
 }
 
 function headerJumpLink(
-  guildId: string | undefined,
+  guildId: string | null | undefined,
   threadId: string,
   messageId: string,
 ): string {
