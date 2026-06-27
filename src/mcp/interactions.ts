@@ -135,7 +135,11 @@ async function handleMcpModal(
     return;
   }
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  } catch {
+    return;
+  }
 
   let replyContent: string | undefined;
   try {
@@ -156,47 +160,36 @@ async function handleMcpModal(
     );
     if (!validated.ok) {
       replyContent = validated.message;
-      return;
-    }
-
-    const { config } = validated;
-
-    if (await store.getServer(id)) {
+    } else if (await store.getServer(id)) {
       replyContent = `MCP server \`${id}\` already exists.`;
-      return;
+    } else {
+      const { config } = validated;
+      try {
+        const connection = await pool.addServer(config);
+        const toolCount = connection.tools.length;
+        try {
+          await store.addServer({
+            id,
+            url,
+            ...(validated.config.transport
+              ? { transport: validated.config.transport }
+              : {}),
+            ...(validated.customHeaders
+              ? { headers: validated.customHeaders }
+              : {}),
+            ...(validated.token ? { token: validated.token } : {}),
+          });
+          replyContent = `MCP server \`${id}\` connected (${toolCount} tool${toolCount === 1 ? "" : "s"} available).`;
+        } catch (error) {
+          await pool.removeServer(id);
+          replyContent = `Connected but failed to save: ${summarizeError(error)}`;
+        }
+      } catch (error) {
+        replyContent = `Failed to connect to MCP server \`${id}\`: ${summarizeError(error)}`;
+      }
     }
-
-    let toolCount: number;
-    try {
-      const connection = await pool.addServer(config);
-      toolCount = connection.tools.length;
-    } catch (error) {
-      replyContent = `Failed to connect to MCP server \`${id}\`: ${summarizeError(error)}`;
-      return;
-    }
-
-    try {
-      await store.addServer({
-        id,
-        url,
-        ...(validated.config.transport
-          ? { transport: validated.config.transport }
-          : {}),
-        ...(validated.customHeaders
-          ? { headers: validated.customHeaders }
-          : {}),
-        ...(validated.token ? { token: validated.token } : {}),
-      });
-    } catch (error) {
-      await pool.removeServer(id);
-      replyContent = `Connected but failed to save: ${summarizeError(error)}`;
-      return;
-    }
-
-    replyContent = `MCP server \`${id}\` connected (${toolCount} tool${toolCount === 1 ? "" : "s"} available).`;
   } catch (error) {
-    replyContent =
-      replyContent ?? `MCP add failed: ${summarizeError(error)}`;
+    replyContent = replyContent ?? `MCP add failed: ${summarizeError(error)}`;
   }
 
   await interaction
