@@ -86,14 +86,23 @@ function validateServerId(id: string): void {
   }
 }
 
+function parseStoredHeaders(value: unknown): Record<string, string> | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) return undefined;
+  const headers = value as Record<string, unknown>;
+  if (Object.values(headers).some((entry) => typeof entry !== "string")) {
+    return undefined;
+  }
+  return headers as Record<string, string>;
+}
+
 function rowToServer(row: QueryResultRow): McpServerRow {
+  const headers = parseStoredHeaders(row.headers_json);
   return {
     id: String(row.id),
     url: String(row.url),
     ...(typeof row.transport === "string" ? { transport: row.transport } : {}),
-    ...(row.headers_json != null
-      ? { headers: row.headers_json as Record<string, string> }
-      : {}),
+    ...(headers ? { headers } : {}),
     ...(typeof row.token === "string" ? { token: row.token } : {}),
     createdAt: new Date(String(row.created_at)),
   };

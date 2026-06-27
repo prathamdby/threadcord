@@ -187,7 +187,14 @@ async function handleMcpModal(
           });
           replyContent = `MCP server \`${id}\` connected (${toolCount} tool${toolCount === 1 ? "" : "s"} available).`;
         } catch (error) {
-          await pool.removeServer(id);
+          try {
+            await pool.removeServer(id);
+          } catch (rollbackError) {
+            console.warn(
+              `[threadcord] Failed to roll back MCP server "${id}" after save error`,
+              rollbackError,
+            );
+          }
           replyContent = `Connected but failed to save: ${summarizeError(error)}`;
         }
       } catch (error) {

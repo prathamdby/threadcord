@@ -126,16 +126,16 @@ function mcpConnectOptions(config: McpServerConfig): McpServerOptions {
   };
 }
 
-function getOrCreatePool(): McpPool {
+function getMcpPoolOrThrow(): McpPool {
   if (!mcpPool) {
-    mcpPool = new McpPool();
+    throw new Error("MCP pool not initialized; call warmMcpPool first");
   }
   return mcpPool;
 }
 
-/** Returns the shared pool, creating it if needed. */
+/** Returns the shared pool after startup initialization. */
 export function getMcpPool(): McpPool {
-  return getOrCreatePool();
+  return getMcpPoolOrThrow();
 }
 
 /** Eagerly connect configured MCP servers at startup; never throws. */
@@ -151,7 +151,8 @@ export async function warmMcpPool(servers: McpServerConfig[]): Promise<void> {
 
 /** Pooled MCP tools for an agent turn; empty when no servers are configured. */
 export async function getMcpTools(): Promise<ToolDefinition[]> {
-  return getOrCreatePool().tools();
+  if (!mcpPool) return [];
+  return mcpPool.tools();
 }
 
 /** Closes the shared MCP pool during application shutdown. */
