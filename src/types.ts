@@ -52,17 +52,6 @@ export interface NewTaskRecord extends TaskRequest {
   setupProfileRevision: number;
 }
 
-export interface ChannelMessage {
-  id: string;
-  content: string;
-  authorBot: boolean;
-  channelId: string;
-  createThread(name: string): Promise<ThreadRef>;
-  reply(content: string): Promise<void>;
-  react(emoji: string): Promise<void>;
-  unreact(emoji: string): Promise<void>;
-}
-
 export interface ThreadMessage {
   id: string;
   content: string;

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FlueEvent } from "@flue/runtime";
-import { cacheConfig } from "../src/config.js";
+import { injectAppConfig } from "../src/app-context.js";
 import { toFlueInstanceId } from "../src/ids.js";
 import {
   failureDiscordMessage,
@@ -26,7 +26,7 @@ import { config, fakeSetupStore } from "./support/orchestrator-harness.js";
 import { resetToolFailureGuardsForTests } from "../src/flue/tool-failure-guard.js";
 
 beforeEach(() => {
-  cacheConfig(config);
+  injectAppConfig(config);
   resetToolFailureGuardsForTests();
 });
 
@@ -48,6 +48,7 @@ function recordingBridge(): {
   const edits: string[] = [];
   const sends: { id: string; content: string }[] = [];
   const callbacks = {
+    config,
     store: {
       getByInstanceId: async () => ({
         id: "task-1",
@@ -147,6 +148,7 @@ async function rollingWorld(): Promise<{
   const edits: { messageId: string; content: string }[] = [];
   let sendSeq = 2;
   const callbacks = {
+    config,
     store,
     publisher: {
       edit: async (_threadId: string, messageId: string, content: string) => {
@@ -293,6 +295,7 @@ describe("handleObserveEvent", () => {
         instanceId: toFlueInstanceId("thread-1"),
       }),
       {
+        config,
         store: { getByInstanceId: async () => undefined },
         publisher: {
           edit: async () => {},
@@ -319,6 +322,7 @@ describe("handleObserveEvent", () => {
       pendingToolStarts: new Map(),
     };
     const callbacks = {
+      config,
       store: { getByInstanceId: async () => undefined },
       publisher: {
         edit: async () => {},
@@ -376,6 +380,7 @@ describe("handleObserveEvent", () => {
         instanceId: toFlueInstanceId("thread-1"),
       }),
       {
+        config,
         store: {
           getByInstanceId: async () => ({
             id: "task-1",

@@ -1,5 +1,5 @@
 import { basename, join } from "node:path";
-import { getRuntimeConfig } from "../config.js";
+import type { AppConfig } from "../config.js";
 import { getPool } from "../db.js";
 import type { SetupProfile } from "../setup/profile.js";
 import { SetupStore } from "../setup/store.js";
@@ -47,7 +47,7 @@ export function agentRuntimeContextFromTask(
 
 export async function resolveAgentRuntimeContext(
   instanceId: string,
-  _env: Record<string, unknown>,
+  config: AppConfig,
 ): Promise<AgentRuntimeContext> {
   const store = new TaskStore(getPool(), 1);
   const task = await store.getByInstanceId(instanceId);
@@ -69,5 +69,5 @@ export async function resolveAgentRuntimeContext(
     throw new Error(`No ready setup profile for ${task.repo}@${task.branch}`);
   }
 
-  return agentRuntimeContextFromTask(task, getRuntimeConfig(), profile);
+  return agentRuntimeContextFromTask(task, config, profile);
 }

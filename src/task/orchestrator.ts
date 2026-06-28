@@ -9,6 +9,7 @@ import {
   takePendingUserTurnMessages,
 } from "../discord/user-turn-message.js";
 import type { AppConfig } from "../config.js";
+
 import { resolveTaskRequest } from "../config.js";
 import codingAgent from "../agents/coding.js";
 import {
@@ -101,9 +102,11 @@ export type EditHeaderMessage = (
 
 export type SendThreadTyping = (threadId: string) => Promise<void>;
 
-const defaultDispatchTurn: DispatchTurn = async (instanceId, input) => {
-  await dispatch(codingAgent, { id: instanceId, input });
-};
+function defaultDispatchTurnFor(config: AppConfig): DispatchTurn {
+  return async (instanceId, input) => {
+    await dispatch(codingAgent, { id: instanceId, input });
+  };
+}
 
 const TERMINAL_STATUSES = new Set<TaskStatus>([
   "completed",
@@ -120,16 +123,19 @@ export class TaskOrchestrator {
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
   private readonly pendingInitiatorIds = new Map<string, Set<string>>();
   private readonly inFlightTurns = new Map<string, InFlightTurn>();
+  private readonly dispatchTurn: DispatchTurn;
 
   constructor(
     private readonly config: AppConfig,
     private readonly store: TaskStore,
     private readonly setupStore: SetupStore,
-    private readonly dispatchTurn: DispatchTurn = defaultDispatchTurn,
+    dispatchTurn?: DispatchTurn,
     private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
     private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
-  ) {}
+  ) {
+    this.dispatchTurn = dispatchTurn ?? defaultDispatchTurnFor(config);
+  }
 
   setMilestonePublisher(
     postMessage: (threadId: string, content: string) => Promise<void>,

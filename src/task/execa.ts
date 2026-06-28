@@ -1,3 +1,4 @@
+/** Intentional minimal spawn wrapper (no execa dependency). */
 import { spawn } from "node:child_process";
 import { redact } from "../util/redact.js";
 

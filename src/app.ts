@@ -3,7 +3,8 @@ import { flue } from "@flue/runtime/routing";
 import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 import type { AppConfig } from "./config.js";
-import { cacheConfig, loadConfig } from "./config.js";
+import { injectAppConfig } from "./app-context.js";
+import { loadConfig } from "./config.js";
 import { initializeDatabase } from "./db.js";
 import { closeMcpPool, warmMcpPool, type McpServerConfig } from "./flue/mcp.js";
 import type { McpTransport } from "@flue/runtime";
@@ -24,7 +25,7 @@ export async function createApp(): Promise<{
   shutdown: () => Promise<void>;
 }> {
   const config = loadConfig();
-  cacheConfig(config);
+  injectAppConfig(config);
   const pool = initializeDatabase(config.DATABASE_URL);
   registerProviders(config);
 
@@ -71,6 +72,7 @@ export async function createApp(): Promise<{
   });
 
   registerObserveBridge({
+    config,
     store,
     setupStore,
     publisher,

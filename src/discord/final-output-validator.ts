@@ -9,8 +9,10 @@
  * - Thin outputs like "## Summary\nDone." are rejected.
  */
 
+import { MIN_FINAL_SECTION_BODY_CHARS } from "./final-output-contract.js";
+
 const MIN_HEADER_COUNT = 1;
-const MIN_SECTION_BODY_CHARS = 20;
+const MIN_SECTION_BODY_CHARS = MIN_FINAL_SECTION_BODY_CHARS;
 
 /**
  * Returns an error message if the content is too thin, or undefined if valid.

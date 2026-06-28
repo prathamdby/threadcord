@@ -1,10 +1,8 @@
 import { posix } from "node:path";
 import type { FlueEvent } from "@flue/runtime";
 import { observe } from "@flue/runtime";
-import { getRuntimeConfig } from "../config.js";
+import type { AppConfig } from "../config.js";
 import {
-  DEFAULT_AGENT_MAX_TOOL_FAILURES,
-  DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
   resolveAgentMaxToolFailures,
   resolveAgentMaxValidationFailures,
 } from "../flue/agent-guardrails.js";
@@ -44,6 +42,7 @@ import {
 const PROGRESS_EDIT_INTERVAL_MS = 1500;
 
 export interface ObserveBridgeCallbacks {
+  config: AppConfig;
   store: TaskStore;
   setupStore?: SetupStore;
   publisher: DiscordPublisher;
@@ -110,7 +109,7 @@ export async function handleObserveEvent(
   const isSetupInstance = instanceId.startsWith("setup:");
   const isTaskInstance = isThreadcordInstance(instanceId);
 
-  const maxFailures = resolveMaxFailuresForObserve();
+  const maxFailures = resolveMaxFailuresForObserve(args.config);
 
   if (event.type === "turn_start" && (isTaskInstance || isSetupInstance)) {
     noteAgentTurnBoundary(instanceId);
@@ -407,26 +406,18 @@ async function resolveRepoRootForInstance(
   return undefined;
 }
 
-function resolveMaxFailuresForObserve(): {
+function resolveMaxFailuresForObserve(config: AppConfig): {
   maxFailures: number;
   maxValidationFailures: number;
 } {
-  try {
-    const c = getRuntimeConfig();
-    const maxFailures = resolveAgentMaxToolFailures(c);
-    const maxValidationFailures = resolveAgentMaxValidationFailures(c);
-    if (maxValidationFailures >= maxFailures) {
-      console.warn(
-        `[threadcord] AGENT_MAX_VALIDATION_FAILURES (${maxValidationFailures}) >= AGENT_MAX_TOOL_FAILURES (${maxFailures}); validation guard will not trip before the generic threshold`,
-      );
-    }
-    return { maxFailures, maxValidationFailures };
-  } catch {
-    return {
-      maxFailures: DEFAULT_AGENT_MAX_TOOL_FAILURES,
-      maxValidationFailures: DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
-    };
+  const maxFailures = resolveAgentMaxToolFailures(config);
+  const maxValidationFailures = resolveAgentMaxValidationFailures(config);
+  if (maxValidationFailures >= maxFailures) {
+    console.warn(
+      `[threadcord] AGENT_MAX_VALIDATION_FAILURES (${maxValidationFailures}) >= AGENT_MAX_TOOL_FAILURES (${maxFailures}); validation guard will not trip before the generic threshold`,
+    );
   }
+  return { maxFailures, maxValidationFailures };
 }
 
 const GENERIC_AGENT_FAILURE_MESSAGE =

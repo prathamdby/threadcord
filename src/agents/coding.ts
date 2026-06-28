@@ -1,6 +1,6 @@
 import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
-import { getRuntimeConfig } from "../config.js";
+import { appConfigFromAgentEnv } from "./helpers/app-config-env.js";
 import { codingAgentDurability } from "../flue/agent-guardrails.js";
 import { getMcpTools } from "../flue/mcp.js";
 import { createThreadMessageTools } from "../discord/thread-message-tool.js";
@@ -17,8 +17,9 @@ import { workspaceEnv } from "../task/workspace-env.js";
 import type { DispatchAgentInput } from "../types.js";
 
 export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
+  const appConfig = appConfigFromAgentEnv(env);
   const githubToken = stringEnv(env, "GITHUB_TOKEN", "");
-  const turn = await resolveAgentRuntimeContext(id, env);
+  const turn = await resolveAgentRuntimeContext(id, appConfig);
   const gitIdentity = githubToken
     ? await resolveGitIdentity(githubToken)
     : undefined;
@@ -40,7 +41,7 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
       cwd: turn.cwd,
       env: sandboxEnv,
     }),
-    durability: codingAgentDurability(getRuntimeConfig()),
+    durability: codingAgentDurability(appConfig),
     tools: [
       ...createThreadMessageTools(id),
       ...createSetupMemoryTools(turn.repo, turn.baseBranch),

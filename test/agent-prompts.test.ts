@@ -50,9 +50,12 @@ vi.mock("../src/setup/store.js", () => ({
   },
 }));
 
-vi.mock("../src/config.js", () => ({
-  getRuntimeConfig: vi.fn(() => ({
+vi.mock("../src/agents/helpers/app-config-env.js", () => ({
+  appConfigFromAgentEnv: vi.fn(() => ({
     defaultModel: "anthropic/claude-sonnet-4-5",
+    AGENT_MAX_TOOL_FAILURES: 10,
+    AGENT_MAX_VALIDATION_FAILURES: 3,
+    AGENT_SUBMISSION_MAX_ATTEMPTS: 2,
   })),
 }));
 

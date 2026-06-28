@@ -14,6 +14,15 @@ type AuthenticatedUser =
 
 const identityCache = new Map<string, GitIdentity>();
 
+const THREADCORD_USER_AGENT = "threadcord/0.1.0";
+
+function createOctokit(token: string): Octokit {
+  return new Octokit({
+    auth: token,
+    userAgent: THREADCORD_USER_AGENT,
+  });
+}
+
 function identityCacheKey(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -33,10 +42,7 @@ export async function resolveGitIdentity(
   if (cached) return cached;
 
   try {
-    const octokit = new Octokit({
-      auth: token,
-      userAgent: "threadcord/0.1.0",
-    });
+    const octokit = createOctokit(token);
     const { data } = await octokit.rest.users.getAuthenticated();
     const identity = gitIdentityFrom(data);
     identityCache.set(cacheKey, identity);
@@ -60,10 +66,7 @@ export function gitIdentityEnv(identity: GitIdentity): Record<string, string> {
 }
 
 export function createGitHubTools(token: string) {
-  const octokit = new Octokit({
-    auth: token,
-    userAgent: "threadcord/0.1.0",
-  });
+  const octokit = createOctokit(token);
 
   return [
     defineTool({
