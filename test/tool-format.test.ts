@@ -175,15 +175,15 @@ describe("formatToolLine", () => {
 });
 
 describe("formatToolFailureLine", () => {
-  it("shows generic error in a code block for bash failures", () => {
+  it("shows generic error inline for bash failures", () => {
     expect(formatToolFailureLine("bash", { command: "npm test" })).toBe(
-      `💻 bash\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``,
+      `💻 bash: ${TOOL_CALL_GENERIC_ERROR}`,
     );
   });
 
-  it("keeps preview and adds generic error for non-terminal tools", () => {
+  it("keeps preview and adds generic error inline for non-terminal tools", () => {
     expect(formatToolFailureLine("glob", { pattern: "**/*.ts" })).toBe(
-      `🔎 glob: "**/*.ts"\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``,
+      `🔎 glob: "**/*.ts" — ${TOOL_CALL_GENERIC_ERROR}`,
     );
   });
 });

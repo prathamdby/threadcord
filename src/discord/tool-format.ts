@@ -51,7 +51,7 @@ const DEFAULT_EMOJI = "⚙️";
 const ELLIPSIS = "…";
 
 /** Short user-facing text for failed tool rows in Discord progress (no raw errors). */
-export const TOOL_CALL_GENERIC_ERROR = "Tool could not be completed.";
+export const TOOL_CALL_GENERIC_ERROR = "tool call failed";
 
 /** Discord-facing tool label (MCP tools: mcp__server__tool -> "server tool"). */
 export function displayToolName(toolName: string): string {
@@ -214,11 +214,11 @@ export function formatToolFailureLine(
   const emoji = getToolEmoji(toolName);
   const command = terminalCommand(toolName, args, options);
   if (command !== undefined) {
-    return `${emoji} ${label}\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``;
+    return `${emoji} ${label}: ${TOOL_CALL_GENERIC_ERROR}`;
   }
   const preview = buildToolPreviewWithMcp(toolName, args, options);
   if (preview !== undefined) {
-    return `${emoji} ${label}: "${preview}"\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``;
+    return `${emoji} ${label}: "${preview}" — ${TOOL_CALL_GENERIC_ERROR}`;
   }
-  return `${emoji} ${label}\n\`\`\`\n${TOOL_CALL_GENERIC_ERROR}\n\`\`\``;
+  return `${emoji} ${label}: ${TOOL_CALL_GENERIC_ERROR}`;
 }
