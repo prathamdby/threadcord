@@ -6,22 +6,26 @@ import {
 } from "./flue/agent-guardrails.js";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
 
-const optionalNonEmptyString = v.pipe(
-  v.union([v.string(), v.undefined()]),
-  v.transform((value) => {
-    if (typeof value !== "string") return undefined;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }),
+const optionalNonEmptyString = v.optional(
+  v.pipe(
+    v.union([v.string(), v.undefined()]),
+    v.transform((value) => {
+      if (value === undefined) return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    }),
+  ),
 );
 
-const optionalCsvString = v.pipe(
-  v.union([v.string(), v.undefined()]),
-  v.transform((value) => {
-    if (typeof value !== "string") return undefined;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }),
+const optionalCsvString = v.optional(
+  v.pipe(
+    v.union([v.string(), v.undefined()]),
+    v.transform((value) => {
+      if (value === undefined) return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    }),
+  ),
 );
 
 const positiveIntFromEnv = (defaultValue: number) =>
@@ -29,21 +33,10 @@ const positiveIntFromEnv = (defaultValue: number) =>
     v.union([v.string(), v.number(), v.undefined()]),
     v.transform((value) => {
       if (value === undefined || value === "") return defaultValue;
-      const n = typeof value === "number" ? value : Number(value);
-      if (!Number.isInteger(n) || n <= 0) {
-        throw new v.ValiError([
-          {
-            kind: "schema",
-            type: "number",
-            input: value,
-            expected: "positive integer",
-            received: String(value),
-            message: "Expected a positive integer",
-          },
-        ]);
-      }
-      return n;
+      return typeof value === "number" ? value : Number(value);
     }),
+    v.integer("Expected an integer"),
+    v.minValue(1, "Expected a positive integer"),
   );
 
 const EnvSchema = v.pipe(
@@ -69,21 +62,23 @@ const EnvSchema = v.pipe(
       DEFAULT_AGENT_SUBMISSION_MAX_ATTEMPTS,
     ),
     PORT: v.optional(positiveIntFromEnv(3583), 3583),
-    THREADCORD_HTTP_BEARER: v.optional(optionalNonEmptyString),
+    THREADCORD_HTTP_BEARER: optionalNonEmptyString,
     WORKSPACE_TTL_DAYS: v.optional(positiveIntFromEnv(14), 14),
-    ANTHROPIC_API_KEY: v.optional(optionalNonEmptyString),
-    ANTHROPIC_MODELS: v.optional(optionalCsvString),
-    OPENAI_API_KEY: v.optional(optionalNonEmptyString),
-    OPENAI_MODELS: v.optional(optionalCsvString),
-    PROVIDERS: v.optional(optionalCsvString),
+    ANTHROPIC_API_KEY: optionalNonEmptyString,
+    ANTHROPIC_MODELS: optionalCsvString,
+    OPENAI_API_KEY: optionalNonEmptyString,
+    OPENAI_MODELS: optionalCsvString,
+    PROVIDERS: optionalCsvString,
     NODE_ENV: v.optional(v.string()),
   }),
-  v.check((env) => {
-    if (env.NODE_ENV === "production" && !env.THREADCORD_HTTP_BEARER) {
-      return false;
-    }
-    return true;
-  }, "THREADCORD_HTTP_BEARER is required when NODE_ENV=production"),
+  v.forward(
+    v.check(
+      (env) =>
+        env.NODE_ENV !== "production" || Boolean(env.THREADCORD_HTTP_BEARER),
+      "THREADCORD_HTTP_BEARER is required when NODE_ENV=production",
+    ),
+    ["THREADCORD_HTTP_BEARER"],
+  ),
 );
 
 type EnvParsed = v.InferOutput<typeof EnvSchema>;

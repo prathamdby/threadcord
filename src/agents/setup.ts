@@ -1,7 +1,7 @@
 import { basename, join } from "node:path";
 import { createAgent } from "@flue/runtime";
 import { local } from "@flue/runtime/node";
-import { appConfigFromAgentEnv } from "./helpers/app-config-env.js";
+import { getAgentAppConfig } from "./helpers/app-config.js";
 import { setupAgentDurability } from "../flue/agent-guardrails.js";
 import { getPool } from "../db.js";
 import { createSetupTools } from "../setup/tools.js";
@@ -9,8 +9,8 @@ import { SetupStore } from "../setup/store.js";
 import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
 import { composePrompt } from "./prompts/compose.js";
 
-export default createAgent(async ({ id, env }) => {
-  const appConfig = appConfigFromAgentEnv(env);
+export default createAgent(async ({ id }) => {
+  const appConfig = getAgentAppConfig();
   const store = new SetupStore(getPool());
   const run = await store.getRunByInstanceId(id);
   if (!run) throw new Error(`No Threadcord setup run found for ${id}`);
