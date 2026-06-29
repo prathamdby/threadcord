@@ -13,6 +13,8 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
 }
 
+const MCP_CONNECT_TIMEOUT_MS = 10_000;
+
 /**
  * Manages live MCP server connections. Supports bulk startup loading via
  * {@link ready} and dynamic add/remove via {@link addServer}/{@link removeServer}.
@@ -80,10 +82,7 @@ export class McpPool {
     await Promise.all(
       this.servers.map(async (server) => {
         try {
-          const connection = await connectMcpServer(
-            server.id,
-            mcpConnectOptions(server),
-          );
+          const connection = await connectWithTimeout(server);
           this.connections.set(server.id, connection);
         } catch (error) {
           failures++;
@@ -126,6 +125,30 @@ function mcpConnectOptions(config: McpServerConfig): McpServerOptions {
   };
 }
 
+async function connectWithTimeout(
+  server: McpServerConfig,
+): Promise<McpServerConnection> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      connectMcpServer(server.id, mcpConnectOptions(server)),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `MCP server "${server.id}" connect timed out after ${MCP_CONNECT_TIMEOUT_MS}ms`,
+              ),
+            ),
+          MCP_CONNECT_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function getMcpPoolOrThrow(): McpPool {
   if (!mcpPool) {
     throw new Error("MCP pool not initialized; call warmMcpPool first");
@@ -138,14 +161,14 @@ export function getMcpPool(): McpPool {
   return getMcpPoolOrThrow();
 }
 
-/** Eagerly connect configured MCP servers at startup; never throws. */
-export async function warmMcpPool(servers: McpServerConfig[]): Promise<void> {
+/** Initialize the shared MCP pool; connections finish in the background. */
+export function warmMcpPool(servers: McpServerConfig[]): void {
   if (mcpPool) {
-    await closeMcpPool();
+    void closeMcpPool();
   }
   mcpPool = new McpPool(servers);
   if (servers.length > 0) {
-    await mcpPool.ready();
+    void mcpPool.ready();
   }
 }
 

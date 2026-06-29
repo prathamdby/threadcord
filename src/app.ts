@@ -29,15 +29,16 @@ export async function createApp(): Promise<{
   registerProviders(config);
 
   const store = new TaskStore(pool, config.MAX_CONCURRENT_TASKS);
-  await store.migrate();
   const setupStore = new SetupStore(pool);
-  await setupStore.migrate();
   const mcpStore = new McpStore(pool);
-  await mcpStore.migrate();
+  await Promise.all([
+    store.migrate(),
+    setupStore.migrate(),
+    mcpStore.migrate(),
+  ]);
 
-  // Load persisted MCP servers and warm the connection pool
   const mcpServers = await mcpStore.listServers();
-  await warmMcpPool(mcpServers.map(rowToMcpConfig));
+  warmMcpPool(mcpServers.map(rowToMcpConfig));
 
   const orchestrator = new TaskOrchestrator(config, store, setupStore);
   const setupOrchestrator = new SetupOrchestrator(config, setupStore);
