@@ -98,4 +98,13 @@ describe("discoverInstalledSkills", () => {
       "z-skill",
     ]);
   });
+
+  it("ignores hidden and invalid directory names", () => {
+    const skillsDir = join(testHome, ".agents", "skills");
+    mkdirSync(join(skillsDir, "commit"), { recursive: true });
+    mkdirSync(join(skillsDir, ".DS_Store"), { recursive: true });
+    mkdirSync(join(skillsDir, "UPPERCASE"), { recursive: true });
+    mkdirSync(join(skillsDir, "_leading"), { recursive: true });
+    expect(discoverInstalledSkills(testHome)).toEqual(["commit"]);
+  });
 });

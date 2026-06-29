@@ -769,7 +769,7 @@ function buildPrompt(
     ...(installedSkills.length > 0
       ? [
           "",
-          "Installed skills (available via `~/.agent/skills/<name>/SKILL.md`):",
+          "Installed skills (available via `~/.agents/skills/<name>/SKILL.md`):",
           ...installedSkills.map((name) => `- ${name}`),
           "",
           "When the user instruction references a skill by name (e.g. '/prath-mode', 'use commit', 'call peer-review'), read the corresponding SKILL.md and follow its workflow. Skills are already installed globally; do not reinstall them.",

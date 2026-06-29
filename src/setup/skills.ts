@@ -1,6 +1,8 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
+const SKILL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
 const SKILL_DIRS = [".agents/skills", ".pi/agent/skills", ".tabnine/agent/skills"];
 
 /**
@@ -15,7 +17,10 @@ export function discoverInstalledSkills(workspaceHome: string): string[] {
       const dir = join(workspaceHome, rel);
       const entries = readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory() || entry.isSymbolicLink()) {
+        if (
+          (entry.isDirectory() || entry.isSymbolicLink()) &&
+          SKILL_NAME.test(entry.name)
+        ) {
           seen.add(entry.name);
         }
       }
@@ -31,8 +36,6 @@ const GITHUB_TREE_SKILL =
 const GITHUB_REPO = /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/i;
 const GITHUB_BLOB =
   /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/i;
-
-const SKILL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export interface ParsedSkillLink {
   packageArg: string;
