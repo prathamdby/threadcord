@@ -83,6 +83,10 @@ export class McpPool {
       this.servers.map(async (server) => {
         try {
           const connection = await connectWithTimeout(server);
+          if (!this.connectPromise) {
+            void connection.close().catch(() => {});
+            return;
+          }
           this.connections.set(server.id, connection);
         } catch (error) {
           failures++;
@@ -129,21 +133,32 @@ async function connectWithTimeout(
   server: McpServerConfig,
 ): Promise<McpServerConnection> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const connectionPromise = connectMcpServer(
+    server.id,
+    mcpConnectOptions(server),
+  );
   try {
     return await Promise.race([
-      connectMcpServer(server.id, mcpConnectOptions(server)),
+      connectionPromise,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `MCP server "${server.id}" connect timed out after ${MCP_CONNECT_TIMEOUT_MS}ms`,
-              ),
+        timer = setTimeout(() => {
+          timedOut = true;
+          reject(
+            new Error(
+              `MCP server "${server.id}" connect timed out after ${MCP_CONNECT_TIMEOUT_MS}ms`,
             ),
-          MCP_CONNECT_TIMEOUT_MS,
-        );
+          );
+        }, MCP_CONNECT_TIMEOUT_MS);
       }),
     ]);
+  } catch (error) {
+    if (timedOut) {
+      void connectionPromise
+        .then((connection) => connection.close())
+        .catch(() => {});
+    }
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -163,12 +178,15 @@ export function getMcpPool(): McpPool {
 
 /** Initialize the shared MCP pool; connections finish in the background. */
 export function warmMcpPool(servers: McpServerConfig[]): void {
-  if (mcpPool) {
-    void closeMcpPool();
-  }
+  const previous = mcpPool;
   mcpPool = new McpPool(servers);
+  if (previous) {
+    void previous.close();
+  }
   if (servers.length > 0) {
-    void mcpPool.ready();
+    void mcpPool.ready().catch((error) => {
+      console.error("[threadcord] MCP pool warmup failed", error);
+    });
   }
 }
 
