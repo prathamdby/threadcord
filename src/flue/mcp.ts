@@ -13,6 +13,8 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
 }
 
+const MCP_CONNECT_TIMEOUT_MS = 10_000;
+
 /**
  * Manages live MCP server connections. Supports bulk startup loading via
  * {@link ready} and dynamic add/remove via {@link addServer}/{@link removeServer}.
@@ -21,6 +23,7 @@ export interface McpServerConfig {
 export class McpPool {
   private readonly connections = new Map<string, McpServerConnection>();
   private connectPromise: Promise<void> | undefined;
+  private connectGeneration = 0;
 
   constructor(private readonly servers: McpServerConfig[] = []) {}
 
@@ -76,14 +79,16 @@ export class McpPool {
   }
 
   private async connectAll(): Promise<void> {
+    const generation = this.connectGeneration;
     let failures = 0;
     await Promise.all(
       this.servers.map(async (server) => {
         try {
-          const connection = await connectMcpServer(
-            server.id,
-            mcpConnectOptions(server),
-          );
+          const connection = await connectWithTimeout(server);
+          if (generation !== this.connectGeneration) {
+            void connection.close().catch(() => {});
+            return;
+          }
           this.connections.set(server.id, connection);
         } catch (error) {
           failures++;
@@ -103,6 +108,7 @@ export class McpPool {
 
   /** Closes every cached connection and resets the pool. */
   async close(): Promise<void> {
+    this.connectGeneration++;
     const connections = [...this.connections.values()];
     this.connections.clear();
     this.connectPromise = undefined;
@@ -121,9 +127,45 @@ let mcpPool: McpPool | undefined;
 function mcpConnectOptions(config: McpServerConfig): McpServerOptions {
   return {
     url: config.url,
+    timeoutMs: MCP_CONNECT_TIMEOUT_MS,
     ...(config.transport ? { transport: config.transport } : {}),
     ...(config.headers ? { headers: config.headers } : {}),
   };
+}
+
+async function connectWithTimeout(
+  server: McpServerConfig,
+): Promise<McpServerConnection> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const connectionPromise = connectMcpServer(
+    server.id,
+    mcpConnectOptions(server),
+  );
+  try {
+    return await Promise.race([
+      connectionPromise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          reject(
+            new Error(
+              `MCP server "${server.id}" connect timed out after ${MCP_CONNECT_TIMEOUT_MS}ms`,
+            ),
+          );
+        }, MCP_CONNECT_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (error) {
+    if (timedOut) {
+      void connectionPromise
+        .then((connection) => connection.close())
+        .catch(() => {});
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function getMcpPoolOrThrow(): McpPool {
@@ -138,14 +180,17 @@ export function getMcpPool(): McpPool {
   return getMcpPoolOrThrow();
 }
 
-/** Eagerly connect configured MCP servers at startup; never throws. */
-export async function warmMcpPool(servers: McpServerConfig[]): Promise<void> {
-  if (mcpPool) {
-    await closeMcpPool();
-  }
+/** Initialize the shared MCP pool; connections finish in the background. */
+export function warmMcpPool(servers: McpServerConfig[]): void {
+  const previous = mcpPool;
   mcpPool = new McpPool(servers);
+  if (previous) {
+    void previous.close();
+  }
   if (servers.length > 0) {
-    await mcpPool.ready();
+    void mcpPool.ready().catch((error) => {
+      console.error("[threadcord] MCP pool warmup failed", error);
+    });
   }
 }
 
