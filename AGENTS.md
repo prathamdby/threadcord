@@ -1,4 +1,4 @@
-# AGENTS.md
+# Cursor Cloud Agent Setup
 
 ## Cursor Cloud specific instructions
 
