@@ -112,6 +112,24 @@ describe("parseCustomProviders", () => {
     expect(providers[0]?.id).toBe("ollama");
   });
 
+  it("uses a null-prototype object for provider headers", () => {
+    const providers = parseCustomProviders(
+      {
+        PROVIDER_AGENT_ROUTER_BASE_URL: "https://router.example.com/v1",
+        PROVIDER_AGENT_ROUTER_API: "openai-completions",
+        PROVIDER_AGENT_ROUTER_HEADERS:
+          '{"User-Agent":"Threadcord","__proto__":"ignored"}',
+        PROVIDER_AGENT_ROUTER_MODELS: "gpt-5-codex",
+      },
+      "agent-router",
+    );
+
+    const headers = providers[0]?.headers;
+    expect(Object.getPrototypeOf(headers)).toBeNull();
+    expect(headers?.["User-Agent"]).toBe("Threadcord");
+    expect(headers?.["__proto__"]).toBe("ignored");
+  });
+
   it("rejects provider headers that are not a JSON object of strings", () => {
     expect(() =>
       parseCustomProviders(

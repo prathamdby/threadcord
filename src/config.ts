@@ -236,8 +236,10 @@ function parseHeadersEnv(
     throw new Error(`${key} must be a JSON object of string header values`);
   }
 
-  const headers: Record<string, string> = {};
-  for (const [headerName, headerValue] of Object.entries(parsed)) {
+  const headers: Record<string, string> = Object.create(null);
+  for (const [headerName, headerValue] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
     if (typeof headerValue !== "string") {
       throw new Error(`${key} must be a JSON object of string header values`);
     }
