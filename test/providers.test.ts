@@ -71,6 +71,7 @@ describe("parseCustomProviders", () => {
         PROVIDER_OLLAMA_BASE_URL: "http://localhost:11434/v1",
         PROVIDER_OLLAMA_API: "openai-completions",
         PROVIDER_OLLAMA_API_KEY: "secret",
+        PROVIDER_OLLAMA_HEADERS: '{"User-Agent":"Threadcord"}',
         PROVIDER_OLLAMA_MODELS: "llama3.1:8b",
         PROVIDER_MY_GATEWAY_BASE_URL: "https://gateway.example.com/v1",
         PROVIDER_MY_GATEWAY_API: "openai-completions",
@@ -85,6 +86,7 @@ describe("parseCustomProviders", () => {
         baseUrl: "http://localhost:11434/v1",
         api: "openai-completions",
         apiKey: "secret",
+        headers: { "User-Agent": "Threadcord" },
         models: ["llama3.1:8b"],
       },
       {
@@ -108,6 +110,20 @@ describe("parseCustomProviders", () => {
 
     expect(providers).toHaveLength(1);
     expect(providers[0]?.id).toBe("ollama");
+  });
+
+  it("rejects provider headers that are not a JSON object of strings", () => {
+    expect(() =>
+      parseCustomProviders(
+        {
+          PROVIDER_AGENT_ROUTER_BASE_URL: "https://router.example.com/v1",
+          PROVIDER_AGENT_ROUTER_API: "openai-completions",
+          PROVIDER_AGENT_ROUTER_HEADERS: '{"User-Agent":42}',
+          PROVIDER_AGENT_ROUTER_MODELS: "gpt-5-codex",
+        },
+        "agent-router",
+      ),
+    ).toThrow(/PROVIDER_AGENT_ROUTER_HEADERS/);
   });
 });
 

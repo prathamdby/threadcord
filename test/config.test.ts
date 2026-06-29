@@ -80,6 +80,7 @@ describe("loadConfig", () => {
       PROVIDERS: "ollama",
       PROVIDER_OLLAMA_BASE_URL: "http://localhost:11434/v1",
       PROVIDER_OLLAMA_API: "openai-completions",
+      PROVIDER_OLLAMA_HEADERS: '{"User-Agent":"Threadcord"}',
       PROVIDER_OLLAMA_MODELS: "llama3.1:8b",
     });
 
@@ -88,6 +89,7 @@ describe("loadConfig", () => {
         id: "ollama",
         baseUrl: "http://localhost:11434/v1",
         api: "openai-completions",
+        headers: { "User-Agent": "Threadcord" },
         models: ["llama3.1:8b"],
       },
     ]);
