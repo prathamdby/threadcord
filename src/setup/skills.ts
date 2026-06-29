@@ -1,10 +1,41 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+
+const SKILL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+const SKILL_DIRS = [".agents/skills", ".pi/agent/skills", ".tabnine/agent/skills"];
+
+/**
+ * Discover skill names installed under the workspace HOME directory.
+ * Skills are installed globally by `skills add -g` into directories like
+ * `$HOME/.agents/skills/<skill-name>/`.
+ */
+export function discoverInstalledSkills(workspaceHome: string): string[] {
+  const seen = new Set<string>();
+  for (const rel of SKILL_DIRS) {
+    try {
+      const dir = join(workspaceHome, rel);
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (
+          (entry.isDirectory() || entry.isSymbolicLink()) &&
+          SKILL_NAME.test(entry.name)
+        ) {
+          seen.add(entry.name);
+        }
+      }
+    } catch {
+      // Directory may not exist; skip.
+    }
+  }
+  return [...seen].sort();
+}
+
 const GITHUB_TREE_SKILL =
   /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)$/i;
 const GITHUB_REPO = /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/i;
 const GITHUB_BLOB =
   /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/i;
-
-const SKILL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export interface ParsedSkillLink {
   packageArg: string;
