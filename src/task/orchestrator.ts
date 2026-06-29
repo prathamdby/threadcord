@@ -21,6 +21,8 @@ import {
   runSetupInstall,
   runSetupSkillsInstall,
 } from "./bootstrap.js";
+import { discoverInstalledSkills } from "../setup/skills.js";
+import { workspacePaths } from "./workspace-env.js";
 import type { BootstrapMode } from "./bootstrap.js";
 import type { PendingTaskCreate } from "./create-flow.js";
 import { validateTaskPolicy } from "./policy.js";
@@ -515,6 +517,7 @@ export class TaskOrchestrator {
         setupProfile.environment,
         setupProfile.memoryMarkdown,
         instruction,
+        task.workspacePath,
       );
       const input: DispatchAgentInput = {
         kind: "threadcord.turn",
@@ -740,7 +743,11 @@ function buildPrompt(
   setupEnvironment: SetupEnvironment,
   setupMemoryMarkdown: string,
   instruction: string,
+  workspaceRoot?: string,
 ): string {
+  const installedSkills = workspaceRoot
+    ? discoverInstalledSkills(workspacePaths(workspaceRoot).home)
+    : [];
   const lines = [
     `Task id: ${task.id}`,
     `Repository: ${task.repo}`,
@@ -759,6 +766,15 @@ function buildPrompt(
     `Setup checks: ${formatChecks(setupEnvironment.checks)}`,
     `Required env: ${setupEnvironment.requiredEnv.join(", ") || "none"}`,
     `Required services: ${setupEnvironment.requiredServices.join(", ") || "none"}`,
+    ...(installedSkills.length > 0
+      ? [
+          "",
+          "Installed skills (available via `~/.agent/skills/<name>/SKILL.md`):",
+          ...installedSkills.map((name) => `- ${name}`),
+          "",
+          "When the user instruction references a skill by name (e.g. '/prath-mode', 'use commit', 'call peer-review'), read the corresponding SKILL.md and follow its workflow. Skills are already installed globally; do not reinstall them.",
+        ]
+      : []),
     "",
     "Setup profile memory:",
     setupMemoryMarkdown,
