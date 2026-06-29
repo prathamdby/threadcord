@@ -23,6 +23,7 @@ const MCP_CONNECT_TIMEOUT_MS = 10_000;
 export class McpPool {
   private readonly connections = new Map<string, McpServerConnection>();
   private connectPromise: Promise<void> | undefined;
+  private connectGeneration = 0;
 
   constructor(private readonly servers: McpServerConfig[] = []) {}
 
@@ -78,12 +79,13 @@ export class McpPool {
   }
 
   private async connectAll(): Promise<void> {
+    const generation = this.connectGeneration;
     let failures = 0;
     await Promise.all(
       this.servers.map(async (server) => {
         try {
           const connection = await connectWithTimeout(server);
-          if (!this.connectPromise) {
+          if (generation !== this.connectGeneration) {
             void connection.close().catch(() => {});
             return;
           }
@@ -106,6 +108,7 @@ export class McpPool {
 
   /** Closes every cached connection and resets the pool. */
   async close(): Promise<void> {
+    this.connectGeneration++;
     const connections = [...this.connections.values()];
     this.connections.clear();
     this.connectPromise = undefined;
@@ -124,6 +127,7 @@ let mcpPool: McpPool | undefined;
 function mcpConnectOptions(config: McpServerConfig): McpServerOptions {
   return {
     url: config.url,
+    timeoutMs: MCP_CONNECT_TIMEOUT_MS,
     ...(config.transport ? { transport: config.transport } : {}),
     ...(config.headers ? { headers: config.headers } : {}),
   };
