@@ -96,7 +96,7 @@ Flue resolves these from its catalog. Set the API key and a comma-separated mode
 ### Custom providers
 
 1. Add the provider ID to `PROVIDERS` (comma-separated for multiple).
-2. Set `PROVIDER_<ID>_BASE_URL`, `PROVIDER_<ID>_API`, and `PROVIDER_<ID>_MODELS`. Optional `PROVIDER_<ID>_API_KEY`.
+2. Set `PROVIDER_<ID>_BASE_URL`, `PROVIDER_<ID>_API`, and `PROVIDER_<ID>_MODELS`. Optional `PROVIDER_<ID>_API_KEY` and `PROVIDER_<ID>_HEADERS`.
 3. Normalise the ID for env var names: `my-gateway` becomes `PROVIDER_MY_GATEWAY_*`.
 4. Use `model: <id>/<model-id>` in Discord, where `<model-id>` comes from `_MODELS`.
 
@@ -112,6 +112,16 @@ PROVIDER_OLLAMA_MODELS=llama3.1:8b
 Common `api` values: `openai-completions`, `openai-responses`, `anthropic-messages`. See the [Flue Provider API](https://github.com/withastro/flue/blob/main/apps/docs/src/content/docs/api/provider-api.md) for the full list.
 
 To route a catalog provider through a proxy, list its ID in `PROVIDERS` and set `PROVIDER_<ID>_BASE_URL` (for example `PROVIDERS=anthropic` with `PROVIDER_ANTHROPIC_BASE_URL=...`). Flue layers your transport on the catalog.
+
+Use `PROVIDER_<ID>_HEADERS` for providers that require custom request headers. The value must be a JSON object with string values:
+
+```env
+PROVIDERS=agent-router
+PROVIDER_AGENT_ROUTER_BASE_URL=https://router.example.com/v1
+PROVIDER_AGENT_ROUTER_API=openai-completions
+PROVIDER_AGENT_ROUTER_MODELS=gpt-5-codex
+PROVIDER_AGENT_ROUTER_HEADERS={"User-Agent":"Threadcord"}
+```
 
 Inside Docker Compose, `localhost` in a provider URL points at the container, not your host. Use `host.docker.internal`, a Compose service name, or host networking.
 

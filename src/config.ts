@@ -65,6 +65,7 @@ export interface CustomProviderConfig {
   baseUrl: string;
   api: string;
   apiKey?: string;
+  headers?: Record<string, string>;
   models: string[];
 }
 
@@ -206,13 +207,45 @@ function parseCustomProvider(
   }
 
   const apiKey = optionalEnv(env[`${prefix}_API_KEY`]);
+  const headers = parseHeadersEnv(env[`${prefix}_HEADERS`], `${prefix}_HEADERS`);
   return {
     id,
     baseUrl,
     api,
     models,
     ...(apiKey ? { apiKey } : {}),
+    ...(headers ? { headers } : {}),
   };
+}
+
+function parseHeadersEnv(
+  value: string | undefined,
+  key: string,
+): Record<string, string> | undefined {
+  const trimmed = optionalEnv(value);
+  if (!trimmed) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error(`${key} must be valid JSON`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${key} must be a JSON object of string header values`);
+  }
+
+  const headers: Record<string, string> = Object.create(null);
+  for (const [headerName, headerValue] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    if (typeof headerValue !== "string") {
+      throw new Error(`${key} must be a JSON object of string header values`);
+    }
+    headers[headerName] = headerValue;
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 function requiredEnv(

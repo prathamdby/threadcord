@@ -169,6 +169,7 @@ function registerProviders(config: AppConfig): void {
       api: provider.api,
       baseUrl: provider.baseUrl,
       ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
+      ...(provider.headers ? { headers: provider.headers } : {}),
     });
   }
 }
