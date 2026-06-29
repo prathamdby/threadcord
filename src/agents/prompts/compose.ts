@@ -1,4 +1,5 @@
 import {
+  APPROACH_CODING,
   DEFAULT_CODING,
   END_TURN_CHECKLIST,
   GIT_WORKFLOW,
@@ -79,6 +80,7 @@ export function composePrompt(input: ComposeInput): string {
       return [
         IDENTITY_CODING,
         WORKSPACE(ctx.cwd, ctx.repo, ctx.baseBranch),
+        APPROACH_CODING,
         SECRETS_CODING,
         REFUSE,
         SECRECY,
