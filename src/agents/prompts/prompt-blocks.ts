@@ -75,7 +75,7 @@ export const END_TURN_CHECKLIST = (
   requiredEnvBlock: string,
 ) => `END_TURN_CHECKLIST
 Run this after any edit and before you push, open a PR, or post the final message.
-1. Diff against the base: \`git diff $(git merge-base origin/${baseBranch} HEAD)..HEAD\`.
+1. Diff against the base, including uncommitted edits: \`git diff $(git merge-base origin/${baseBranch} HEAD)\`.
 2. Empty diff -> skip the rest of the checklist, do not push, do not open a PR.
 3. Non-empty diff -> run every configured check via \`timeout 10m bash -lc '<cmd>'\`:
 ${checksBlock}
