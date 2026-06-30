@@ -7,6 +7,7 @@ import {
   type AgentTurnInput,
   type MachineEnvironment,
 } from "../../src/agentturn/index.js";
+import { FakeMcpRegistry } from "./fake-mcp-registry.js";
 import type { AppConfig } from "../../src/config.js";
 import type {
   SetupEnvironment,
@@ -438,6 +439,7 @@ export class World {
   readonly orchestrator: TaskOrchestrator;
   readonly fakeAgentTurn: FakeAgentTurn;
   readonly fakeMachineEnvironment: FakeMachineEnvironment;
+  readonly fakeMcpRegistry: FakeMcpRegistry;
   readonly dispatched: string[] = [];
   private counter = 0;
 
@@ -447,6 +449,7 @@ export class World {
     overrides: WorldOverrides = {},
   ) {
     this.store = new InMemoryStore(maxConcurrent);
+    this.fakeMcpRegistry = new FakeMcpRegistry();
     this.fakeAgentTurn = new FakeAgentTurn({
       maxConcurrency: maxConcurrent,
       // The orchestrator posts its own restart notices; avoid duplicating them.
@@ -454,6 +457,7 @@ export class World {
       onPrompt: (input) => {
         this.dispatched.push(input.instanceId);
       },
+      mcpRegistry: this.fakeMcpRegistry,
     });
     this.fakeMachineEnvironment = new FakeMachineEnvironment();
     this.orchestrator = new TaskOrchestrator(
@@ -462,6 +466,7 @@ export class World {
       overrides.setupStore ?? fakeSetupStore,
       this.fakeAgentTurn,
       overrides.machineEnvironment ?? this.fakeMachineEnvironment,
+      this.fakeMcpRegistry,
       typingIntervalMs,
     );
   }

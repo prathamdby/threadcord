@@ -1235,6 +1235,7 @@ export class FakeMachineEnvironment implements MachineEnvironment {
 
 export function createDefaultMachineEnvironment(
   config: AppConfig,
+  mcpConfigProvider?: McpConfigProvider,
   deps?: DefaultMachineEnvironmentDependencies,
 ): MachineEnvironment {
   const defaultDeps: DefaultMachineEnvironmentDependencies = {
@@ -1261,5 +1262,8 @@ export function createDefaultMachineEnvironment(
         ),
     },
   };
+  if (mcpConfigProvider) {
+    defaultDeps.mcpConfigProvider = mcpConfigProvider;
+  }
   return new DefaultMachineEnvironment(config, { ...defaultDeps, ...deps });
 }

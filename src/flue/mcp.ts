@@ -122,8 +122,6 @@ export class McpPool {
   }
 }
 
-let mcpPool: McpPool | undefined;
-
 function mcpConnectOptions(config: McpServerConfig): McpServerOptions {
   return {
     url: config.url,
@@ -168,44 +166,4 @@ async function connectWithTimeout(
   }
 }
 
-function getMcpPoolOrThrow(): McpPool {
-  if (!mcpPool) {
-    throw new Error("MCP pool not initialized; call warmMcpPool first");
-  }
-  return mcpPool;
-}
-
-/** Returns the shared pool after startup initialization. */
-export function getMcpPool(): McpPool {
-  return getMcpPoolOrThrow();
-}
-
-/** Initialize the shared MCP pool; connections finish in the background. */
-export function warmMcpPool(servers: McpServerConfig[]): void {
-  const previous = mcpPool;
-  mcpPool = new McpPool(servers);
-  if (previous) {
-    void previous.close();
-  }
-  if (servers.length > 0) {
-    void mcpPool.ready().catch((error) => {
-      console.error("[threadcord] MCP pool warmup failed", error);
-    });
-  }
-}
-
-/** Pooled MCP tools for an agent turn; empty when no servers are configured. */
-export async function getMcpTools(): Promise<ToolDefinition[]> {
-  if (!mcpPool) return [];
-  return mcpPool.tools();
-}
-
-/** Closes the shared MCP pool during application shutdown. */
-export async function closeMcpPool(): Promise<void> {
-  if (!mcpPool) return;
-  const pool = mcpPool;
-  await pool.close();
-  if (mcpPool === pool) {
-    mcpPool = undefined;
-  }
-}
+export { getMcpTools } from "../mcp/registry.js";

@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import type { McpRegistry, McpServerSnapshot } from "../mcp/registry.js";
 import type {
   AgentTurn,
   AgentTurnInput,
+  AgentTurnRole,
   TerminalOutcome,
   TurnEvent,
 } from "./types.js";
@@ -13,6 +15,8 @@ export interface FakeAgentTurnOptions {
   enableRestartNotifications?: boolean;
   /** Called each time a new turn is accepted and started. */
   onPrompt?: (input: AgentTurnInput) => void;
+  /** Registry used to materialize MCP config before each prompt. */
+  mcpRegistry?: McpRegistry;
 }
 
 interface ActiveTurn {
@@ -33,6 +37,11 @@ export class FakeAgentTurn implements AgentTurn {
     threadId: string;
     content: string;
   }[] = [];
+  readonly mcpConfigCalls: {
+    workspacePath: string;
+    role: AgentTurnRole;
+    servers: McpServerSnapshot[];
+  }[] = [];
 
   private readonly handlers = new Set<(event: TurnEvent) => void>();
   private readonly turns = new Map<string, ActiveTurn>();
@@ -40,6 +49,7 @@ export class FakeAgentTurn implements AgentTurn {
   private readonly maxConcurrency: number;
   private readonly enableRestartNotifications: boolean;
   private readonly onPrompt: ((input: AgentTurnInput) => void) | undefined;
+  private readonly mcpRegistry: McpRegistry | undefined;
   private nextBlock:
     | { resolve: () => void; reject: (err: Error) => void }
     | undefined;
@@ -52,6 +62,7 @@ export class FakeAgentTurn implements AgentTurn {
     this.enableRestartNotifications =
       options.enableRestartNotifications ?? true;
     this.onPrompt = options.onPrompt;
+    this.mcpRegistry = options.mcpRegistry;
   }
 
   /** Reject the next prompt() call with a human-readable reason. */
@@ -140,6 +151,28 @@ export class FakeAgentTurn implements AgentTurn {
     this.turns.set(input.instanceId, turn);
     this.prompted.push(input);
     this.onPrompt?.(input);
+
+    if (this.mcpRegistry) {
+      // Always read the live snapshot so the materialized config reflects the
+      // current registry state, including any /mcp add or /mcp remove that happened
+      // while the task was waiting for a follow-up.
+      const servers = await this.mcpRegistry.snapshot();
+      this.mcpConfigCalls.push({
+        workspacePath: input.workspacePath,
+        role: input.role,
+        servers,
+      });
+      // Materialize the agent-specific .mcp.json in the background so prompt
+      // admission is not delayed by disk I/O.
+      void this.mcpRegistry.materializeConfig(input.workspacePath, input.role).catch(
+        (error) => {
+          console.error(
+            "[threadcord] fake AgentTurn MCP materialize failed:",
+            error instanceof Error ? error.message : String(error),
+          );
+        },
+      );
+    }
 
     this.emit({
       type: "turnStarted",

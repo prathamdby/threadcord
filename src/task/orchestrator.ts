@@ -18,6 +18,11 @@ import {
   type TurnEvent,
 } from "../agentturn/index.js";
 import {
+  createNoopMcpRegistry,
+  type McpRegistry,
+  McpRegistryConfigProvider,
+} from "../mcp/registry.js";
+import {
   isPendingThreadId,
   pendingThreadId,
   toFlueInstanceId,
@@ -97,17 +102,24 @@ export class TaskOrchestrator {
   private readonly pendingInitiatorIds = new Map<string, Set<string>>();
   private readonly inFlightTurns = new Map<string, InFlightTurn>();
   private readonly unsubscribeAgentTurn: () => void;
+  private readonly machineEnvironment: MachineEnvironment;
+  private readonly mcpRegistry: McpRegistry;
+  private readonly mcpConfigProvider: McpRegistryConfigProvider;
 
   constructor(
     private readonly config: AppConfig,
     private readonly store: TaskStore,
     private readonly setupStore: SetupStore,
     private readonly agentTurn: AgentTurn = createFlueAgentTurn(),
-    private readonly machineEnvironment: MachineEnvironment = createDefaultMachineEnvironment(
-      config,
-    ),
+    machineEnvironment?: MachineEnvironment,
+    mcpRegistry?: McpRegistry,
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
   ) {
+    this.mcpRegistry = mcpRegistry ?? createNoopMcpRegistry();
+    this.mcpConfigProvider = new McpRegistryConfigProvider(this.mcpRegistry);
+    this.machineEnvironment =
+      machineEnvironment ??
+      createDefaultMachineEnvironment(config, this.mcpConfigProvider);
     this.unsubscribeAgentTurn = this.agentTurn.onEvent((event) =>
       this.handleAgentTurnEvent(event),
     );
@@ -475,6 +487,8 @@ export class TaskOrchestrator {
           `Missing ready setup profile for ${task.repo} on ${task.branch}`,
         );
       }
+
+      this.mcpConfigProvider.setWorkspacePath(task.workspacePath);
 
       const prepareResult = await this.machineEnvironment.prepare({
         instanceId,

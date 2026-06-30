@@ -10,10 +10,9 @@ import {
 } from "discord.js";
 import { clampDiscordContent } from "../discord/limits.js";
 import { summarizeError } from "../util/redact.js";
-import type { McpTransport } from "@flue/runtime";
-import type { McpPool, McpServerConfig } from "../flue/mcp.js";
-import type { McpStore, McpServerRow } from "./store.js";
-import { buildHeaders, validateAddInputs } from "./validation.js";
+import type { McpRegistry } from "./registry.js";
+import type { McpStore } from "./store.js";
+import { validateAddInputs } from "./validation.js";
 
 const MCP_CUSTOM_ID_PREFIX = "mcp:";
 
@@ -24,18 +23,18 @@ function discordContent(content: string): string {
 export async function handleMcpInteraction(input: {
   interaction: Interaction;
   store: McpStore;
-  pool: McpPool;
+  registry: McpRegistry;
 }): Promise<boolean> {
-  const { interaction, store, pool } = input;
+  const { interaction, store, registry } = input;
   if (interaction.isChatInputCommand() && interaction.commandName === "mcp") {
-    await handleMcpCommand(interaction, store, pool);
+    await handleMcpCommand(interaction, store, registry);
     return true;
   }
   if (
     interaction.isModalSubmit() &&
     interaction.customId.startsWith(`${MCP_CUSTOM_ID_PREFIX}add:`)
   ) {
-    await handleMcpModal(interaction, store, pool);
+    await handleMcpModal(interaction, store, registry);
     return true;
   }
   return false;
@@ -44,7 +43,7 @@ export async function handleMcpInteraction(input: {
 async function handleMcpCommand(
   interaction: ChatInputCommandInteraction,
   store: McpStore,
-  pool: McpPool,
+  registry: McpRegistry,
 ): Promise<void> {
   const subcommand = interaction.options.getSubcommand();
   try {
@@ -53,7 +52,7 @@ async function handleMcpCommand(
       return;
     }
     if (subcommand === "remove") {
-      await handleRemove(interaction, store, pool);
+      await handleRemove(interaction, store, registry);
       return;
     }
     if (subcommand === "list") {
@@ -72,15 +71,14 @@ async function handleMcpCommand(
 async function handleRemove(
   interaction: ChatInputCommandInteraction,
   store: McpStore,
-  pool: McpPool,
+  registry: McpRegistry,
 ): Promise<void> {
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   }
   const id = interaction.options.getString("id", true).trim();
   const existing = await store.getServer(id);
-  const removedFromPool = await pool.removeServer(id);
-  if (!existing && !removedFromPool) {
+  if (!existing) {
     await interaction.editReply(
       discordContent(`MCP server \`${id}\` not found.`),
     );
@@ -88,27 +86,11 @@ async function handleRemove(
   }
 
   try {
-    const removedFromDb = await store.removeServer(id);
-    if (removedFromDb || removedFromPool) {
-      await interaction.editReply(
-        discordContent(`Removed MCP server \`${id}\`.`),
-      );
-      return;
-    }
+    await registry.removeServer(id);
     await interaction.editReply(
-      discordContent(`MCP server \`${id}\` not found.`),
+      discordContent(`Removed MCP server \`${id}\`.`),
     );
   } catch (error) {
-    if (existing && removedFromPool) {
-      try {
-        await pool.addServer(serverRowToPoolConfig(existing));
-      } catch (rollbackError) {
-        console.warn(
-          `[threadcord] Failed to restore MCP server "${id}" after remove error`,
-          rollbackError,
-        );
-      }
-    }
     await interaction.editReply(
       discordContent(
         `Failed to remove MCP server \`${id}\`: ${summarizeError(error)}`,
@@ -141,7 +123,7 @@ async function handleList(
 async function handleMcpModal(
   interaction: ModalSubmitInteraction,
   store: McpStore,
-  pool: McpPool,
+  registry: McpRegistry,
 ): Promise<void> {
   if (!interaction.customId.startsWith(`${MCP_CUSTOM_ID_PREFIX}add:`)) {
     await interaction.reply({
@@ -204,40 +186,20 @@ async function handleMcpModal(
     } else if (await store.getServer(id)) {
       replyContent = `MCP server \`${id}\` already exists.`;
     } else {
-      const { config } = validated;
+      const input = {
+        id,
+        url,
+        ...(validated.config.transport
+          ? { transport: validated.config.transport }
+          : {}),
+        ...(validated.customHeaders
+          ? { headers: validated.customHeaders }
+          : {}),
+        ...(validated.token ? { token: validated.token } : {}),
+      };
       try {
-        const connection = await pool.addServer(config);
-        const toolCount = connection.tools.length;
-        try {
-          await store.addServer({
-            id,
-            url,
-            ...(validated.config.transport
-              ? { transport: validated.config.transport }
-              : {}),
-            ...(validated.customHeaders
-              ? { headers: validated.customHeaders }
-              : {}),
-            ...(validated.token ? { token: validated.token } : {}),
-          });
-          replyContent = `MCP server \`${id}\` connected (${toolCount} tool${toolCount === 1 ? "" : "s"} available).`;
-        } catch (error) {
-          let rollbackFailed = false;
-          try {
-            await pool.removeServer(id);
-          } catch (rollbackError) {
-            rollbackFailed = true;
-            console.warn(
-              `[threadcord] Failed to roll back MCP server "${id}" after save error`,
-              rollbackError,
-            );
-          }
-          replyContent = `Connected but failed to save: ${summarizeError(error)}`;
-          if (rollbackFailed) {
-            replyContent +=
-              " (cleanup failed; server may still be connected in memory).";
-          }
-        }
+        const { toolCount } = await registry.addServer(input);
+        replyContent = `MCP server \`${id}\` connected (${toolCount} tool${toolCount === 1 ? "" : "s"} available).`;
       } catch (error) {
         replyContent = `Failed to connect to MCP server \`${id}\`: ${summarizeError(error)}`;
       }
@@ -251,16 +213,6 @@ async function handleMcpModal(
     .catch((error) => {
       console.warn("[threadcord] Failed to edit MCP modal reply", error);
     });
-}
-
-function serverRowToPoolConfig(row: McpServerRow): McpServerConfig {
-  const mergedHeaders = buildHeaders(row.headers, row.token);
-  return {
-    id: row.id,
-    url: row.url,
-    ...(row.transport ? { transport: row.transport as McpTransport } : {}),
-    ...(mergedHeaders ? { headers: mergedHeaders } : {}),
-  };
 }
 
 function mcpAddModal(userId: string): ModalBuilder {

@@ -5,6 +5,7 @@ import {
   AgentOs,
   createHostDirBackend,
   nodeModulesMount,
+  type McpServerConfig as AgentOsMcpServerConfig,
 } from "@rivet-dev/agentos-core";
 import pi from "@agentos-software/pi";
 import type { AgentOsSessionEvent } from "../discord/session-event-bridge.js";
@@ -13,6 +14,7 @@ import type { AppConfig } from "../config.js";
 import { createCodingToolKit, createSetupToolKit } from "../bindings/toolkits.js";
 import { createBindingsHost } from "../bindings/host.js";
 import type { BindingsHostDependencies } from "../bindings/host.js";
+import type { McpRegistry } from "../mcp/registry.js";
 import type { MachineEnvironment } from "./machine-environment.js";
 import type {
   AgentTurn,
@@ -45,6 +47,8 @@ export interface AgentOsAgentTurnDependencies {
   sidecarBinPath?: string;
   /** Dependencies for constructing Threadcord host bindings (Discord, GitHub, setup, etc.). When provided, toolkits are registered with the AgentOS VM. */
   bindingsHost?: BindingsHostDependencies;
+  /** Reads the global MCP registry and materializes the agent-specific config before each prompt. */
+  mcpRegistry?: McpRegistry;
 }
 
 interface ActiveSession {
@@ -99,7 +103,18 @@ export class AgentOsAgentTurn implements AgentTurn {
       const guestCheckoutPath = join(guestWorkspacePath, basename(input.repo));
 
       await this.createAgentOs(input);
-      const sessionId = await this.createSession(guestCheckoutPath, input);
+      const mcpServers =
+        input.role === "coding"
+          ? await this.deps.mcpRegistry?.materializeConfig(
+              input.workspacePath,
+              input.role,
+            ) ?? []
+          : [];
+      const sessionId = await this.createSession(
+        guestCheckoutPath,
+        input,
+        mcpServers,
+      );
       const session: ActiveSession = {
         sessionId,
         turnId,
@@ -268,6 +283,7 @@ export class AgentOsAgentTurn implements AgentTurn {
   private async createSession(
     guestCheckoutPath: string,
     input: AgentTurnInput,
+    mcpServers: AgentOsMcpServerConfig[],
   ): Promise<string> {
     const env: Record<string, string> = {
       ...(input.env ?? {}),
@@ -277,6 +293,7 @@ export class AgentOsAgentTurn implements AgentTurn {
     const { sessionId } = await this.agentOs!.createSession("pi", {
       cwd: guestCheckoutPath,
       env,
+      mcpServers,
       additionalInstructions: "Be concise and follow the task instruction.",
     });
     return sessionId;
