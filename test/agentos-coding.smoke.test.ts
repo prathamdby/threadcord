@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { AgentOs } from "@rivet-dev/agentos-core";
 import {
   AgentOsAgentTurn,
   FakeMachineEnvironment,
@@ -9,7 +10,9 @@ import {
   type ResourceSnapshot,
   type TurnEvent,
 } from "../src/agentturn/index.js";
+import type { AgentOsAcpEvent } from "../src/agentturn/agentos-event-mapper.js";
 import type { AgentOsSessionEvent } from "../src/discord/session-event-bridge.js";
+import { World, flush } from "./support/orchestrator-harness.js";
 
 /**
  * AgentOS coding turn tracer bullet.
@@ -61,6 +64,83 @@ function buildResourceSnapshot(): ResourceSnapshot {
     sidecarCount: 0,
     activeVmCount: 0,
   };
+}
+
+class FakeAgentOs {
+  readonly createSessionCalls: { software: string; opts: unknown }[] = [];
+  readonly promptCalls: { sessionId: string; instruction: string }[] = [];
+  private readonly handlers = new Map<
+    string,
+    (event: AgentOsAcpEvent) => void
+  >();
+  private blockNext = false;
+  private blockResolve: (() => void) | undefined;
+  private blockReject: ((err: Error) => void) | undefined;
+
+  async createSession(
+    software: string,
+    opts: unknown,
+  ): Promise<{ sessionId: string }> {
+    this.createSessionCalls.push({ software, opts });
+    return { sessionId: "session-1" };
+  }
+
+  async prompt(
+    sessionId: string,
+    instruction: string,
+  ): Promise<{ response: { result?: unknown }; text: string }> {
+    this.promptCalls.push({ sessionId, instruction });
+    if (this.blockNext) {
+      this.blockNext = false;
+      await new Promise<void>((resolve, reject) => {
+        this.blockResolve = resolve;
+        this.blockReject = reject;
+      });
+    }
+    return { response: { result: { stopReason: "end_turn" } }, text: "done" };
+  }
+
+  onSessionEvent(
+    sessionId: string,
+    handler: (event: AgentOsAcpEvent) => void,
+  ): () => void {
+    this.handlers.set(sessionId, handler);
+    return () => this.handlers.delete(sessionId);
+  }
+
+  /**
+   * Block the next prompt() call until release() is called.
+   */
+  blockNextPrompt(): { release: () => void } {
+    this.blockNext = true;
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      this.blockResolve?.();
+      this.blockResolve = undefined;
+      this.blockReject = undefined;
+    };
+    return { release };
+  }
+
+  async cancelSession(): Promise<void> {}
+  async closeSession(): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+function waitForTerminal(
+  agentTurn: AgentOsAgentTurn,
+  instanceId: string,
+): Promise<Extract<TurnEvent, { type: "terminal" }>> {
+  return new Promise((resolve) => {
+    const unsubscribe = agentTurn.onEvent((event) => {
+      if (event.type === "terminal" && event.instanceId === instanceId) {
+        unsubscribe();
+        resolve(event as Extract<TurnEvent, { type: "terminal" }>);
+      }
+    });
+  });
 }
 
 describe.skipIf(!process.env.AGENTOS_SMOKE)("AgentOS coding turn", () => {
@@ -120,6 +200,7 @@ describe.skipIf(!process.env.AGENTOS_SMOKE)("AgentOS coding turn", () => {
       const unsubscribe = agentTurn.onEvent((event) => events.push(event));
 
       const result = await agentTurn.prompt(input);
+      const terminal = await waitForTerminal(agentTurn, input.instanceId);
       expect(result).toEqual({ accepted: true });
 
       expect(events.length).toBeGreaterThanOrEqual(2);
@@ -130,15 +211,13 @@ describe.skipIf(!process.env.AGENTOS_SMOKE)("AgentOS coding turn", () => {
         attemptId: expect.any(String),
       });
 
-      const terminal = events[events.length - 1];
-      expect(terminal?.type).toBe("terminal");
       expect(terminal).toMatchObject({
         type: "terminal",
         instanceId: input.instanceId,
         outcome: expect.any(String),
       });
       expect(["completed", "cancelled", "failed", "aborted"]).toContain(
-        terminal?.type === "terminal" ? terminal.outcome : undefined,
+        terminal.outcome,
       );
 
       // At least one progress event was streamed through the bridge.
@@ -258,12 +337,54 @@ describe.skipIf(!process.env.AGENTOS_SMOKE)("AgentOS coding turn", () => {
       const events: TurnEvent[] = [];
       const unsubscribe = agentTurn.onEvent((event) => events.push(event));
       const result = await agentTurn.prompt(input);
+      const terminal = await waitForTerminal(agentTurn, input.instanceId);
 
       expect(result).toEqual({ accepted: true });
-      const terminal = events[events.length - 1];
-      expect(terminal?.type).toBe("terminal");
+      expect(terminal).toMatchObject({
+        type: "terminal",
+        instanceId: input.instanceId,
+      });
 
       unsubscribe();
+    },
+    120_000,
+  );
+
+  it(
+    "VAL-AGENTTURN-023: orchestrator-backed task transitions back to waiting after terminal completion",
+    async () => {
+      const fakeAgentOs = new FakeAgentOs();
+      const agentOsAgentTurn = new AgentOsAgentTurn({
+        machineEnvironment: machineEnv,
+        logger,
+        nodeModulesPath: resolve(process.cwd(), "node_modules"),
+        getCredentials: () => ({ ANTHROPIC_API_KEY: DUMMY_KEY }),
+        agentOsFactory: {
+          create: async () => fakeAgentOs as unknown as AgentOs,
+        },
+      });
+
+      const world = new World(1, 9000, {
+        machineEnvironment: machineEnv,
+        agentTurn: agentOsAgentTurn,
+      });
+
+      const { release } = fakeAgentOs.blockNextPrompt();
+      const result = await world.submitRaw("m-orchestrator-waiting");
+      const task = result.task;
+      expect(task).toBeDefined();
+      // The fake AgentOS prompt is blocked, so the task stays running while
+      // the turn executes.
+      expect(world.store.snapshot(task!.id).status).toBe("running");
+
+      release();
+      await flush();
+
+      // After the terminal event is emitted, the orchestrator transitions the
+      // task back to waiting.
+      expect(world.store.snapshot(task!.id).status).toBe("waiting");
+
+      await agentOsAgentTurn.resumeAfterRestart(async () => {});
     },
     120_000,
   );

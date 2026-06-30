@@ -105,6 +105,7 @@ export class AgentOsAgentTurn implements AgentTurn {
       };
     }
 
+    let turnStartedEmitted = false;
     try {
       const turnId = makeId("turn");
       const attemptId = makeId("attempt");
@@ -140,33 +141,22 @@ export class AgentOsAgentTurn implements AgentTurn {
         turnId,
         attemptId,
       });
+      turnStartedEmitted = true;
 
-      await this.deps.machineEnvironment?.logResourceSample(
-        "start",
-        input.instanceId,
-      );
-
-      const unsubscribe = this.agentOs!.onSessionEvent(
-        sessionId,
-        (event) => {
-          this.handleAcpEvent(session, event as AgentOsAcpEvent);
-        },
-      );
-
-      let result;
-      try {
-        result = await this.agentOs!.prompt(sessionId, input.instruction);
-      } finally {
-        unsubscribe();
-      }
-
-      await this.deps.machineEnvironment?.logResourceSample(
-        "end",
-        input.instanceId,
-      );
-
-      const terminal = buildTerminalEvent(input.instanceId, result);
-      this.emit(terminal);
+      // Run the AgentOS session in the background so prompt() returns as soon
+      // as the turn has started. The orchestrator commits the task to running
+      // after prompt() accepts, and the terminal event is emitted later, when
+      // the agent finishes.
+      void this.executeSession(input, session).catch((error) => {
+        const summary = error instanceof Error ? error.message : String(error);
+        this.deps.logger?.log("error", "agentos-session-failed", {
+          instanceId: input.instanceId,
+          summary,
+        });
+        this.deps.machineEnvironment?.logResourceSample("end", input.instanceId)
+          .catch(() => {});
+        this.emitTerminal(input.instanceId, "failed", summary);
+      });
 
       return { accepted: true };
     } catch (error) {
@@ -175,8 +165,50 @@ export class AgentOsAgentTurn implements AgentTurn {
         "end",
         input.instanceId,
       );
+      if (!turnStartedEmitted) {
+        return { accepted: false, reason: summary };
+      }
       this.emitTerminal(input.instanceId, "failed", summary);
       return { accepted: true };
+    }
+  }
+
+  private async executeSession(
+    input: AgentTurnInput,
+    session: ActiveSession,
+  ): Promise<void> {
+    await this.deps.machineEnvironment?.logResourceSample(
+      "start",
+      input.instanceId,
+    );
+
+    const unsubscribe = this.agentOs!.onSessionEvent(
+      session.sessionId,
+      (event) => {
+        this.handleAcpEvent(session, event as AgentOsAcpEvent);
+      },
+    );
+
+    try {
+      const result = await this.agentOs!.prompt(
+        session.sessionId,
+        input.instruction,
+      );
+      await this.deps.machineEnvironment?.logResourceSample(
+        "end",
+        input.instanceId,
+      );
+      const terminal = buildTerminalEvent(input.instanceId, result);
+      this.emit(terminal);
+    } catch (error) {
+      const summary = error instanceof Error ? error.message : String(error);
+      await this.deps.machineEnvironment?.logResourceSample(
+        "end",
+        input.instanceId,
+      );
+      this.emitTerminal(input.instanceId, "failed", summary);
+    } finally {
+      unsubscribe();
     }
   }
 

@@ -3,7 +3,7 @@ import { AgentOs } from "@rivet-dev/agentos-core";
 import { AgentOsAgentTurn } from "../src/agentturn/agentos.js";
 import type { AgentOsCreateOptions } from "../src/agentturn/agentos.js";
 import type { AgentOsAcpEvent } from "../src/agentturn/agentos-event-mapper.js";
-import type { AgentTurnInput } from "../src/agentturn/types.js";
+import type { AgentTurnInput, TurnEvent } from "../src/agentturn/types.js";
 
 const baseInput: AgentTurnInput = {
   instanceId: "discord:thread:thread-1",
@@ -48,6 +48,26 @@ class FakeAgentOs {
   async cancelSession(): Promise<void> {}
   async closeSession(): Promise<void> {}
   async dispose(): Promise<void> {}
+}
+
+class ThrowingOnCreateSessionAgentOs extends FakeAgentOs {
+  async createSession(): Promise<{ sessionId: string }> {
+    throw new Error("createSession failed before turnStarted");
+  }
+}
+
+function waitForTerminal(
+  agentTurn: AgentOsAgentTurn,
+  instanceId: string,
+): Promise<Extract<TurnEvent, { type: "terminal" }>> {
+  return new Promise((resolve) => {
+    const unsubscribe = agentTurn.onEvent((event) => {
+      if (event.type === "terminal" && event.instanceId === instanceId) {
+        unsubscribe();
+        resolve(event as Extract<TurnEvent, { type: "terminal" }>);
+      }
+    });
+  });
 }
 
 function createHarness({
@@ -143,14 +163,21 @@ describe("AgentOsAgentTurn setup role", () => {
     const events: { type: string }[] = [];
     agentTurn.onEvent((event) => events.push(event as { type: string }));
 
-    const result = await agentTurn.prompt({
+    const input = {
       ...baseInput,
-      role: "setup",
+      role: "setup" as const,
       instanceId: "setup:run-1",
-    });
+    };
+    const result = await agentTurn.prompt(input);
+    const terminal = await waitForTerminal(agentTurn, input.instanceId);
 
     expect(result.accepted).toBe(true);
     expect(events.map((e) => e.type)).toEqual(["turnStarted", "terminal"]);
+    expect(terminal).toMatchObject({
+      type: "terminal",
+      instanceId: input.instanceId,
+      outcome: "completed",
+    });
     expect(fakeAgentOs.promptCalls).toHaveLength(1);
     expect(fakeAgentOs.promptCalls[0]!.instruction).toBe(baseInput.instruction);
   });
@@ -187,5 +214,26 @@ describe("AgentOsAgentTurn setup role", () => {
     const options = factoryCalls[0]!;
     expect(options.toolKits).toHaveLength(1);
     expect(options.toolKits![0]!.name).toBe("threadcord-coding");
+  });
+});
+
+describe("AgentOsAgentTurn pre-start failures", () => {
+  it("returns typed rejection and does not emit terminal when createSession fails before turnStarted", async () => {
+    const fakeAgentOs = new ThrowingOnCreateSessionAgentOs();
+    const agentTurn = new AgentOsAgentTurn({
+      agentOsFactory: {
+        create: async () => fakeAgentOs as unknown as AgentOs,
+      },
+    });
+    const events: TurnEvent[] = [];
+    agentTurn.onEvent((event) => events.push(event));
+
+    const result = await agentTurn.prompt(baseInput);
+
+    expect(result.accepted).toBe(false);
+    if (!result.accepted) {
+      expect(result.reason).toContain("createSession failed before turnStarted");
+    }
+    expect(events).toHaveLength(0);
   });
 });

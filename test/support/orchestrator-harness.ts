@@ -432,6 +432,7 @@ export interface SubmitResult {
 export interface WorldOverrides {
   machineEnvironment?: MachineEnvironment;
   setupStore?: SetupStore;
+  agentTurn?: AgentTurn;
 }
 
 export class World {
@@ -464,7 +465,7 @@ export class World {
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
       overrides.setupStore ?? fakeSetupStore,
-      this.fakeAgentTurn,
+      overrides.agentTurn ?? this.fakeAgentTurn,
       overrides.machineEnvironment ?? this.fakeMachineEnvironment,
       this.fakeMcpRegistry,
       typingIntervalMs,
