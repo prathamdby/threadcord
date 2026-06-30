@@ -5,11 +5,18 @@ import {
   FakeMachineEnvironment,
   MemoryEnvironmentIssueStore,
   validateEnvironmentIssue,
+  type CommandExecutor,
+  type CommandResult,
+  type DefaultMachineEnvironmentDependencies,
   type EnvironmentIssue,
+  type FilesystemSnapshot,
+  type MachineEnvironmentConfig,
   type ResourceSnapshot,
+  type ServiceProbe,
+  type SidecarInfo,
 } from "../src/agentturn/machine-environment.js";
 import type { TaskRecord } from "../src/types.js";
-import type { SetupProfile } from "../src/setup/profile.js";
+import type { SetupEnvironment, SetupProfile } from "../src/setup/profile.js";
 import { World, flush } from "./support/orchestrator-harness.js";
 
 const baseTask: TaskRecord = {
@@ -51,7 +58,7 @@ function makeInput(
   overrides: {
     task?: Partial<TaskRecord>;
     source?: "initial" | "followup";
-    setupProfile?: Partial<SetupProfile>;
+    setupProfile?: Partial<Omit<SetupProfile, "environment"> & { environment?: Partial<SetupEnvironment> }>;
   } = {},
 ) {
   const task = { ...baseTask, ...overrides.task };
@@ -67,6 +74,98 @@ function makeInput(
     source: overrides.source ?? "initial",
     setupProfile: profile,
     model: task.model,
+  };
+}
+
+const defaultResourceSnapshot: ResourceSnapshot = {
+  rssBytes: 0,
+  freeMemoryMb: Number.MAX_SAFE_INTEGER,
+  freeDiskMb: Number.MAX_SAFE_INTEGER,
+  loadAverage: [0, 0, 0],
+  workspaceSizeBytes: 0,
+  sidecarCount: 0,
+  activeVmCount: 0,
+};
+
+const defaultFilesystemSnapshot: FilesystemSnapshot = {
+  workspaceExists: true,
+  workspaceWritable: true,
+  checkoutExists: true,
+  installMarker: true,
+};
+
+const defaultSidecarInfo: SidecarInfo = {
+  path: "/opt/agentos-sidecar",
+  executable: true,
+  arch: "arm64",
+};
+
+function makeDefaultEnv(
+  deps: Partial<{
+    config: Partial<MachineEnvironmentConfig>;
+    bootstrapper: { bootstrap: (task: TaskRecord, mode: "initial" | "continue") => Promise<string> };
+    installRunner: { run: (workspacePath: string, checkoutPath: string, installCommand: string, githubToken: string) => Promise<void> };
+    skillsInstallRunner: { run: (workspacePath: string, checkoutPath: string, skillLinks: string[], githubToken: string) => Promise<void> };
+    resourceSnapshotProvider: { getSnapshot: () => Promise<ResourceSnapshot> };
+    filesystemSnapshotProvider: { getSnapshot: (workspacePath: string, checkoutPath: string) => Promise<FilesystemSnapshot> };
+    commandExecutor: CommandExecutor;
+    sidecarResolver: { resolve: () => Promise<SidecarInfo> };
+    mcpConfigProvider: { getPath: () => Promise<string>; parse: () => Promise<unknown> };
+    credentialsProvider: { hasCredentials: (model: string) => Promise<boolean> };
+    serviceProbe: ServiceProbe;
+  }> = {},
+) {
+  const config: MachineEnvironmentConfig = {
+    maxActiveVms: 2,
+    reservedSystemMemoryMb: 4096,
+    minFreeDiskMb: 2048,
+    sandboxEnabled: false,
+    githubToken: "token",
+    ...deps.config,
+  };
+  const envDeps: DefaultMachineEnvironmentDependencies = {};
+  envDeps.bootstrapper = deps.bootstrapper ?? {
+    bootstrap: async () => "/ignored/bootstrap-return",
+  };
+  envDeps.installRunner = deps.installRunner ?? {
+    run: async () => {},
+  };
+  if (deps.installRunner) envDeps.installRunner = deps.installRunner;
+  if (deps.skillsInstallRunner) envDeps.skillsInstallRunner = deps.skillsInstallRunner;
+  envDeps.resourceSnapshotProvider = {
+    getSnapshot: async () =>
+      deps.resourceSnapshotProvider?.getSnapshot() ?? defaultResourceSnapshot,
+  };
+  envDeps.filesystemSnapshotProvider = {
+    getSnapshot: async (workspacePath, checkoutPath) =>
+      deps.filesystemSnapshotProvider?.getSnapshot(workspacePath, checkoutPath) ??
+      defaultFilesystemSnapshot,
+  };
+  if (deps.commandExecutor) envDeps.commandExecutor = deps.commandExecutor;
+  envDeps.sidecarResolver = {
+    resolve: async () => deps.sidecarResolver?.resolve() ?? defaultSidecarInfo,
+  };
+  if (deps.mcpConfigProvider) envDeps.mcpConfigProvider = deps.mcpConfigProvider;
+  envDeps.credentialsProvider = {
+    hasCredentials: async (model) =>
+      deps.credentialsProvider?.hasCredentials(model) ?? true,
+  };
+  if (deps.serviceProbe) envDeps.serviceProbe = deps.serviceProbe;
+  return new DefaultMachineEnvironment(config, envDeps);
+}
+
+function recordingInstallRunner(): {
+  runner: { run: (workspacePath: string, checkoutPath: string, installCommand: string, githubToken: string) => Promise<void> };
+  calls: { workspacePath: string; checkoutPath: string; installCommand: string }[];
+} {
+  const calls: { workspacePath: string; checkoutPath: string; installCommand: string }[] = [];
+  return {
+    runner: {
+      run: async (workspacePath, checkoutPath, installCommand) => {
+        calls.push({ workspacePath, checkoutPath, installCommand });
+      },
+    },
+    calls,
   };
 }
 
@@ -373,6 +472,60 @@ describe("MachineEnvironment contract", () => {
     expect(resultA.env.NPM_CONFIG_PREFIX).toBe("/workspaces/task-a/.npm-global");
     expect(resultB.env.NPM_CONFIG_PREFIX).toBe("/workspaces/task-b/.npm-global");
   });
+
+  it("fails readiness when a setup check command exits non-zero on initial turn", async () => {
+    const env = new FakeMachineEnvironment({
+      commandResults: { "npm run verify": { exitCode: 1, stdout: "", stderr: "not found" } },
+    });
+    const result = await env.prepare(
+      makeInput({ setupProfile: { environment: { checks: { verify: "npm run verify" } } } }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("setup check verify failed");
+    expect(result.issue?.kind).toBe("toolchain_failure");
+  });
+
+  it("skips setup check commands on follow-up turns", async () => {
+    const env = new FakeMachineEnvironment({
+      commandResults: { "npm run verify": { exitCode: 1, stdout: "", stderr: "not found" } },
+    });
+    const result = await env.prepare(
+      makeInput({
+        source: "followup",
+        setupProfile: { environment: { checks: { verify: "npm run verify" } } },
+      }),
+    );
+
+    expect(result.ready).toBe(true);
+  });
+
+  it("fails readiness when a required environment variable is missing", async () => {
+    const env = new FakeMachineEnvironment();
+    const result = await env.prepare(
+      makeInput({ setupProfile: { environment: { requiredEnv: ["MISSING_TEST_VAR"] } } }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("MISSING_TEST_VAR");
+    expect(result.issue?.kind).toBe("missing_env");
+  });
+
+  it("fails readiness when a required service is unreachable", async () => {
+    const env = new FakeMachineEnvironment({
+      serviceReachability: { "localhost:5432": false },
+    });
+    const result = await env.prepare(
+      makeInput({ setupProfile: { environment: { requiredServices: ["localhost:5432"] } } }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("localhost:5432");
+    expect(result.issue?.kind).toBe("blocked_network");
+  });
 });
 
 describe("MachineEnvironment orchestrator seam", () => {
@@ -473,5 +626,92 @@ describe("DefaultMachineEnvironment with fake snapshots", () => {
     );
     const returned = await env.getResourceSnapshot();
     expect(returned).toEqual(snapshot);
+  });
+
+  it("uses task workspace root for install, not bootstrapper return value", async () => {
+    const { runner, calls } = recordingInstallRunner();
+    const env = makeDefaultEnv({
+      bootstrapper: {
+        bootstrap: async () => "/bootstrapper/returned/checkout",
+      },
+      installRunner: runner,
+    });
+    const result = await env.prepare(makeInput({ source: "initial" }));
+
+    expect(result.ready).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.workspacePath).toBe("/workspaces/task-1");
+    expect(calls[0]?.checkoutPath).toBe("/workspaces/task-1/web");
+    expect(calls[0]?.installCommand).toBe("npm ci");
+  });
+
+  it("fails readiness when a setup check command exits non-zero", async () => {
+    const env = makeDefaultEnv({
+      commandExecutor: {
+        run: async (command) => {
+          if (command === "npm run verify") {
+            return { exitCode: 1, stdout: "", stderr: "verify failed" };
+          }
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    });
+    const result = await env.prepare(
+      makeInput({ setupProfile: { environment: { checks: { verify: "npm run verify" } } } }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("setup check verify failed");
+    expect(result.issue?.kind).toBe("toolchain_failure");
+  });
+
+  it("fails readiness when a required environment variable is missing", async () => {
+    const env = makeDefaultEnv();
+    const result = await env.prepare(
+      makeInput({ setupProfile: { environment: { requiredEnv: ["MISSING_TEST_VAR"] } } }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("MISSING_TEST_VAR");
+    expect(result.issue?.kind).toBe("missing_env");
+  });
+
+  it("fails readiness when a required service is unreachable", async () => {
+    const env = makeDefaultEnv({
+      serviceProbe: {
+        check: async () => false,
+      },
+    });
+    const result = await env.prepare(
+      makeInput({ setupProfile: { environment: { requiredServices: ["localhost:5432"] } } }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("localhost:5432");
+    expect(result.issue?.kind).toBe("blocked_network");
+  });
+
+  it("does not run setup profile checks on follow-up turns", async () => {
+    let checkCommandRun = false;
+    const env = makeDefaultEnv({
+      commandExecutor: {
+        run: async (command) => {
+          if (command === "npm run verify") checkCommandRun = true;
+          return { exitCode: 1, stdout: "", stderr: "verify failed" };
+        },
+      },
+    });
+    const result = await env.prepare(
+      makeInput({
+        source: "followup",
+        setupProfile: { environment: { checks: { verify: "npm run verify" } } },
+      }),
+    );
+
+    expect(result.ready).toBe(true);
+    expect(checkCommandRun).toBe(false);
   });
 });

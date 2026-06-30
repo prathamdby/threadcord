@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createConnection } from "node:net";
 import { basename, join } from "node:path";
 import { z } from "zod";
 import type { TaskRecord } from "../types.js";
@@ -163,6 +164,10 @@ export interface CredentialsProvider {
   hasCredentials(model: string): Promise<boolean>;
 }
 
+export interface ServiceProbe {
+  check(host: string, port: number): Promise<boolean>;
+}
+
 export interface WorkspaceBootstrapper {
   bootstrap(task: TaskRecord, mode: BootstrapMode): Promise<string>;
 }
@@ -250,6 +255,7 @@ export interface DefaultMachineEnvironmentDependencies {
   sidecarResolver?: SidecarResolver;
   mcpConfigProvider?: McpConfigProvider;
   credentialsProvider?: CredentialsProvider;
+  serviceProbe?: ServiceProbe;
   issueStore?: EnvironmentIssueStore;
   logger?: Logger;
 }
@@ -265,6 +271,7 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
   private readonly sidecarResolver: SidecarResolver;
   private readonly mcpConfigProvider: McpConfigProvider | undefined;
   private readonly credentialsProvider: CredentialsProvider;
+  private readonly serviceProbe: ServiceProbe;
   private readonly issueStore: EnvironmentIssueStore | undefined;
   private readonly logger: Logger;
 
@@ -288,6 +295,7 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
     this.mcpConfigProvider = deps.mcpConfigProvider;
     this.credentialsProvider =
       deps.credentialsProvider ?? defaultCredentialsProvider();
+    this.serviceProbe = deps.serviceProbe ?? defaultServiceProbe();
     this.issueStore = deps.issueStore;
     this.logger = deps.logger ?? consoleLogger();
   }
@@ -328,19 +336,16 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
     const checkoutPath = join(input.task.workspacePath, basename(input.task.repo));
 
     if (input.source === "initial") {
-      const workspacePath = await this.bootstrapper.bootstrap(
-        input.task,
-        "initial",
-      );
+      await this.bootstrapper.bootstrap(input.task, "initial");
       await this.installRunner.run(
-        workspacePath,
+        input.task.workspacePath,
         checkoutPath,
         input.setupProfile.environment.install,
         this.config.githubToken,
       );
       if (input.setupProfile.environment.skills) {
         await this.skillsInstallRunner?.run(
-          workspacePath,
+          input.task.workspacePath,
           checkoutPath,
           input.setupProfile.environment.skills,
           this.config.githubToken,
@@ -358,6 +363,7 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
       sidecarResolver: this.sidecarResolver,
       mcpConfigProvider: this.mcpConfigProvider,
       credentialsProvider: this.credentialsProvider,
+      serviceProbe: this.serviceProbe,
       config: this.config,
     });
 
@@ -446,6 +452,26 @@ function defaultSidecarResolver(): SidecarResolver {
 function defaultCredentialsProvider(): CredentialsProvider {
   return {
     hasCredentials: async () => true,
+  };
+}
+
+function defaultServiceProbe(): ServiceProbe {
+  return {
+    check: async (host, port) => {
+      return new Promise((resolve) => {
+        const socket = createConnection(port, host);
+        let settled = false;
+        const finish = (value: boolean): void => {
+          if (settled) return;
+          settled = true;
+          socket.destroy();
+          resolve(value);
+        };
+        socket.on("connect", () => finish(true));
+        socket.on("error", () => finish(false));
+        socket.setTimeout(5000, () => finish(false));
+      });
+    },
   };
 }
 
@@ -551,6 +577,7 @@ interface ReadinessProbeContext {
   sidecarResolver: SidecarResolver;
   mcpConfigProvider: McpConfigProvider | undefined;
   credentialsProvider: CredentialsProvider;
+  serviceProbe: ServiceProbe;
   config: MachineEnvironmentConfig;
 }
 
@@ -600,22 +627,114 @@ async function runReadinessProbe(
     };
   }
 
-  if (input.source === "initial" && !fs.installMarker) {
-    return {
-      ok: false,
-      failure: {
-        ready: false,
-        reason: "setup install has not run",
-        issue: {
-          id: `env-issue-${randomUUID()}`,
-          severity: "error",
-          kind: "missing_package",
-          message: `Setup install command has not completed for ${input.task.workspacePath}.`,
-          suggestedAction: "Re-run the setup install step.",
-          createdAt: new Date(),
+  const runFullProbe = input.source === "initial" && input.role === "coding";
+
+  if (runFullProbe) {
+    if (!fs.installMarker) {
+      return {
+        ok: false,
+        failure: {
+          ready: false,
+          reason: "setup install has not run",
+          issue: {
+            id: `env-issue-${randomUUID()}`,
+            severity: "error",
+            kind: "missing_package",
+            message: `Setup install command has not completed for ${input.task.workspacePath}.`,
+            suggestedAction: "Re-run the setup install step.",
+            createdAt: new Date(),
+          },
         },
-      },
-    };
+      };
+    }
+
+    for (const [name, command] of Object.entries(
+      input.setupProfile.environment.checks,
+    )) {
+      const result = await ctx.commandExecutor.run(command, checkoutPath);
+      if (result.exitCode !== 0) {
+        return {
+          ok: false,
+          failure: {
+            ready: false,
+            reason: `setup check ${name} failed`,
+            issue: {
+              id: `env-issue-${randomUUID()}`,
+              severity: "error",
+              kind: "toolchain_failure",
+              message: `Setup check ${name} failed with exit code ${result.exitCode}: ${result.stderr || result.stdout}`,
+              suggestedAction: "Verify the check command is available and correct in the checkout directory.",
+              createdAt: new Date(),
+            },
+          },
+        };
+      }
+    }
+
+    for (const name of input.setupProfile.environment.requiredEnv) {
+      if (!process.env[name]) {
+        return {
+          ok: false,
+          failure: {
+            ready: false,
+            reason: `required environment variable ${name} is missing`,
+            issue: {
+              id: `env-issue-${randomUUID()}`,
+              severity: "error",
+              kind: "missing_env",
+              message: `Required environment variable ${name} is not set.`,
+              requiredEnv: [name],
+              suggestedAction: `Set ${name} in the host environment or mark it as explicitly missing.`,
+              createdAt: new Date(),
+            },
+          },
+        };
+      }
+    }
+
+    for (const service of input.setupProfile.environment.requiredServices) {
+      const [host, portStr] = service.split(":");
+      const port = Number.parseInt(portStr ?? "", 10);
+      if (!host || Number.isNaN(port)) {
+        return {
+          ok: false,
+          failure: {
+            ready: false,
+            reason: `required service ${service} has invalid format`,
+            issue: {
+              id: `env-issue-${randomUUID()}`,
+              severity: "error",
+              kind: "blocked_network",
+              message: `Required service ${service} is not in host:port format.`,
+              suggestedAction: "Use host:port format for required services.",
+              createdAt: new Date(),
+              ...(host ? { blockedHost: host } : {}),
+              ...(Number.isNaN(port) ? {} : { blockedPort: port }),
+            },
+          },
+        };
+      }
+      const reachable = await ctx.serviceProbe.check(host, port);
+      if (!reachable) {
+        return {
+          ok: false,
+          failure: {
+            ready: false,
+            reason: `required service ${service} is unreachable`,
+            issue: {
+              id: `env-issue-${randomUUID()}`,
+              severity: "error",
+              kind: "blocked_network",
+              message: `Required service ${service} is unreachable.`,
+              blockedHost: host,
+              blockedPort: port,
+              suggestedAction: "Verify the service is running and reachable from the host.",
+              createdAt: new Date(),
+            },
+          },
+        };
+      }
+    }
   }
 
   const sidecar = await ctx.sidecarResolver.resolve();
@@ -710,6 +829,7 @@ export interface FakeMachineEnvironmentOptions {
   credentialsAvailable?: boolean;
   mcpConfigValid?: boolean;
   commandResults?: Record<string, CommandResult>;
+  serviceReachability?: Record<string, boolean>;
   issueStore?: EnvironmentIssueStore;
   logger?: Logger;
   failReadinessCheck?: string;
@@ -738,6 +858,7 @@ export class FakeMachineEnvironment implements MachineEnvironment {
   private credentialsAvailable: boolean;
   private mcpConfigValid: boolean;
   private commandResults: Record<string, CommandResult>;
+  private serviceReachability: Record<string, boolean>;
   private failReadinessCheck: string | undefined;
   private failAdmission: boolean;
   private issueStore: EnvironmentIssueStore | undefined;
@@ -771,6 +892,7 @@ export class FakeMachineEnvironment implements MachineEnvironment {
     this.credentialsAvailable = options.credentialsAvailable ?? true;
     this.mcpConfigValid = options.mcpConfigValid ?? true;
     this.commandResults = options.commandResults ?? {};
+    this.serviceReachability = options.serviceReachability ?? {};
     this.failReadinessCheck = options.failReadinessCheck;
     this.failAdmission = options.failAdmission ?? false;
     this.issueStore = options.issueStore;
@@ -920,18 +1042,102 @@ export class FakeMachineEnvironment implements MachineEnvironment {
       };
     }
 
-    if (input.source === "initial" && !this.filesystemSnapshot.installMarker) {
-      return {
-        ready: false,
-        reason: "setup install has not run",
-        issue: {
-          id: `env-issue-${randomUUID()}`,
-          severity: "error",
-          kind: "missing_package",
-          message: "Setup install has not completed.",
-          createdAt: new Date(),
-        },
-      };
+    const runFullProbe = input.source === "initial" && input.role === "coding";
+
+    if (runFullProbe) {
+      if (!this.filesystemSnapshot.installMarker) {
+        return {
+          ready: false,
+          reason: "setup install has not run",
+          issue: {
+            id: `env-issue-${randomUUID()}`,
+            severity: "error",
+            kind: "missing_package",
+            message: "Setup install has not completed.",
+            createdAt: new Date(),
+          },
+        };
+      }
+
+      for (const [name, command] of Object.entries(
+        input.setupProfile.environment.checks,
+      )) {
+        const result = this.commandResults[command] ?? {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+        };
+        if (result.exitCode !== 0) {
+          return {
+            ready: false,
+            reason: `setup check ${name} failed`,
+            issue: {
+              id: `env-issue-${randomUUID()}`,
+              severity: "error",
+              kind: "toolchain_failure",
+              message: `Setup check ${name} failed with exit code ${result.exitCode}: ${result.stderr || result.stdout}`,
+              suggestedAction: "Verify the check command is available and correct in the checkout directory.",
+              createdAt: new Date(),
+            },
+          };
+        }
+      }
+
+      for (const name of input.setupProfile.environment.requiredEnv) {
+        if (!process.env[name]) {
+          return {
+            ready: false,
+            reason: `required environment variable ${name} is missing`,
+            issue: {
+              id: `env-issue-${randomUUID()}`,
+              severity: "error",
+              kind: "missing_env",
+              message: `Required environment variable ${name} is not set.`,
+              requiredEnv: [name],
+              suggestedAction: `Set ${name} in the host environment or mark it as explicitly missing.`,
+              createdAt: new Date(),
+            },
+          };
+        }
+      }
+
+      for (const service of input.setupProfile.environment.requiredServices) {
+        const [host, portStr] = service.split(":");
+        const port = Number.parseInt(portStr ?? "", 10);
+        if (!host || Number.isNaN(port)) {
+          return {
+            ready: false,
+            reason: `required service ${service} has invalid format`,
+            issue: {
+              id: `env-issue-${randomUUID()}`,
+              severity: "error",
+              kind: "blocked_network",
+              message: `Required service ${service} is not in host:port format.`,
+              suggestedAction: "Use host:port format for required services.",
+              createdAt: new Date(),
+              ...(host ? { blockedHost: host } : {}),
+              ...(Number.isNaN(port) ? {} : { blockedPort: port }),
+            },
+          };
+        }
+        const reachable = this.serviceReachability[service] ?? true;
+        if (!reachable) {
+          return {
+            ready: false,
+            reason: `required service ${service} is unreachable`,
+            issue: {
+              id: `env-issue-${randomUUID()}`,
+              severity: "error",
+              kind: "blocked_network",
+              message: `Required service ${service} is unreachable.`,
+              blockedHost: host,
+              blockedPort: port,
+              suggestedAction: "Verify the service is running and reachable from the host.",
+              createdAt: new Date(),
+            },
+          };
+        }
+      }
     }
 
     if (!this.sidecarInfo.executable) {
