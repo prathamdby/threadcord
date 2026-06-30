@@ -261,7 +261,7 @@ describe("TurnRunner contract", () => {
     expect(projection?.status).toBe("active");
   });
 
-  it("does not retry a binding error after a side effect occurred", async () => {
+  it("retries a binding error after a side effect occurred when an idempotency key is present", async () => {
     const { runner, store } = createRunner();
 
     const first = await runner.startAttempt("turn-1");
@@ -270,10 +270,15 @@ describe("TurnRunner contract", () => {
       sideEffectOccurred: true,
       idempotencyKey: "pr-1",
     });
+    assertAccepted(retry);
 
-    expect(retry.accepted).toBe(false);
+    expect(retry.attemptNumber).toBe(2);
+    expect(retry.supersededAttemptId).toBe(first.attemptId);
     const oldAttempt = await store.get(first.attemptId);
-    expect(oldAttempt?.status).toBe("failed");
+    expect(oldAttempt?.status).toBe("interrupted");
+    const newAttempt = await store.get(retry.attemptId);
+    expect(newAttempt?.status).toBe("active");
+    expect(newAttempt?.retry_reason).toBe("binding_error");
   });
 
   it("retries a binding error when an idempotency key is present and no side effect occurred", async () => {

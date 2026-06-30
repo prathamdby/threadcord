@@ -371,9 +371,6 @@ export class TurnRunner {
       case "discord_projection":
         return { retryable: true, requiresIdempotencyKey: false };
       case "binding_error":
-        if (options.sideEffectOccurred) {
-          return { retryable: false, requiresIdempotencyKey: true };
-        }
         return {
           retryable: !!options.idempotencyKey,
           requiresIdempotencyKey: true,
