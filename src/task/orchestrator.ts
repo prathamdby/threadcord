@@ -11,8 +11,10 @@ import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
 import {
   createFlueAgentTurn,
+  createDefaultMachineEnvironment,
   type AgentTurn,
   type AgentTurnInput,
+  type MachineEnvironment,
   type TurnEvent,
 } from "../agentturn/index.js";
 import {
@@ -20,14 +22,8 @@ import {
   pendingThreadId,
   toFlueInstanceId,
 } from "../ids.js";
-import {
-  bootstrapWorkspace,
-  runSetupInstall,
-  runSetupSkillsInstall,
-} from "./bootstrap.js";
 import { discoverInstalledSkills } from "../setup/skills.js";
 import { workspacePaths } from "./workspace-env.js";
-import type { BootstrapMode } from "./bootstrap.js";
 import type { PendingTaskCreate } from "./create-flow.js";
 import { validateTaskPolicy } from "./policy.js";
 import type { TaskStore } from "./store.js";
@@ -45,7 +41,6 @@ import {
 import { threadName } from "./thread-name.js";
 import type {
   ClaimedTurn,
-  DispatchAgentInput,
   TaskRecord,
   TaskRequest,
   TaskStatus,
@@ -78,27 +73,6 @@ interface InFlightTurn {
   typingTimer?: NodeJS.Timeout | undefined;
 }
 
-/** Legacy dispatch seam used by the test harness during the Flue transition. */
-export type DispatchTurn = (
-  instanceId: string,
-  input: DispatchAgentInput,
-) => Promise<void>;
-
-/** Prepares a turn workspace checkout. Injectable so tests can skip git. */
-export type BootstrapTurn = (
-  task: TaskRecord,
-  githubToken: string,
-  mode: BootstrapMode,
-) => Promise<string>;
-
-/** Runs setup install on the initial turn. Injectable so tests can skip shell. */
-export type RunSetupInstallTurn = (
-  workspaceRoot: string,
-  checkoutDir: string,
-  installCommand: string,
-  githubToken: string,
-) => Promise<void>;
-
 export type EditHeaderMessage = (
   threadId: string,
   messageId: string,
@@ -129,8 +103,9 @@ export class TaskOrchestrator {
     private readonly store: TaskStore,
     private readonly setupStore: SetupStore,
     private readonly agentTurn: AgentTurn = createFlueAgentTurn(),
-    private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
-    private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
+    private readonly machineEnvironment: MachineEnvironment = createDefaultMachineEnvironment(
+      config,
+    ),
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
   ) {
     this.unsubscribeAgentTurn = this.agentTurn.onEvent((event) =>
@@ -490,11 +465,6 @@ export class TaskOrchestrator {
       source === "initial" ? "initial" : "follow-up",
     );
     try {
-      const checkoutPath = await this.bootstrap(
-        task,
-        this.config.GITHUB_TOKEN,
-        source === "initial" ? "initial" : "continue",
-      );
       const setupProfile = await this.setupStore.getReadyProfile(
         task.repo,
         task.branch,
@@ -504,23 +474,33 @@ export class TaskOrchestrator {
           `Missing ready setup profile for ${task.repo} on ${task.branch}`,
         );
       }
-      if (source === "initial") {
-        await this.runSetupInstallTurn(
-          task.workspacePath,
-          checkoutPath,
-          setupProfile.environment.install,
-          this.config.GITHUB_TOKEN,
-        );
-        const skillLinks = setupProfile.environment.skills ?? [];
-        if (skillLinks.length > 0) {
-          await runSetupSkillsInstall(
-            task.workspacePath,
-            checkoutPath,
-            skillLinks,
-            this.config.GITHUB_TOKEN,
-          );
+
+      const prepareResult = await this.machineEnvironment.prepare({
+        instanceId: task.flueInstanceId,
+        role: "coding",
+        task,
+        source,
+        setupProfile,
+        model: task.model,
+      });
+
+      if (!prepareResult.ready) {
+        if (prepareResult.issue) {
+          await this.machineEnvironment.reportIssue(prepareResult.issue);
         }
+        await this.post(
+          task.discordThreadId,
+          `Environment issue: ${prepareResult.reason}`,
+        );
+        const current = await this.store.getByInstanceId(task.flueInstanceId);
+        if (current?.status === "running") {
+          await this.store.transition(task.id, "running", "waiting");
+        }
+        this.clearInFlight(task.flueInstanceId);
+        await this.fillConcurrencySlots();
+        return;
       }
+
       // A concurrent cancel transitions the task out of running during setup;
       // re-check the store (source of truth) before dispatching, since the
       // in-flight entry may have been re-created here after cancel cleared it.
@@ -531,19 +511,19 @@ export class TaskOrchestrator {
       }
       const fullPrompt = buildPrompt(
         task,
-        checkoutPath,
+        prepareResult.checkoutPath,
         setupProfile.revision,
         setupProfile.environment,
         setupProfile.memoryMarkdown,
         instruction,
-        task.workspacePath,
+        prepareResult.workspacePath,
       );
       const input: AgentTurnInput = {
         instanceId: task.flueInstanceId,
         role: "coding",
         instruction: fullPrompt,
         model: task.model,
-        workspacePath: checkoutPath,
+        workspacePath: prepareResult.workspacePath,
         repo: task.repo,
         baseBranch: task.branch,
         setupProfileRevision: task.setupProfileRevision,

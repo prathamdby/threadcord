@@ -4,7 +4,10 @@ import {
   setPendingUserTurnMessage,
   takePendingUserTurnMessages,
 } from "../src/discord/user-turn-message.js";
-import { FakeAgentTurn } from "../src/agentturn/index.js";
+import {
+  FakeAgentTurn,
+  FakeMachineEnvironment,
+} from "../src/agentturn/index.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import {
   config,
@@ -170,8 +173,7 @@ describe("persistent typing indicator", () => {
       store as never,
       fakeSetupStore,
       agentTurn,
-      async () => "/workspaces/task-restart/web",
-      async () => {},
+      new FakeMachineEnvironment(),
     );
     orchestrator.setTypingPublisher(async (threadId) => {
       typingThreadIds.push(threadId);
@@ -301,16 +303,8 @@ describe("non-fatal reaction and typing errors", () => {
 
 describe("cancel during an in-flight turn", () => {
   it("aborts the turn without dispatching or crashing when cancelled during setup", async () => {
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const world = new World(1, 9000, {
-      bootstrap: async (task) => {
-        await gate;
-        return `/tmp/race-${task.id}`;
-      },
-    });
+    const world = new World(1, 9000);
+    const gate = world.fakeMachineEnvironment.blockNextPrepare();
     const posts: string[] = [];
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
       posts.push(content);
@@ -325,7 +319,7 @@ describe("cancel during an in-flight turn", () => {
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
     expect(result.message.reactionLog).toEqual([]);
 
-    release();
+    gate.release();
     await flush();
     await flush();
 
@@ -416,16 +410,8 @@ describe("reaction cleanup on terminal commands", () => {
 
 describe("guard against dispatching a cancelled task", () => {
   it("aborts runTurn when the task is cancelled during bootstrap", async () => {
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const world = new World(1, 9000, {
-      bootstrap: async (task) => {
-        await gate;
-        return `/tmp/cancel-during-bootstrap-${task.id}`;
-      },
-    });
+    const world = new World(1, 9000);
+    const gate = world.fakeMachineEnvironment.blockNextPrepare();
     const posts: string[] = [];
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
       posts.push(content);
@@ -440,7 +426,7 @@ describe("guard against dispatching a cancelled task", () => {
     await world.store.cancelTask(task.id);
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
 
-    release();
+    gate.release();
     await flush();
     await flush();
 

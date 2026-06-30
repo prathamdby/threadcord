@@ -23,6 +23,7 @@ import { progressMessageIdsFromRow } from "../src/task/store.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import { config, fakeSetupStore } from "./support/orchestrator-harness.js";
+import { FakeMachineEnvironment } from "../src/agentturn/index.js";
 import { resetToolFailureGuardsForTests } from "../src/flue/tool-failure-guard.js";
 
 beforeEach(() => {
@@ -1127,6 +1128,8 @@ describe("TaskOrchestrator.handleAgentFailure", () => {
       config,
       store as never,
       fakeSetupStore,
+      undefined,
+      new FakeMachineEnvironment(),
     );
     const { task, created } = await store.createDraft({
       id: "task-1",

@@ -1,13 +1,11 @@
-import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  TaskOrchestrator,
-  type BootstrapTurn,
-} from "../../src/task/orchestrator.js";
+import { TaskOrchestrator } from "../../src/task/orchestrator.js";
 import {
   FakeAgentTurn,
+  FakeMachineEnvironment,
   type AgentTurn,
   type AgentTurnInput,
+  type MachineEnvironment,
 } from "../../src/agentturn/index.js";
 import type { AppConfig } from "../../src/config.js";
 import type {
@@ -399,13 +397,14 @@ export interface SubmitResult {
 }
 
 export interface WorldOverrides {
-  bootstrap?: BootstrapTurn;
+  machineEnvironment?: MachineEnvironment;
 }
 
 export class World {
   readonly store: InMemoryStore;
   readonly orchestrator: TaskOrchestrator;
   readonly fakeAgentTurn: FakeAgentTurn;
+  readonly fakeMachineEnvironment: FakeMachineEnvironment;
   readonly dispatched: string[] = [];
   private counter = 0;
 
@@ -423,18 +422,13 @@ export class World {
         this.dispatched.push(input.instanceId);
       },
     });
+    this.fakeMachineEnvironment = new FakeMachineEnvironment();
     this.orchestrator = new TaskOrchestrator(
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
       fakeSetupStore,
       this.fakeAgentTurn,
-      overrides.bootstrap ??
-        (async (task) => {
-          const path = join(TEST_WORKSPACE_ROOT, task.id);
-          await mkdir(path, { recursive: true });
-          return path;
-        }),
-      async () => {},
+      overrides.machineEnvironment ?? this.fakeMachineEnvironment,
       typingIntervalMs,
     );
   }
