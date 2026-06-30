@@ -619,4 +619,37 @@ describe("SessionEventBridge", () => {
     ]);
     vi.useRealTimers();
   });
+
+  it("clears pending tool starts after a terminal event", async () => {
+    vi.useFakeTimers();
+    const terminalTypes: Array<"turn_completed" | "turn_failed" | "turn_cancelled"> = [
+      "turn_completed",
+      "turn_failed",
+      "turn_cancelled",
+    ];
+
+    for (const terminalType of terminalTypes) {
+      const { bridge } = recordingBridge();
+      const pendingToolStarts = (bridge as unknown as { state: { pendingToolStarts: Map<string, unknown> } }).state.pendingToolStarts;
+
+      await bridge.handleEvent({
+        type: "tool_start",
+        instanceId,
+        toolName: "read_file",
+        args: { path: "src/main.py" },
+        toolCallId: `tc-${terminalType}`,
+      });
+      expect(pendingToolStarts.size).toBe(1);
+
+      const terminalEvent =
+        terminalType === "turn_failed"
+          ? { type: terminalType, instanceId, summary: "model error" }
+          : { type: terminalType, instanceId };
+      await bridge.handleEvent(terminalEvent as any);
+      await vi.runAllTimersAsync();
+
+      expect(pendingToolStarts.size).toBe(0);
+    }
+    vi.useRealTimers();
+  });
 });

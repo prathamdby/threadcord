@@ -136,6 +136,7 @@ export class SessionEventBridgeImpl implements SessionEventBridge {
 
       if (event.type === "turn_failed" || event.type === "permission_failure") {
         clearToolFailureGuard(instanceId);
+        clearPendingToolStartsForInstance(this.state, instanceId);
         if (!shouldSkipObserveFailureDelivery(instanceId)) {
           await this.deps.callbacks.onAgentFailure(
             instanceId,
@@ -147,6 +148,7 @@ export class SessionEventBridgeImpl implements SessionEventBridge {
 
       if (event.type === "turn_cancelled") {
         clearToolFailureGuard(instanceId);
+        clearPendingToolStartsForInstance(this.state, instanceId);
         await this.sendMilestone(instanceId, "Agent turn cancelled");
         await this.deps.callbacks.onAgentEnd(instanceId);
         return;
@@ -154,6 +156,7 @@ export class SessionEventBridgeImpl implements SessionEventBridge {
 
       if (event.type === "turn_completed") {
         clearToolFailureGuard(instanceId);
+        clearPendingToolStartsForInstance(this.state, instanceId);
         await this.sendMilestone(instanceId, "Agent turn completed");
         await this.deps.callbacks.onAgentEnd(instanceId);
         return;
@@ -326,6 +329,18 @@ export class SessionEventBridgeImpl implements SessionEventBridge {
 
 function pendingToolKey(instanceId: string, toolCallId: string): string {
   return `${instanceId}:${toolCallId}`;
+}
+
+function clearPendingToolStartsForInstance(
+  state: ObserveBridgeState,
+  instanceId: string,
+): void {
+  const prefix = `${instanceId}:`;
+  for (const key of state.pendingToolStarts.keys()) {
+    if (key.startsWith(prefix)) {
+      state.pendingToolStarts.delete(key);
+    }
+  }
 }
 
 function toConversationLogEvent(
