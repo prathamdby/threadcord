@@ -1,0 +1,73 @@
+/**
+ * AgentTurn is the top-level facade and primary seam the orchestrators depend on.
+ *
+ * It exposes a small interface over a deep implementation that will eventually
+ * compose TurnRunner, MachineEnvironment, and ConversationLog. During the
+ * Flue-to-AgentOS transition, a FlueAgentTurn adapter satisfies this interface
+ * using the existing Flue dispatch/observe plumbing.
+ */
+
+export type AgentTurnRole = "coding" | "setup" | "thread-namer";
+
+export interface AgentTurnInput {
+  instanceId: string;
+  role: AgentTurnRole;
+  instruction: string;
+  model: string;
+  workspacePath: string;
+  repo: string;
+  baseBranch: string;
+  setupProfileRevision: number;
+}
+
+export type TerminalOutcome = "completed" | "failed" | "cancelled" | "aborted";
+
+export type TurnEvent =
+  | {
+      type: "turnStarted";
+      instanceId: string;
+      turnId: string;
+      attemptId: string;
+    }
+  | {
+      type: "progress";
+      instanceId: string;
+      kind: string;
+      payload: unknown;
+    }
+  | {
+      type: "terminal";
+      instanceId: string;
+      outcome: TerminalOutcome;
+      summary?: string;
+    };
+
+export interface AgentTurn {
+  /**
+   * Accept or reject a turn before a concurrency slot is consumed. The
+   * orchestrator only transitions a task to `running` after the turn is
+   * accepted.
+   */
+  prompt(
+    input: AgentTurnInput,
+  ): Promise<{ accepted: true } | { accepted: false; reason: string }>;
+
+  /** Cancel a running turn by instance id. */
+  cancel(instanceId: string): Promise<void>;
+
+  /**
+   * Subscribe to turn lifecycle events. Returns an unsubscribe function.
+   * In the transitional Flue adapter this is a no-op stub; the observe-bridge
+   * still handles Flue events globally until the SessionEventBridge slice.
+   */
+  onEvent(handler: (event: TurnEvent) => void): () => void;
+
+  /**
+   * Reconcile any agent-side state after a process restart. The orchestrator
+   * calls this before its own store-level reconciliation. In the transitional
+   * Flue adapter this is a no-op stub.
+   */
+  resumeAfterRestart(
+    notify: (threadId: string, content: string) => Promise<void>,
+  ): Promise<void>;
+}

@@ -1,5 +1,5 @@
 import { clearPendingUserTurnMessage } from "../discord/user-turn-message.js";
-import { abortAgentWorkForInstance } from "../flue/agent-work-abort.js";
+import type { AgentTurn } from "../agentturn/index.js";
 import type { TaskStore } from "./store.js";
 import type { TaskRecord } from "../types.js";
 
@@ -10,6 +10,7 @@ type ReactionTarget = {
 
 export interface AbortThreadTaskDeps {
   store: TaskStore;
+  agentTurn: AgentTurn;
   clearInFlight: (
     instanceId: string,
   ) => { initiator?: ReactionTarget | undefined } | undefined;
@@ -23,7 +24,7 @@ export interface AbortThreadTaskDeps {
 }
 
 export interface StopTaskWorkOptions {
-  /** When true, fail in-flight Flue submissions for this instance (`abort`). */
+  /** When true, cancel the in-flight agent turn for this instance (`abort`). */
   abortInFlight?: boolean;
 }
 
@@ -40,9 +41,9 @@ export async function stopTaskWork(
   clearPendingUserTurnMessage(task.flueInstanceId);
   if (options.abortInFlight) {
     try {
-      await abortAgentWorkForInstance(task.flueInstanceId);
+      await deps.agentTurn.cancel(task.flueInstanceId);
     } catch (error) {
-      console.error("[threadcord] failed to abort agent work", error);
+      console.error("[threadcord] failed to cancel agent turn", error);
     }
   }
 

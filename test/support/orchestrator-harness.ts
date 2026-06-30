@@ -5,6 +5,11 @@ import {
   type BootstrapTurn,
   type DispatchTurn,
 } from "../../src/task/orchestrator.js";
+import {
+  createFlueAgentTurn,
+  type AgentTurn,
+  type AgentTurnInput,
+} from "../../src/agentturn/index.js";
 import type { AppConfig } from "../../src/config.js";
 import type {
   SetupEnvironment,
@@ -399,6 +404,28 @@ export interface WorldOverrides {
   bootstrap?: BootstrapTurn;
 }
 
+export function makeAgentTurnFromDispatch(dispatch: DispatchTurn): AgentTurn {
+  return {
+    async prompt(input: AgentTurnInput) {
+      const dispatchInput = {
+        kind: "threadcord.turn" as const,
+        workspacePath: input.workspacePath,
+        model: input.model,
+        repo: input.repo,
+        baseBranch: input.baseBranch,
+        instruction: input.instruction,
+      };
+      await dispatch(input.instanceId, dispatchInput);
+      return { accepted: true };
+    },
+    async cancel() {},
+    onEvent() {
+      return () => {};
+    },
+    async resumeAfterRestart() {},
+  };
+}
+
 export class World {
   readonly store: InMemoryStore;
   readonly orchestrator: TaskOrchestrator;
@@ -411,14 +438,17 @@ export class World {
     overrides: WorldOverrides = {},
   ) {
     this.store = new InMemoryStore(maxConcurrent);
-    this.orchestrator = new TaskOrchestrator(
-      { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
-      this.store as unknown as import("../../src/task/store.js").TaskStore,
-      fakeSetupStore,
+    const agentTurn = makeAgentTurnFromDispatch(
       overrides.dispatch ??
         (async (instanceId: string) => {
           this.dispatched.push(instanceId);
         }),
+    );
+    this.orchestrator = new TaskOrchestrator(
+      { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
+      this.store as unknown as import("../../src/task/store.js").TaskStore,
+      fakeSetupStore,
+      agentTurn,
       overrides.bootstrap ??
         (async (task) => {
           const path = join(TEST_WORKSPACE_ROOT, task.id);

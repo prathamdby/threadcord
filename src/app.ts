@@ -17,6 +17,7 @@ import { SetupStore } from "./setup/store.js";
 import { startWorkspaceJanitor } from "./task/janitor.js";
 import { TaskOrchestrator } from "./task/orchestrator.js";
 import { TaskStore } from "./task/store.js";
+import { createFlueAgentTurn } from "./agentturn/index.js";
 
 export async function createApp(): Promise<{
   app: Hono;
@@ -40,8 +41,9 @@ export async function createApp(): Promise<{
   const mcpServers = await mcpStore.listServers();
   warmMcpPool(mcpServers.map(rowToMcpConfig));
 
-  const orchestrator = new TaskOrchestrator(config, store, setupStore);
-  const setupOrchestrator = new SetupOrchestrator(config, setupStore);
+  const agentTurn = createFlueAgentTurn();
+  const orchestrator = new TaskOrchestrator(config, store, setupStore, agentTurn);
+  const setupOrchestrator = new SetupOrchestrator(config, setupStore, agentTurn);
   const discordClient = startDiscordGateway(
     config.DISCORD_BOT_TOKEN,
     config,

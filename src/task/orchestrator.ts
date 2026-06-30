@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { dispatch } from "@flue/runtime";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
 import { formatTaskInstructionForDiscord } from "../discord/task-instruction-message.js";
 import { renderTaskHeader } from "../discord/task-header.js";
@@ -10,7 +9,11 @@ import {
 } from "../discord/user-turn-message.js";
 import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
-import codingAgent from "../agents/coding.js";
+import {
+  createFlueAgentTurn,
+  type AgentTurn,
+  type AgentTurnInput,
+} from "../agentturn/index.js";
 import {
   isPendingThreadId,
   pendingThreadId,
@@ -74,7 +77,7 @@ interface InFlightTurn {
   typingTimer?: NodeJS.Timeout | undefined;
 }
 
-/** Sends one dispatched agent turn. Injectable so tests can fake the runtime. */
+/** Legacy dispatch seam used by the test harness during the Flue transition. */
 export type DispatchTurn = (
   instanceId: string,
   input: DispatchAgentInput,
@@ -103,10 +106,6 @@ export type EditHeaderMessage = (
 
 export type SendThreadTyping = (threadId: string) => Promise<void>;
 
-const defaultDispatchTurn: DispatchTurn = async (instanceId, input) => {
-  await dispatch(codingAgent, { id: instanceId, input });
-};
-
 const TERMINAL_STATUSES = new Set<TaskStatus>([
   "completed",
   "failed",
@@ -127,7 +126,7 @@ export class TaskOrchestrator {
     private readonly config: AppConfig,
     private readonly store: TaskStore,
     private readonly setupStore: SetupStore,
-    private readonly dispatchTurn: DispatchTurn = defaultDispatchTurn,
+    private readonly agentTurn: AgentTurn = createFlueAgentTurn(),
     private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
     private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
@@ -154,6 +153,7 @@ export class TaskOrchestrator {
   async resumeAfterRestart(
     notifyThread: (threadId: string, content: string) => Promise<void>,
   ): Promise<void> {
+    await this.agentTurn.resumeAfterRestart(notifyThread);
     const released = await this.store.releaseRunningAfterRestart();
     for (const task of released) {
       await this.refreshHeader(task.id);
@@ -311,6 +311,7 @@ export class TaskOrchestrator {
         task,
         {
           store: this.store,
+          agentTurn: this.agentTurn,
           clearInFlight: (id) => this.clearInFlight(id),
           flipReaction: (initiator, emoji) =>
             this.flipReaction(initiator, emoji),
@@ -519,13 +520,15 @@ export class TaskOrchestrator {
         instruction,
         task.workspacePath,
       );
-      const input: DispatchAgentInput = {
-        kind: "threadcord.turn",
-        workspacePath: checkoutPath,
+      const input: AgentTurnInput = {
+        instanceId: task.flueInstanceId,
+        role: "coding",
+        instruction: fullPrompt,
         model: task.model,
+        workspacePath: checkoutPath,
         repo: task.repo,
         baseBranch: task.branch,
-        instruction: fullPrompt,
+        setupProfileRevision: task.setupProfileRevision,
       };
       if (source === "initial" && this.renameDiscordThread) {
         scheduleReadableThreadRename(
@@ -534,7 +537,10 @@ export class TaskOrchestrator {
           this.renameDiscordThread,
         );
       }
-      await this.dispatchTurn(task.flueInstanceId, input);
+      const promptResult = await this.agentTurn.prompt(input);
+      if (!promptResult.accepted) {
+        throw new Error(promptResult.reason);
+      }
       const inFlight = this.inFlightTurns.get(task.flueInstanceId);
       if (inFlight) {
         inFlight.typingTimer = this.startTypingLoop(task);

@@ -11,6 +11,7 @@ import {
   InMemoryStore,
   World,
   flush,
+  makeAgentTurnFromDispatch,
 } from "./support/orchestrator-harness.js";
 
 const EYES = "👀";
@@ -157,13 +158,14 @@ describe("persistent typing indicator", () => {
     const store = new InMemoryStore(1);
     const dispatched: string[] = [];
     const typingThreadIds: string[] = [];
+    const agentTurn = makeAgentTurnFromDispatch(async (instanceId) => {
+      dispatched.push(instanceId);
+    });
     const orchestrator = new TaskOrchestrator(
       config,
       store as never,
       fakeSetupStore,
-      async (instanceId) => {
-        dispatched.push(instanceId);
-      },
+      agentTurn,
       async () => "/workspaces/task-restart/web",
       async () => {},
     );

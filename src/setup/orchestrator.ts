@@ -1,8 +1,11 @@
 import { mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { dispatch } from "@flue/runtime";
 import type { AppConfig } from "../config.js";
-import setupAgent from "../agents/setup.js";
+import {
+  createFlueAgentTurn,
+  type AgentTurn,
+  type AgentTurnInput,
+} from "../agentturn/index.js";
 import { execa } from "../task/execa.js";
 import {
   githubHttpsCloneUrl,
@@ -27,6 +30,7 @@ export class SetupOrchestrator {
   constructor(
     private readonly config: AppConfig,
     private readonly store: SetupStore,
+    private readonly agentTurn: AgentTurn = createFlueAgentTurn(),
     private readonly typingIntervalMs: number = SETUP_TYPING_INTERVAL_MS,
   ) {}
 
@@ -63,6 +67,7 @@ export class SetupOrchestrator {
     profileId: string;
     repo: string;
     branch: string;
+    model: string;
     workspacePath: string;
   }> {
     const key = parseSetupProfileKey(input.repo, input.branch);
@@ -96,6 +101,7 @@ export class SetupOrchestrator {
         profileId: profile.id,
         repo: key.value.repo,
         branch: key.value.branch,
+        model,
         workspacePath,
       };
     } catch (error) {
@@ -109,18 +115,24 @@ export class SetupOrchestrator {
     runId: string;
     repo: string;
     branch: string;
+    model: string;
     workspacePath: string;
   }): Promise<void> {
+    const agentTurnInput: AgentTurnInput = {
+      instanceId: `setup:${input.runId}`,
+      role: "setup",
+      instruction: "", // setup agent prompt is composed inside the agent factory
+      model: input.model,
+      workspacePath: input.workspacePath,
+      repo: input.repo,
+      baseBranch: input.branch,
+      setupProfileRevision: 0, // setup runs are not pinned to a profile revision
+    };
     try {
-      await dispatch(setupAgent, {
-        id: `setup:${input.runId}`,
-        input: {
-          kind: "threadcord.setup",
-          repo: input.repo,
-          branch: input.branch,
-          workspacePath: input.workspacePath,
-        },
-      });
+      const result = await this.agentTurn.prompt(agentTurnInput);
+      if (!result.accepted) {
+        throw new Error(result.reason);
+      }
     } catch (error) {
       await rm(input.workspacePath, { recursive: true, force: true });
       const summary = summarizeError(error);
