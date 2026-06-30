@@ -31,6 +31,8 @@ export interface DurableAgentTurnDependencies {
   sessionStore: AgentSessionStore;
   /** Optional forwarder for detailed session events (e.g., to the SessionEventBridge). */
   onSessionEvent?: (event: AgentOsSessionEvent) => void;
+  /** Optional callback to rebuild the Discord status projection from canonical events. */
+  rebuildStatus?: (instanceId: string, events: AgentEventRecord[]) => Promise<void>;
   /** Optional callback that extracts a Discord thread id from an instance id. */
   getThreadId?: (instanceId: string) => string | undefined;
   /** Optional logger for errors. */
@@ -234,6 +236,10 @@ export class DurableAgentTurn implements AgentTurn {
       await this.deps.conversationLog.markSuperseded(
         result.supersededAttemptId,
       );
+      const canonical = await this.deps.conversationLog.projectForDiscord(
+        turn.sessionId,
+      );
+      await this.deps.rebuildStatus?.(turn.sessionId, canonical);
     }
 
     await this.deps.sessionStore.updateTurn(turn.turnId, {

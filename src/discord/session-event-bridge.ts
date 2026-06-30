@@ -1,5 +1,6 @@
 import type {
   AgentEventKind,
+  AgentEventRecord,
   ConversationLog,
   ConversationLogEventInput,
 } from "../agentturn/conversation-log.js";
@@ -26,6 +27,7 @@ import {
   BridgeProgressLine,
   ObserveBridgeCallbacks,
   ObserveBridgeState,
+  flushProgressMessage,
   renderProgressLine,
   resolveProgressStream,
   withInstanceEventLock,
@@ -94,6 +96,14 @@ export interface SessionEventBridge {
    * callbacks.
    */
   handleEvent(event: AgentOsSessionEvent): Promise<void>;
+
+  /**
+   * Rebuild the Discord live status message from canonical events after a retry
+   * superseded the previous attempt's output. This clears the in-memory render
+   * state and re-renders the progress bubble from the non-superseded event
+   * projection without re-persisting the events.
+   */
+  rebuildStatus(instanceId: string, events: AgentEventRecord[]): Promise<void>;
 }
 
 export interface SessionEventBridgeDependencies {
@@ -192,6 +202,126 @@ export class SessionEventBridgeImpl implements SessionEventBridge {
         this.state,
       );
     });
+  }
+
+  async rebuildStatus(
+    instanceId: string,
+    events: AgentEventRecord[],
+  ): Promise<void> {
+    if (!instanceId) return;
+    await withInstanceEventLock(instanceId, this.state, async () => {
+      this.state.renderState.delete(instanceId);
+      clearPendingToolStartsForInstance(this.state, instanceId);
+
+      for (const event of events) {
+        await this.renderCanonicalEvent(event, instanceId);
+      }
+
+      const current = this.state.renderState.get(instanceId);
+      if (current && current.lines.length > 0) {
+        const resolved = await resolveProgressStream(
+          instanceId,
+          this.deps.callbacks,
+        );
+        await flushProgressMessage(
+          resolved.target,
+          current,
+          this.deps.callbacks.publisher,
+        );
+      }
+
+      const timer = this.state.timers.get(instanceId);
+      if (timer) {
+        clearTimeout(timer);
+        this.state.timers.delete(instanceId);
+      }
+    });
+  }
+
+  private async renderCanonicalEvent(
+    record: AgentEventRecord,
+    instanceId: string,
+  ): Promise<void> {
+    const payload = record.payload as Record<string, unknown> | null;
+    switch (record.event_kind) {
+      case "text_delta": {
+        const delta = payload?.delta;
+        if (typeof delta !== "string") return;
+        await renderProgressLine(
+          instanceId,
+          { line: redact(delta), terminal: false },
+          this.deps.callbacks,
+          this.state,
+        );
+        return;
+      }
+      case "agent_message": {
+        const content = payload?.content;
+        if (typeof content !== "string") return;
+        await renderProgressLine(
+          instanceId,
+          { line: redact(content), terminal: false },
+          this.deps.callbacks,
+          this.state,
+        );
+        return;
+      }
+      case "tool_start": {
+        const toolName = payload?.toolName;
+        const args = payload?.args;
+        const toolCallId = payload?.toolCallId;
+        if (typeof toolName !== "string" || typeof toolCallId !== "string") {
+          return;
+        }
+        const key = pendingToolKey(instanceId, toolCallId);
+        this.state.pendingToolStarts.set(key, { toolName, args });
+        const repoRoot = await this.resolveRepoRoot(instanceId);
+        const line = formatToolLine(
+          toolName,
+          args,
+          repoRoot !== undefined ? { repoRoot } : undefined,
+        );
+        await renderProgressLine(
+          instanceId,
+          { line, terminal: isTerminalBlock(toolName, args) },
+          this.deps.callbacks,
+          this.state,
+        );
+        return;
+      }
+      case "tool_result":
+      case "tool_failure": {
+        const toolName = payload?.toolName;
+        const toolCallId = payload?.toolCallId;
+        if (typeof toolName !== "string" || typeof toolCallId !== "string") {
+          return;
+        }
+        const isError = record.event_kind === "tool_failure";
+        const key = pendingToolKey(instanceId, toolCallId);
+        const pending = this.state.pendingToolStarts.get(key);
+        if (!isError) {
+          this.state.pendingToolStarts.delete(key);
+          return;
+        }
+        const repoRoot = await this.resolveRepoRoot(instanceId);
+        const line = formatToolFailureLine(
+          toolName,
+          pending?.args,
+          repoRoot !== undefined ? { repoRoot } : undefined,
+        );
+        const terminal = isTerminalBlock(toolName, pending?.args);
+        this.state.pendingToolStarts.delete(key);
+        await renderProgressLine(
+          instanceId,
+          { line, terminal },
+          this.deps.callbacks,
+          this.state,
+        );
+        return;
+      }
+      default:
+        return;
+    }
   }
 
   private async persistEvent(event: AgentOsSessionEvent): Promise<void> {

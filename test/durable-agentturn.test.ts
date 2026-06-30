@@ -9,6 +9,7 @@ import {
   DurableConversationLog,
   InMemoryAgentTurnPersistence,
   type AgentTurnInput,
+  type AgentEventRecord,
   type TurnEvent,
 } from "../src/agentturn/index.js";
 import { InMemoryTurnAttemptStore } from "./support/turn-attempt-store.js";
@@ -47,6 +48,7 @@ function createDurableTurn(): {
   advance: ReturnType<typeof createClock>["advance"];
   events: TurnEvent[];
   bridgeEvents: AgentOsSessionEvent[];
+  rebuiltStatuses: { instanceId: string; events: AgentEventRecord[] }[];
 } {
   const { clock, advance } = createClock();
   const inner = new FakeAgentTurn({ enableRestartNotifications: false });
@@ -66,6 +68,7 @@ function createDurableTurn(): {
   );
   const conversationLog = new DurableConversationLog(eventStore);
   const bridgeEvents: AgentOsSessionEvent[] = [];
+  const rebuiltStatuses: { instanceId: string; events: AgentEventRecord[] }[] = [];
   const deps: DurableAgentTurnDependencies = {
     inner,
     turnRunner,
@@ -76,6 +79,9 @@ function createDurableTurn(): {
         ? instanceId.slice("discord:thread:".length)
         : undefined,
     onSessionEvent: (event) => bridgeEvents.push(event),
+    rebuildStatus: async (instanceId, events) => {
+      rebuiltStatuses.push({ instanceId, events });
+    },
   };
   const durable = new DurableAgentTurn(deps);
   const events: TurnEvent[] = [];
@@ -91,6 +97,7 @@ function createDurableTurn(): {
     advance,
     events,
     bridgeEvents,
+    rebuiltStatuses,
   };
 }
 
@@ -357,6 +364,46 @@ describe("DurableAgentTurn", () => {
     const attempts = await attemptStore.listByTurnId(turn.turn_id);
     expect(attempts.map((a) => a.attempt_number)).toEqual([1, 2]);
     expect(attempts[1]?.status).toBe("active");
+
+    inner.fail(baseInput.instanceId, "retry test failure");
+  });
+
+  it("rebuilds Discord status projection from canonical events after retry supersession", async () => {
+    const { durable, eventStore, sessionStore, inner, rebuiltStatuses } =
+      createDurableTurn();
+
+    await durable.prompt(baseInput);
+    const turn = await getOnlyTurn(sessionStore);
+
+    // First attempt emits a retained milestone and a progress event.
+    await durable.onSessionEvent({
+      type: "environment_issue",
+      instanceId: baseInput.instanceId,
+      summary: "missing API key",
+    });
+    await durable.onSessionEvent({
+      type: "text_delta",
+      instanceId: baseInput.instanceId,
+      delta: "stale partial output",
+    });
+
+    const retry = await durable.retryTurn(baseInput.instanceId, "provider_transient", {
+      sideEffectOccurred: false,
+    });
+    expect(retry.accepted).toBe(true);
+
+    expect(rebuiltStatuses).toHaveLength(1);
+    const rebuilt = rebuiltStatuses[0]!;
+    expect(rebuilt.instanceId).toBe(baseInput.instanceId);
+    // The environment_issue milestone is retained; the text_delta is superseded.
+    expect(rebuilt.events.map((e) => e.event_kind)).toEqual([
+      "environment_issue",
+    ]);
+
+    // The canonical projection in the store matches the rebuilt status.
+    const log = new DurableConversationLog(eventStore);
+    const projection = await log.projectForDiscord(baseInput.instanceId);
+    expect(projection.map((e) => e.event_kind)).toEqual(["environment_issue"]);
 
     inner.fail(baseInput.instanceId, "retry test failure");
   });

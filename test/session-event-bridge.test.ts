@@ -652,4 +652,43 @@ describe("SessionEventBridge", () => {
     }
     vi.useRealTimers();
   });
+
+  it("rebuilds the status message from canonical events after supersession", async () => {
+    vi.useFakeTimers();
+    const { bridge, edits, log } = recordingBridge();
+    const attempt1 = "attempt-1";
+    const attempt2 = "attempt-2";
+
+    await bridge.handleEvent({
+      type: "text_delta",
+      instanceId,
+      attemptId: attempt1,
+      delta: "stale",
+    });
+    await bridge.handleEvent({
+      type: "text_delta",
+      instanceId,
+      attemptId: attempt2,
+      delta: "canonical",
+    });
+    await vi.runAllTimersAsync();
+
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toContain("stale");
+    expect(edits[0]).toContain("canonical");
+
+    await log.markSuperseded(attempt1);
+    const canonical = await log.projectForDiscord(instanceId);
+    expect(canonical.map((event) => event.payload)).toEqual([
+      { delta: "canonical" },
+    ]);
+
+    await bridge.rebuildStatus(instanceId, canonical);
+    await vi.runAllTimersAsync();
+
+    // After rebuild, the status message should only contain canonical content.
+    expect(edits[edits.length - 1]).toContain("canonical");
+    expect(edits[edits.length - 1]).not.toContain("stale");
+    vi.useRealTimers();
+  });
 });

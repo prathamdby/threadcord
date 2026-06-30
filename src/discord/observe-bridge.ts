@@ -253,7 +253,7 @@ export async function resolveProgressStream(
   return { id: instanceId, target: undefined, store: undefined };
 }
 
-export { shouldRollBubble } from "./progress-stream.js";
+export { flushProgressMessage, shouldRollBubble } from "./progress-stream.js";
 
 export function submissionFailureSummary(event: FlueEvent): string | undefined {
   if (event.type === "submission_settled" && event.outcome === "failed") {
