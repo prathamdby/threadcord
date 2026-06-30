@@ -2,6 +2,7 @@ export * from "./types.js";
 export * from "./turnrunner.js";
 export * from "./conversation-log.js";
 export * from "./machine-environment.js";
+export * from "./persistence.js";
 export { createFlueAgentTurn, FlueAgentTurn } from "./flue-adapter.js";
 export { FakeAgentTurn, type FakeAgentTurnOptions } from "./fake.js";
 export {
@@ -13,3 +14,8 @@ export {
   type AgentOsFactory,
   type Logger,
 } from "./agentos.js";
+export {
+  DurableAgentTurn,
+  createDurableAgentTurn,
+  type DurableAgentTurnDependencies,
+} from "./durable-agentturn.js";

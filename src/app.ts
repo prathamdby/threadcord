@@ -15,7 +15,7 @@ import { SetupStore } from "./setup/store.js";
 import { startWorkspaceJanitor } from "./task/janitor.js";
 import { TaskOrchestrator } from "./task/orchestrator.js";
 import { TaskStore } from "./task/store.js";
-import { createFlueAgentTurn } from "./agentturn/index.js";
+import { createFlueAgentTurn, PostgresAgentTurnPersistence } from "./agentturn/index.js";
 
 export async function createApp(): Promise<{
   app: Hono;
@@ -30,10 +30,12 @@ export async function createApp(): Promise<{
   const store = new TaskStore(pool, config.MAX_CONCURRENT_TASKS);
   const setupStore = new SetupStore(pool);
   const mcpStore = new McpStore(pool);
+  const agentTurnPersistence = new PostgresAgentTurnPersistence(pool);
   await Promise.all([
     store.migrate(),
     setupStore.migrate(),
     mcpStore.migrate(),
+    agentTurnPersistence.migrate(),
   ]);
 
   const mcpRegistry = new DefaultMcpRegistry({ store: mcpStore });

@@ -22,6 +22,13 @@ export interface AgentTurnInput {
   idempotencyKey?: string;
   /** Optional guest session environment variables, including model credentials. */
   env?: Record<string, string>;
+  /**
+   * Optional reconstructed transcript from prior turns in the same session.
+   * Used when resuming after a restart or following up so the agent retains
+   * conversation context. The inner turn implementation may pass it to the
+   * model as a resume preamble or file reference.
+   */
+  transcript?: string;
 }
 
 export type TerminalOutcome = "completed" | "failed" | "cancelled" | "aborted";
