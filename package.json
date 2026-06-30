@@ -11,9 +11,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agentos-software/pi": "0.2.1",
     "@flue/postgres": "1.0.0-beta.1",
     "@flue/runtime": "1.0.0-beta.2",
+    "@mariozechner/pi-coding-agent": "0.73.1",
     "@octokit/rest": "22.0.1",
+    "@rivet-dev/agentos-core": "0.2.4",
+    "@rivet-dev/agentos-sidecar": "0.2.4",
     "discord.js": "14.26.4",
     "hono": "4.12.26",
     "pg": "8.22.0",
