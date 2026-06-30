@@ -96,6 +96,52 @@ describe("HostCommandFallbackExecutor", () => {
       }
     }
   });
+
+  it("does not expose provider-scoped API_KEY env vars to the command", async () => {
+    const previous = process.env.PROVIDER_CUSTOM_LLM_API_KEY;
+    process.env.PROVIDER_CUSTOM_LLM_API_KEY = "provider-api-key-secret";
+    try {
+      const executor = new HostCommandFallbackExecutor({
+        allowlist: ["env"],
+        defaultTimeoutMs: 30_000,
+      });
+
+      const result = await executor.run("env", "/tmp");
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain("provider-api-key-secret");
+      expect(result.stdout).not.toContain("PROVIDER_CUSTOM_LLM_API_KEY");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PROVIDER_CUSTOM_LLM_API_KEY;
+      } else {
+        process.env.PROVIDER_CUSTOM_LLM_API_KEY = previous;
+      }
+    }
+  });
+
+  it("does not expose provider-scoped HEADERS env vars to the command", async () => {
+    const previous = process.env.PROVIDER_CUSTOM_LLM_HEADERS;
+    process.env.PROVIDER_CUSTOM_LLM_HEADERS = '{"Authorization":"Bearer secret"}';
+    try {
+      const executor = new HostCommandFallbackExecutor({
+        allowlist: ["env"],
+        defaultTimeoutMs: 30_000,
+      });
+
+      const result = await executor.run("env", "/tmp");
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain("Bearer secret");
+      expect(result.stdout).not.toContain("PROVIDER_CUSTOM_LLM_HEADERS");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PROVIDER_CUSTOM_LLM_HEADERS;
+      } else {
+        process.env.PROVIDER_CUSTOM_LLM_HEADERS = previous;
+      }
+    }
+  });
 });
 
 function fakeDockerClient(result: FallbackCommandResult): DockerClient {
@@ -259,6 +305,74 @@ describe("DockerContainerFallbackExecutor", () => {
 
     expect(capturedSpec).toBeDefined();
     expect(capturedSpec?.mountDockerSocket).toBe(false);
+  });
+
+  it("does not expose provider-scoped API_KEY env vars to the container", async () => {
+    const previous = process.env.PROVIDER_DOCKER_LLM_API_KEY;
+    process.env.PROVIDER_DOCKER_LLM_API_KEY = "docker-provider-api-key";
+    try {
+      let capturedEnv: NodeJS.ProcessEnv | undefined;
+      const docker: DockerClient = {
+        createContainer: async (spec) => ({ containerId: "c-1", spec }),
+        runCommand: async (_container, input) => {
+          capturedEnv = input.env;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+        removeContainer: async () => {},
+      };
+      const executor = new DockerContainerFallbackExecutor({
+        docker,
+        spec: baseSpec,
+        allowlist: ["env"],
+        defaultTimeoutMs: 30_000,
+      });
+
+      await executor.run("env", "/workspaces/task-1/web");
+
+      expect(capturedEnv).toBeDefined();
+      expect(capturedEnv).not.toHaveProperty("PROVIDER_DOCKER_LLM_API_KEY", "docker-provider-api-key");
+      expect(capturedEnv).not.toHaveProperty("PROVIDER_DOCKER_LLM_API_KEY");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PROVIDER_DOCKER_LLM_API_KEY;
+      } else {
+        process.env.PROVIDER_DOCKER_LLM_API_KEY = previous;
+      }
+    }
+  });
+
+  it("does not expose provider-scoped HEADERS env vars to the container", async () => {
+    const previous = process.env.PROVIDER_DOCKER_LLM_HEADERS;
+    process.env.PROVIDER_DOCKER_LLM_HEADERS = '{"X-Api-Key":"docker-header-secret"}';
+    try {
+      let capturedEnv: NodeJS.ProcessEnv | undefined;
+      const docker: DockerClient = {
+        createContainer: async (spec) => ({ containerId: "c-1", spec }),
+        runCommand: async (_container, input) => {
+          capturedEnv = input.env;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+        removeContainer: async () => {},
+      };
+      const executor = new DockerContainerFallbackExecutor({
+        docker,
+        spec: baseSpec,
+        allowlist: ["env"],
+        defaultTimeoutMs: 30_000,
+      });
+
+      await executor.run("env", "/workspaces/task-1/web");
+
+      expect(capturedEnv).toBeDefined();
+      expect(capturedEnv).not.toHaveProperty("PROVIDER_DOCKER_LLM_HEADERS", '{"X-Api-Key":"docker-header-secret"}');
+      expect(capturedEnv).not.toHaveProperty("PROVIDER_DOCKER_LLM_HEADERS");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PROVIDER_DOCKER_LLM_HEADERS;
+      } else {
+        process.env.PROVIDER_DOCKER_LLM_HEADERS = previous;
+      }
+    }
   });
 });
 

@@ -75,6 +75,11 @@ export const HOST_BLOCKED_ENV = [
   "DATABASE_URL",
 ];
 
+const HOST_BLOCKED_ENV_PATTERNS = [
+  /^PROVIDER_.*_API_KEY$/,
+  /^PROVIDER_.*_HEADERS$/,
+];
+
 export interface DockerContainerSpec {
   image: string;
   /** Host path that is bind-mounted into the container. */
@@ -171,7 +176,7 @@ export class DockerContainerFallbackExecutor implements FallbackExecutor {
 function buildCommandEnv(blockedEnv: Set<string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = Object.create(null);
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !blockedEnv.has(key)) {
+    if (value !== undefined && !isBlockedEnvVar(key, blockedEnv)) {
       env[key] = value;
     }
   }
@@ -180,6 +185,11 @@ function buildCommandEnv(blockedEnv: Set<string>): NodeJS.ProcessEnv {
     env.PATH = "/usr/local/bin:/usr/bin:/bin";
   }
   return env;
+}
+
+function isBlockedEnvVar(key: string, blockedEnv: Set<string>): boolean {
+  if (blockedEnv.has(key)) return true;
+  return HOST_BLOCKED_ENV_PATTERNS.some((pattern) => pattern.test(key));
 }
 
 function runChildProcess(

@@ -352,10 +352,17 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
     if (input.source === "initial") {
       await this.bootstrapper.bootstrap(input.task, "initial");
       if (nativeExecution) {
-        await this.fallbackExecutor!.run(
+        const installResult = await this.fallbackExecutor!.run(
           input.setupProfile.environment.install,
           checkoutPath,
         );
+        if (installResult.exitCode !== 0) {
+          return nativeSetupCommandFailure(
+            input.instanceId,
+            input.setupProfile.environment.install,
+            installResult,
+          );
+        }
       } else {
         await this.installRunner.run(
           input.task.workspacePath,
@@ -369,7 +376,17 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
           const skillsCommand = buildSkillsInstallShellCommand(
             input.setupProfile.environment.skills,
           );
-          await this.fallbackExecutor!.run(skillsCommand, checkoutPath);
+          const skillsResult = await this.fallbackExecutor!.run(
+            skillsCommand,
+            checkoutPath,
+          );
+          if (skillsResult.exitCode !== 0) {
+            return nativeSetupCommandFailure(
+              input.instanceId,
+              skillsCommand,
+              skillsResult,
+            );
+          }
         } else {
           await this.skillsInstallRunner?.run(
             input.task.workspacePath,
@@ -599,6 +616,25 @@ function sandboxUnavailableFailure(instanceId: string): PrepareFailure {
       kind: "sandbox_unavailable",
       message: `Profile requires native execution but AGENTOS_SANDBOX_ENABLE is not set for ${instanceId}.`,
       suggestedAction: "Enable AGENTOS_SANDBOX_ENABLE and configure a self-hosted fallback executor.",
+      createdAt: new Date(),
+    },
+  };
+}
+
+function nativeSetupCommandFailure(
+  instanceId: string,
+  command: string,
+  result: CommandResult,
+): PrepareFailure {
+  return {
+    ready: false,
+    reason: `native setup command failed: ${command}`,
+    issue: {
+      id: `env-issue-${randomUUID()}`,
+      severity: "error",
+      kind: "toolchain_failure",
+      message: `Native setup command ${command} failed with exit code ${result.exitCode} for ${instanceId}: ${result.stderr || result.stdout}`,
+      suggestedAction: "Verify the command is available and correct in the checkout directory.",
       createdAt: new Date(),
     },
   };
@@ -987,10 +1023,21 @@ export class FakeMachineEnvironment implements MachineEnvironment {
     if (input.source === "initial") {
       this.bootstrapCalls.push({ taskId: input.task.id, mode: "initial" });
       if (nativeExecution) {
+        const installResult = await this.fallbackExecutor!.run(
+          input.setupProfile.environment.install,
+          checkoutPath,
+        );
         this.fallbackCalls.push({
           command: input.setupProfile.environment.install,
           cwd: checkoutPath,
         });
+        if (installResult.exitCode !== 0) {
+          return nativeSetupCommandFailure(
+            input.instanceId,
+            input.setupProfile.environment.install,
+            installResult,
+          );
+        }
       } else {
         this.installCalls.push({
           workspacePath: input.task.workspacePath,
@@ -1000,10 +1047,24 @@ export class FakeMachineEnvironment implements MachineEnvironment {
       }
       if (input.setupProfile.environment.skills) {
         if (nativeExecution) {
+          const skillsCommand = buildSkillsInstallShellCommand(
+            input.setupProfile.environment.skills,
+          );
+          const skillsResult = await this.fallbackExecutor!.run(
+            skillsCommand,
+            checkoutPath,
+          );
           this.fallbackCalls.push({
-            command: `install-skills:${input.setupProfile.environment.skills.join(",")}`,
+            command: skillsCommand,
             cwd: checkoutPath,
           });
+          if (skillsResult.exitCode !== 0) {
+            return nativeSetupCommandFailure(
+              input.instanceId,
+              skillsCommand,
+              skillsResult,
+            );
+          }
         } else {
           this.skillsInstallCalls.push({
             workspacePath: input.task.workspacePath,

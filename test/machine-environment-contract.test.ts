@@ -759,7 +759,7 @@ describe("MachineEnvironment self-hosted fallback", () => {
   it("routes check commands through the fallback when native execution is required", async () => {
     const fallback: FallbackExecutor = {
       run: async (command) => {
-        if (command === "npm run verify") {
+        if (command === "npm ci" || command === "npm run verify") {
           return { exitCode: 0, stdout: "verified", stderr: "" };
         }
         return { exitCode: 127, stdout: "", stderr: "not allowed" };
@@ -790,7 +790,12 @@ describe("MachineEnvironment self-hosted fallback", () => {
 
   it("surfaces a fallback check failure as an environment issue", async () => {
     const fallback: FallbackExecutor = {
-      run: async () => ({ exitCode: 1, stdout: "", stderr: "native bin missing" }),
+      run: async (command) => {
+        if (command === "npm ci") {
+          return { exitCode: 0, stdout: "installed", stderr: "" };
+        }
+        return { exitCode: 1, stdout: "", stderr: "native bin missing" };
+      },
     };
     const env = new FakeMachineEnvironment({
       sandboxEnabled: true,
@@ -843,6 +848,70 @@ describe("MachineEnvironment self-hosted fallback", () => {
     });
   });
 
+  it("surfaces a fallback install failure as an environment issue", async () => {
+    const fallback: FallbackExecutor = {
+      run: async () => ({ exitCode: 1, stdout: "", stderr: "npm install failed" }),
+    };
+    const env = new FakeMachineEnvironment({
+      sandboxEnabled: true,
+      fallbackExecutor: fallback,
+    });
+
+    const result = await env.prepare(
+      makeInput({
+        source: "initial",
+        setupProfile: {
+          environment: {
+            install: "npm ci",
+            requiresNativeExecution: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("npm ci");
+    expect(result.issue?.kind).toBe("toolchain_failure");
+    expect(result.issue?.message).toContain("exit code 1");
+    expect(result.issue?.message).toContain("npm install failed");
+  });
+
+  it("surfaces a fallback skills install failure as an environment issue", async () => {
+    const fallback: FallbackExecutor = {
+      run: async (command) => {
+        if (command.startsWith("npx")) {
+          return { exitCode: 1, stdout: "", stderr: "skills install failed" };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      },
+    };
+    const env = new FakeMachineEnvironment({
+      sandboxEnabled: true,
+      fallbackExecutor: fallback,
+    });
+
+    const result = await env.prepare(
+      makeInput({
+        source: "initial",
+        setupProfile: {
+          environment: {
+            install: "npm ci",
+            skills: ["owner/repo"],
+            requiresNativeExecution: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("npx");
+    expect(result.issue?.kind).toBe("toolchain_failure");
+    expect(result.issue?.message).toContain("exit code 1");
+    expect(result.issue?.message).toContain("skills install failed");
+  });
+
   it("DefaultMachineEnvironment rejects native execution without fallback executor", async () => {
     const env = makeDefaultEnv({
       config: { sandboxEnabled: true, maxActiveVms: 2, reservedSystemMemoryMb: 4096, minFreeDiskMb: 2048, githubToken: "" },
@@ -886,6 +955,68 @@ describe("MachineEnvironment self-hosted fallback", () => {
     expect(result.ready).toBe(true);
     expect(fallbackCommand).toBe("npm run verify");
     expect(fallbackCwd).toBe("/workspaces/task-1/web");
+  });
+
+  it("fails prepare when the fallback install command exits non-zero", async () => {
+    const fallback: FallbackExecutor = {
+      run: async () => ({ exitCode: 1, stdout: "", stderr: "npm install failed" }),
+    };
+    const env = makeDefaultEnv({
+      config: { sandboxEnabled: true, maxActiveVms: 2, reservedSystemMemoryMb: 4096, minFreeDiskMb: 2048, githubToken: "" },
+      fallbackExecutor: fallback,
+    });
+    const result = await env.prepare(
+      makeInput({
+        source: "initial",
+        setupProfile: {
+          environment: {
+            install: "npm ci",
+            requiresNativeExecution: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("npm ci");
+    expect(result.issue?.kind).toBe("toolchain_failure");
+    expect(result.issue?.message).toContain("exit code 1");
+    expect(result.issue?.message).toContain("npm install failed");
+  });
+
+  it("fails prepare when the fallback skills install command exits non-zero", async () => {
+    const fallback: FallbackExecutor = {
+      run: async (command) => {
+        if (command.startsWith("npx")) {
+          return { exitCode: 1, stdout: "", stderr: "skills install failed" };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      },
+    };
+    const env = makeDefaultEnv({
+      config: { sandboxEnabled: true, maxActiveVms: 2, reservedSystemMemoryMb: 4096, minFreeDiskMb: 2048, githubToken: "" },
+      fallbackExecutor: fallback,
+    });
+    const result = await env.prepare(
+      makeInput({
+        source: "initial",
+        setupProfile: {
+          environment: {
+            install: "npm ci",
+            skills: ["owner/repo"],
+            requiresNativeExecution: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("npx");
+    expect(result.issue?.kind).toBe("toolchain_failure");
+    expect(result.issue?.message).toContain("exit code 1");
+    expect(result.issue?.message).toContain("skills install failed");
   });
 });
 
