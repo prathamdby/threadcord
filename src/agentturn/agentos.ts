@@ -10,6 +10,9 @@ import pi from "@agentos-software/pi";
 import type { AgentOsSessionEvent } from "../discord/session-event-bridge.js";
 import { redact } from "../util/redact.js";
 import type { AppConfig } from "../config.js";
+import { createCodingToolKit, createSetupToolKit } from "../bindings/toolkits.js";
+import { createBindingsHost } from "../bindings/host.js";
+import type { BindingsHostDependencies } from "../bindings/host.js";
 import type { MachineEnvironment } from "./machine-environment.js";
 import type {
   AgentTurn,
@@ -40,6 +43,8 @@ export interface AgentOsAgentTurnDependencies {
   onSessionEvent?: (event: AgentOsSessionEvent) => void;
   /** Override the AgentOS sidecar binary path. */
   sidecarBinPath?: string;
+  /** Dependencies for constructing Threadcord host bindings (Discord, GitHub, setup, etc.). When provided, toolkits are registered with the AgentOS VM. */
+  bindingsHost?: BindingsHostDependencies;
 }
 
 interface ActiveSession {
@@ -231,6 +236,10 @@ export class AgentOsAgentTurn implements AgentTurn {
     const nodeModulesPath =
       this.deps.nodeModulesPath ?? resolve(process.cwd(), "node_modules");
 
+    const toolKits = this.deps.bindingsHost
+      ? await buildToolKits(input, this.deps.bindingsHost)
+      : [];
+
     this.mountedHostWorkspace = input.workspacePath;
     this.agentOs = await AgentOs.create({
       software: [pi],
@@ -246,6 +255,7 @@ export class AgentOsAgentTurn implements AgentTurn {
         },
         nodeModulesMount(nodeModulesPath, { readOnly: true }),
       ],
+      toolKits,
       onAgentStderr: (event) => {
         const text = new TextDecoder().decode(event.chunk);
         this.deps.logger?.log("info", "agentos-runtime-log", {
@@ -347,6 +357,17 @@ function validateInput(
     };
   }
   return { ok: true };
+}
+
+async function buildToolKits(
+  input: AgentTurnInput,
+  deps: BindingsHostDependencies,
+): Promise<import("@rivet-dev/agentos-core").ToolKit[]> {
+  const host = await createBindingsHost(input, deps);
+  if (input.role === "setup") {
+    return [createSetupToolKit(host)];
+  }
+  return [createCodingToolKit(host)];
 }
 
 function threadIdFromInstanceId(instanceId: string): string | undefined {
