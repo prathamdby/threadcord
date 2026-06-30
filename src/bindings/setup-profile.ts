@@ -5,6 +5,7 @@ import { hostTool } from "@rivet-dev/agentos-core";
 import {
   SETUP_MEMORY_APPEND_MAX_CHARS,
   SETUP_MEMORY_MAX_CHARS,
+  type SetupProfile,
   validateSetupMemoryAppend,
   validateSetupProfilePayload,
 } from "../setup/profile.js";
@@ -18,6 +19,8 @@ const SetupEnvironmentSchema = z.object({
   checks: z.record(z.string(), z.string().min(1)).optional(),
   requiredEnv: z.array(z.string()).optional(),
   requiredServices: z.array(z.string()).optional(),
+  requiredPackages: z.array(z.string().min(1)).optional(),
+  armCaveats: z.array(z.string().min(1)).optional(),
   skills: z.array(z.string().min(1)).optional(),
 });
 
@@ -27,6 +30,8 @@ const SetupEnvironmentPatchSchema = z.object({
   checks: z.record(z.string(), z.string().min(1)).optional(),
   requiredEnv: z.array(z.string()).optional(),
   requiredServices: z.array(z.string()).optional(),
+  requiredPackages: z.array(z.string().min(1)).optional(),
+  armCaveats: z.array(z.string().min(1)).optional(),
   skills: z.array(z.string().min(1)).optional(),
 });
 
@@ -50,13 +55,13 @@ const RecordSetupMemoryInputSchema = z.object({
 });
 
 export const SAVE_THREADCORD_SETUP_PROFILE_DESCRIPTION =
-  "Promote this setup workspace into a durable Threadcord setup profile. Re-runs install, configured checks, optional skills, and a short start smoke probe in the current workspace. Save only checks that already passed; failures reject the whole save. Returns the saved profile id and revision. On success the workspace is removed.";
+  "Promote the setup workspace to a durable Threadcord setup profile. Re-runs install, checks, skills, and start smoke. Only passed checks are saved. Returns profile id and revision.";
 
 export const PROPOSE_SETUP_PROFILE_CHANGE_DESCRIPTION =
-  "Propose a change to the setup profile for this setup instance. Creates a setup draft from the current profile, applies the provided environment patch and memory update, validates the result, and posts a Discord milestone for operator review. Does not modify the live profile.";
+  "Propose a setup profile change. Creates a draft from the current profile with the patch and memory update, posts a Discord milestone, and does not modify the live profile.";
 
 export const RECORD_SETUP_MEMORY_DESCRIPTION =
-  "Record a durable setup memory note for this task's repo and base branch, with optional evidence. Use when a self-healing environment discovery is worth preserving for future turns. Delegates to the setup profile memory append; <=4000 chars; no secret values.";
+  "Record a durable setup memory note for this repo/branch, with optional evidence. Use for self-healing discoveries worth preserving. <=4000 chars, no secrets.";
 
 export function createSaveThreadcordSetupProfileTool(
   host: BindingsHost,
@@ -135,16 +140,25 @@ export function createProposeSetupProfileChangeTool(
     inputSchema: ProposeSetupProfileChangeInputSchema,
     async execute(input): Promise<ToolOutput> {
       const resolved = await host.instanceResolver.resolve(input.instanceId);
-      if (!resolved?.setupRunId) {
-        return toolError(`Unknown setup instance: ${input.instanceId}`);
+      if (!resolved) {
+        return toolError(`Unknown instance: ${input.instanceId}`);
       }
 
-      const run = await host.setupStore.getRunByInstanceId(resolved.instanceId);
-      if (!run) {
-        return toolError("Setup run is missing.");
+      let profile: SetupProfile | undefined;
+      if (resolved.setupRunId) {
+        const run = await host.setupStore.getRunByInstanceId(
+          resolved.instanceId,
+        );
+        if (!run) {
+          return toolError("Setup run is missing.");
+        }
+        profile = await host.setupStore.getProfileById(run.profileId);
+      } else {
+        profile = await host.setupStore.getProfile(
+          resolved.repo,
+          resolved.branch,
+        );
       }
-
-      const profile = await host.setupStore.getProfileById(run.profileId);
       if (!profile) {
         return toolError("Setup profile is missing.");
       }
@@ -160,6 +174,12 @@ export function createProposeSetupProfileChangeTool(
           : {}),
         ...(input.environmentPatch?.requiredServices
           ? { requiredServices: input.environmentPatch.requiredServices }
+          : {}),
+        ...(input.environmentPatch?.requiredPackages
+          ? { requiredPackages: input.environmentPatch.requiredPackages }
+          : {}),
+        ...(input.environmentPatch?.armCaveats
+          ? { armCaveats: input.environmentPatch.armCaveats }
           : {}),
         ...(input.environmentPatch?.skills
           ? { skills: input.environmentPatch.skills }

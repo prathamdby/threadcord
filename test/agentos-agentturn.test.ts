@@ -98,6 +98,7 @@ function createHarness({
       setupStore: {
         getRunByInstanceId: async () => undefined,
         getProfileById: async () => undefined,
+        getProfile: async () => undefined,
         promoteRun: async () => ({ id: "profile-1", revision: 1 } as any),
         failRun: async () => true,
         createDraft: async () => ({ id: "draft-1" } as any),

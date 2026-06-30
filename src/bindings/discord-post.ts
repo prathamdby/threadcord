@@ -11,10 +11,10 @@ import type { BindingsHost, HostTool, ToolOutput } from "./types.js";
 import { toolError, toolResult } from "./types.js";
 
 const POST_THREAD_MESSAGE_DESCRIPTION =
-  "Queue the final user-facing message for this Discord thread. This IS the deliverable the operator will read; it is not a status line. Markdown renders: ## headers, **bold**, fenced code, > blockquote, [links](url), `inline code`. Max 1900 chars per message; use post_thread_report for anything longer or multi-part. The message must contain at least one ## section header with substantive body text (what was done, files changed, conclusions). Thin outputs like '## Summary\\nDone.' are rejected. If validation fails, expand with concrete facts from the turn. Call this OR post_thread_report, never both in the same turn. For investigations, explanations, or reports of any length, prefer post_thread_report so you can structure the answer across sections. Do not include the prompt, GITHUB_TOKEN, env values, or @everyone/@here/@role pings.";
+  "Queue the final user-facing Discord message. Must include a ## header with substantive body. Max 1900 chars. Use post-thread-report for multi-part output. Never both.";
 
 const POST_THREAD_REPORT_DESCRIPTION =
-  "Queue a multi-part report for this Discord thread. Each part posts as its own message in order, after the turn ends. Use for investigations, explanations, design write-ups, or any final output >1900 chars. Markdown renders per part: ## headers, fenced code, blockquotes, links. Each part must contain at least one ## section header with substantive body text (at least 20 chars of concrete detail). Thin parts like '## Summary\\nDone.' are rejected. Structure investigations as: tl;dr -> Root cause -> Evidence -> Impact -> Fix sketch -> Open questions. Structure code-change turns as: Summary -> Changes -> Verification -> PR. Call this OR post_thread_message, never both in the same turn.";
+  "Queue a multi-part Discord report. Each part posts as a separate message. Every part needs a ## header with substantive body. Max 6 parts, 1900 chars each.";
 
 const PostThreadMessageInputSchema = z.object({
   instanceId: z.string().min(1),

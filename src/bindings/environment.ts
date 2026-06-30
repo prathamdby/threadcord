@@ -12,13 +12,13 @@ import type { BindingsHost, HostTool, ToolOutput } from "./types.js";
 import { toolResult, toolError } from "./types.js";
 
 const REPORT_ENVIRONMENT_ISSUE_DESCRIPTION =
-  "Report a runtime environment blocker for this instance. Creates a durable environment issue and posts a Discord milestone so the operator can act. Provide a clear message and a suggested action. For missing secrets, blocked network, or missing packages, prefer the specialized request_* bindings.";
+  "Report a runtime environment blocker. Creates a durable issue and posts a Discord milestone. Prefer request-missing-secret, request-network-access, or report-environment-issue for specific cases.";
 
 const REQUEST_MISSING_SECRET_DESCRIPTION =
-  "Report a missing secret or environment variable by name. Creates a durable environment issue and posts a Discord milestone. The name is recorded (not its value); never include the value in the reason or message.";
+  "Report a missing secret or environment variable by name. Creates a durable issue and posts a Discord milestone. Record the name only, never the value.";
 
 const REQUEST_NETWORK_ACCESS_DESCRIPTION =
-  "Report a blocked network destination (host and port). Creates a durable environment issue and posts a Discord milestone. The agent cannot reach this destination from the current execution environment.";
+  "Report a blocked network destination (host and port). Creates a durable issue and posts a Discord milestone. The agent cannot reach this destination.";
 
 const BaseEnvironmentIssueInputSchema = z.object({
   instanceId: z.string().min(1),

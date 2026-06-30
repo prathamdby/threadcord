@@ -26,6 +26,11 @@ import {
   createRequestMissingSecretTool,
   createRequestNetworkAccessTool,
 } from "../src/bindings/environment.js";
+import { validateToolkits } from "@rivet-dev/agentos-core";
+import {
+  createCodingToolKit,
+  createSetupToolKit,
+} from "../src/bindings/toolkits.js";
 import {
   createProposeSetupProfileChangeTool,
   createRecordSetupMemoryTool,
@@ -123,6 +128,24 @@ function createFakeBindingsHost(): BindingsHost & {
           : undefined,
       getProfileById: async (profileId) =>
         profileId === "profile-1"
+          ? ({
+              id: "profile-1",
+              repo: "acme/web",
+              branch: "main",
+              revision: 2,
+              status: "running",
+              environment: {
+                install: "npm install",
+                start: "",
+                checks: { unit: "npm run test:unit" },
+                requiredEnv: [],
+                requiredServices: [],
+              },
+              memoryMarkdown: "Existing memory.",
+            } as any)
+          : undefined,
+      getProfile: async (repo, branch) =>
+        repo === "acme/web" && branch === "main"
           ? ({
               id: "profile-1",
               repo: "acme/web",
@@ -600,6 +623,27 @@ describe("AgentOS bindings parity", () => {
         expect(result.error).toContain("rejected");
       }
     });
+
+    it("clamps large stdout/stderr to 4KB with truncation markers", async () => {
+      host.gitExecutor = {
+        run: async () => ({
+          exitCode: 1,
+          stdout: "a".repeat(3000),
+          stderr: "b".repeat(3000),
+        }),
+      } as GitExecutor;
+      const tool = createGitPushTool(host);
+      const result = await runTool(tool, {
+        instanceId: TASK_INSTANCE.instanceId,
+        branch: "threadcord/fix/login-redirect",
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.length).toBeLessThanOrEqual(4096);
+        expect(result.error).toContain("[truncated]");
+      }
+    });
   });
 
   describe("append_threadcord_setup_memory", () => {
@@ -814,16 +858,57 @@ describe("AgentOS bindings parity", () => {
       }
     });
 
-    it("rejects non-setup instances", async () => {
+    it("preserves requiredPackages and armCaveats through propose", async () => {
+      const tool = createProposeSetupProfileChangeTool(host);
+      const result = await runTool(tool, {
+        instanceId: SETUP_INSTANCE.instanceId,
+        environmentPatch: {
+          requiredPackages: ["jq"],
+          armCaveats: ["native sqlite3 extension is not available on arm64"],
+        },
+        memoryMarkdown: "Updated memory.",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(host.setupDrafts).toHaveLength(1);
+      const draft = host.setupDrafts[0]!;
+      expect(draft.environment.requiredPackages).toEqual(["jq"]);
+      expect(draft.environment.armCaveats).toEqual([
+        "native sqlite3 extension is not available on arm64",
+      ]);
+    });
+
+    it("creates a setup draft from a coding task instance using repo/branch", async () => {
       const tool = createProposeSetupProfileChangeTool(host);
       const result = await runTool(tool, {
         instanceId: TASK_INSTANCE.instanceId,
+        environmentPatch: {
+          requiredEnv: ["ANTHROPIC_API_KEY"],
+        },
+        memoryMarkdown: "Updated memory.",
+        reason: "Add required model key.",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(host.setupDrafts).toHaveLength(1);
+      const draft = host.setupDrafts[0]!;
+      expect(draft.profileId).toBe("profile-1");
+      expect(draft.environment.requiredEnv).toEqual(["ANTHROPIC_API_KEY"]);
+      expect(draft.memoryMarkdown).toBe("Updated memory.");
+      expect(host.posts[0]!.threadId).toBe(TASK_INSTANCE.threadId);
+      expect(host.posts[0]!.content).toContain("draft");
+    });
+
+    it("rejects unknown instances", async () => {
+      const tool = createProposeSetupProfileChangeTool(host);
+      const result = await runTool(tool, {
+        instanceId: "discord:thread:unknown",
         memoryMarkdown: "Updated memory.",
       });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toContain("Unknown setup instance");
+        expect(result.error).toContain("Unknown instance");
       }
     });
   });
@@ -875,6 +960,58 @@ describe("AgentOS bindings parity", () => {
       if (!result.ok) {
         expect(result.error).toContain("tests failed");
       }
+    });
+
+    it("preserves requiredPackages and armCaveats through save", async () => {
+      host.verifySetupEnvironment = async () => ({ ok: true });
+      let promotedEnvironment: any;
+      host.setupStore = {
+        ...host.setupStore,
+        promoteRun: async (input: any) => {
+          promotedEnvironment = input.environment;
+          return { id: "profile-1", revision: 1 } as any;
+        },
+      };
+      const tool = createSaveThreadcordSetupProfileTool(host);
+      const result = await runTool(tool, {
+        instanceId: SETUP_INSTANCE.instanceId,
+        environment: {
+          install: "npm install",
+          checks: { unit: "npm run test:unit" },
+          requiredPackages: ["jq"],
+          armCaveats: ["native sqlite3 extension is not available on arm64"],
+        },
+        memoryMarkdown: "Saved memory.",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(promotedEnvironment.requiredPackages).toEqual(["jq"]);
+      expect(promotedEnvironment.armCaveats).toEqual([
+        "native sqlite3 extension is not available on arm64",
+      ]);
+    });
+  });
+
+  describe("toolkit metadata", () => {
+    it("uses hyphenated tool command IDs", () => {
+      const coding = createCodingToolKit(host);
+      const setup = createSetupToolKit(host);
+      for (const toolkit of [coding, setup]) {
+        for (const name of Object.keys(toolkit.tools)) {
+          expect(name).toMatch(/^[a-z0-9-]+$/);
+        }
+      }
+    });
+
+    it("includes propose-setup-profile-change in the coding toolkit", () => {
+      const coding = createCodingToolKit(host);
+      expect(coding.tools).toHaveProperty("propose-setup-profile-change");
+    });
+
+    it("has tool and toolkit descriptions within the AgentOS 200-character limit", () => {
+      const coding = createCodingToolKit(host);
+      const setup = createSetupToolKit(host);
+      expect(() => validateToolkits([coding, setup])).not.toThrow();
     });
   });
 });

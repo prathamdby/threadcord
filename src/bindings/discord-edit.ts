@@ -5,7 +5,7 @@ import type { BindingsHost, HostTool, ToolOutput } from "./types.js";
 import { toolResult, toolError } from "./types.js";
 
 const EDIT_THREAD_MESSAGE_DESCRIPTION =
-  "Edit an existing message in the agent's Discord thread. Use to correct or update a message the agent previously sent. Content longer than 2000 chars is clamped automatically. Provide a clear, concise message; do not include GITHUB_TOKEN, env values, or @everyone/@here/@role pings.";
+  "Edit an existing message in the Discord thread. Long content is clamped automatically. Do not include secrets or @everyone/@here/@role pings.";
 
 const EditThreadMessageInputSchema = z.object({
   instanceId: z.string().min(1),

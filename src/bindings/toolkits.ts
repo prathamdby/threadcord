@@ -26,16 +26,17 @@ export function createCodingToolKit(host: BindingsHost): ToolKit {
     description:
       "Threadcord coding task bindings: Discord post/edit, GitHub PR, git push, setup memory append, and environment issue reporting.",
     tools: {
-      post_thread_message: createPostThreadMessageTool(host),
-      post_thread_report: createPostThreadReportTool(host),
-      edit_thread_message: createEditThreadMessageTool(host),
-      create_github_pull_request: createGitHubPullRequestTool(host),
-      git_push: createGitPushTool(host),
-      append_threadcord_setup_memory: createAppendSetupMemoryTool(host),
-      record_setup_memory: createRecordSetupMemoryTool(host),
-      report_environment_issue: createReportEnvironmentIssueTool(host),
-      request_missing_secret: createRequestMissingSecretTool(host),
-      request_network_access: createRequestNetworkAccessTool(host),
+      "post-thread-message": createPostThreadMessageTool(host),
+      "post-thread-report": createPostThreadReportTool(host),
+      "edit-thread-message": createEditThreadMessageTool(host),
+      "create-github-pull-request": createGitHubPullRequestTool(host),
+      "git-push": createGitPushTool(host),
+      "append-threadcord-setup-memory": createAppendSetupMemoryTool(host),
+      "record-setup-memory": createRecordSetupMemoryTool(host),
+      "propose-setup-profile-change": createProposeSetupProfileChangeTool(host),
+      "report-environment-issue": createReportEnvironmentIssueTool(host),
+      "request-missing-secret": createRequestMissingSecretTool(host),
+      "request-network-access": createRequestNetworkAccessTool(host),
     },
   });
 }
@@ -46,13 +47,13 @@ export function createSetupToolKit(host: BindingsHost): ToolKit {
     description:
       "Threadcord setup bindings: profile promotion, draft proposals, setup memory append, and environment issue reporting.",
     tools: {
-      save_threadcord_setup_profile: createSaveThreadcordSetupProfileTool(host),
-      propose_setup_profile_change: createProposeSetupProfileChangeTool(host),
-      append_threadcord_setup_memory: createAppendSetupMemoryTool(host),
-      record_setup_memory: createRecordSetupMemoryTool(host),
-      report_environment_issue: createReportEnvironmentIssueTool(host),
-      request_missing_secret: createRequestMissingSecretTool(host),
-      request_network_access: createRequestNetworkAccessTool(host),
+      "save-threadcord-setup-profile": createSaveThreadcordSetupProfileTool(host),
+      "propose-setup-profile-change": createProposeSetupProfileChangeTool(host),
+      "append-threadcord-setup-memory": createAppendSetupMemoryTool(host),
+      "record-setup-memory": createRecordSetupMemoryTool(host),
+      "report-environment-issue": createReportEnvironmentIssueTool(host),
+      "request-missing-secret": createRequestMissingSecretTool(host),
+      "request-network-access": createRequestNetworkAccessTool(host),
     },
   });
 }

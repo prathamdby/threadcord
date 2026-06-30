@@ -8,7 +8,7 @@ import type { BindingsHost, HostTool, ToolOutput } from "./types.js";
 import { toolResult, toolError } from "./types.js";
 
 export const APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION =
-  "Append durable Markdown to the setup profile memory for this task's repository and base branch. Future coding turns load the updated block under Setup profile memory. Does not change install, checks, or environment JSON. Append only after you verified a fix or learned a stable repo fact worth repeating (gotchas, test quirks, operator prefs, non-obvious paths). One short paragraph or bullet list per call; <=4000 chars; names only for env vars; no secret values. On success increments profile revision; new tasks pick up the revision automatically, in-flight tasks keep their admitted revision until the next turn.";
+  "Append durable Markdown to the setup profile memory for this repo/branch. Use for verified fixes or stable repo facts. <=4000 chars, no secrets. Increments profile revision.";
 
 const AppendSetupMemoryInputSchema = z.object({
   instanceId: z.string().min(1),

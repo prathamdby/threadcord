@@ -4,7 +4,7 @@ import type { BindingsHost, HostTool, ToolOutput } from "./types.js";
 import { toolResult, toolError } from "./types.js";
 
 const CREATE_PULL_REQUEST_DESCRIPTION =
-  "Open a GitHub pull request. Call only after the branch has been pushed successfully. Required: owner (GitHub org/user), repo (repo name only, no slash), title (plain English, <=72 chars), head (the pushed branch name; usually threadcord/<type>/<name>), base (the task base branch). Optional body (Markdown; group changes by area, link to relevant issues, do not paste GITHUB_TOKEN or env values). Returns { number, url, state }. Do not call twice for the same head/base; if a PR already exists, post its URL via post_thread_message instead.";
+  "Open a GitHub pull request after the branch is pushed. Required: owner, repo, title, head, base. Optional body. Returns { number, url, state }. Do not call twice for the same head/base.";
 
 const CreateGitHubPullRequestInputSchema = z.object({
   owner: z.string().min(1),

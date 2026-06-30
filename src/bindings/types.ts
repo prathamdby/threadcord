@@ -55,6 +55,7 @@ export interface BindingsHost {
     | "failRun"
     | "getRunByInstanceId"
     | "getProfileById"
+    | "getProfile"
     | "createDraft"
     | "updateDraft"
   >;
