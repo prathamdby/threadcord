@@ -9,5 +9,7 @@ export {
   createAgentOsAgentTurn,
   createAgentOsCredentialsProvider,
   type AgentOsAgentTurnDependencies,
+  type AgentOsCreateOptions,
+  type AgentOsFactory,
   type Logger,
 } from "./agentos.js";

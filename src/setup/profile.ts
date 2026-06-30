@@ -27,6 +27,10 @@ export interface SetupEnvironment {
   checks: Record<string, string>;
   requiredEnv: string[];
   requiredServices: string[];
+  /** Required OS-level packages for the execution environment. Names only. */
+  requiredPackages?: string[];
+  /** ARM64-specific caveats (unsupported native deps, architecture issues). */
+  armCaveats?: string[];
   /** Skill repo URLs; installed globally under workspace HOME after install. */
   skills?: string[];
 }
@@ -152,6 +156,13 @@ export function validateSetupEnvironment(
     "requiredServices",
   );
   if (!requiredServices.ok) return requiredServices;
+  const requiredPackages = stringListField(
+    value.requiredPackages,
+    "requiredPackages",
+  );
+  if (!requiredPackages.ok) return requiredPackages;
+  const armCaveats = stringListField(value.armCaveats, "armCaveats");
+  if (!armCaveats.ok) return armCaveats;
   const skills = optionalSkillsField(value.skills);
   if (!skills.ok) return skills;
   const environment: SetupEnvironment = {
@@ -163,6 +174,12 @@ export function validateSetupEnvironment(
       ...new Set(requiredServices.value.map((service) => service.trim())),
     ],
   };
+  if (requiredPackages.value.length > 0) {
+    environment.requiredPackages = [...new Set(requiredPackages.value.map((p) => p.trim()))];
+  }
+  if (armCaveats.value.length > 0) {
+    environment.armCaveats = [...new Set(armCaveats.value.map((c) => c.trim()))];
+  }
   if (skills.value.length > 0) {
     environment.skills = skills.value;
   }

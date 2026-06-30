@@ -32,6 +32,12 @@ export interface Logger {
   log(level: string, message: string, meta?: Record<string, unknown>): void;
 }
 
+export type AgentOsCreateOptions = Parameters<typeof AgentOs.create>[0];
+
+export interface AgentOsFactory {
+  create(options: AgentOsCreateOptions): Promise<AgentOs>;
+}
+
 export interface AgentOsAgentTurnDependencies {
   /** Used for start/end resource samples and optional workspace preparation. */
   machineEnvironment?: MachineEnvironment;
@@ -49,6 +55,8 @@ export interface AgentOsAgentTurnDependencies {
   bindingsHost?: BindingsHostDependencies;
   /** Reads the global MCP registry and materializes the agent-specific config before each prompt. */
   mcpRegistry?: McpRegistry;
+  /** Factory for creating the AgentOS instance. Tests can inject a fake factory to verify the options passed to AgentOs.create and to avoid starting a real sidecar. */
+  agentOsFactory?: AgentOsFactory;
 }
 
 interface ActiveSession {
@@ -61,11 +69,12 @@ interface ActiveSession {
 }
 
 /**
- * Real AgentOS-backed AgentTurn implementation for coding turns.
+ * Real AgentOS-backed AgentTurn implementation for coding and setup turns.
  *
- * This is the tracer-bullet implementation: it creates an AgentOS VM, mounts
- * the task workspace, starts a Pi session, sends the prompt, and streams the
- * resulting ACP session events. Terminal events are emitted exactly once.
+ * It creates an AgentOS VM, mounts the workspace, starts a Pi session, sends
+ * the prompt, and streams the resulting ACP session events. Terminal events are
+ * emitted exactly once. Role-specific toolkits (coding vs setup) are registered
+ * and MCP servers are only materialized for coding turns.
  *
  * Host secrets (API keys, tokens) are kept out of captured runtime logs through
  * redaction.
@@ -89,10 +98,10 @@ export class AgentOsAgentTurn implements AgentTurn {
       return { accepted: false, reason: validation.reason };
     }
 
-    if (input.role !== "coding") {
+    if (input.role === "thread-namer") {
       return {
         accepted: false,
-        reason: `AgentOsAgentTurn only supports coding turns (got ${input.role})`,
+        reason: `AgentOsAgentTurn does not support thread-namer turns yet`,
       };
     }
 
@@ -256,7 +265,7 @@ export class AgentOsAgentTurn implements AgentTurn {
       : [];
 
     this.mountedHostWorkspace = input.workspacePath;
-    this.agentOs = await AgentOs.create({
+    const options: AgentOsCreateOptions = {
       software: [pi],
       defaultSoftware: true,
       mounts: [
@@ -277,7 +286,10 @@ export class AgentOsAgentTurn implements AgentTurn {
           line: redact(text),
         });
       },
-    });
+    };
+    this.agentOs = this.deps.agentOsFactory
+      ? await this.deps.agentOsFactory.create(options)
+      : await AgentOs.create(options);
   }
 
   private async createSession(

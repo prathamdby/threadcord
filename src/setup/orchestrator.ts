@@ -16,6 +16,7 @@ import { ensureWorkspaceDirs } from "../task/workspace-env.js";
 import { summarizeError } from "../util/redact.js";
 import { renderSetupProfile } from "./renderer.js";
 import { parseSetupProfileKey } from "./profile.js";
+import { composePrompt } from "../agents/prompts/compose.js";
 import type { SetupStore } from "./store.js";
 import type { ThreadRef } from "../types.js";
 
@@ -124,10 +125,14 @@ export class SetupOrchestrator {
     model: string;
     workspacePath: string;
   }): Promise<void> {
+    const instruction = composePrompt({
+      role: "setup",
+      ctx: { repo: input.repo, branch: input.branch },
+    });
     const agentTurnInput: AgentTurnInput = {
       instanceId: `setup:${input.runId}`,
       role: "setup",
-      instruction: "", // setup agent prompt is composed inside the agent factory
+      instruction,
       model: input.model,
       workspacePath: input.workspacePath,
       repo: input.repo,

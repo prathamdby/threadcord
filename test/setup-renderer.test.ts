@@ -18,6 +18,10 @@ const profile: SetupProfile = {
     checks: { build: "npm run build", test: "npm test" },
     requiredEnv: ["DATABASE_URL"],
     requiredServices: ["postgres"],
+    requiredPackages: ["jq"],
+    armCaveats: [
+      "native sqlite3 extension prebuilt binaries are not available for arm64",
+    ],
   },
   memoryMarkdown: "Use npm. Tests need Postgres.",
   lastRunId: "run-1",
@@ -33,6 +37,10 @@ describe("setup renderer", () => {
     expect(renderSetupProfile(profile).content).toContain("Install: npm ci");
     expect(renderSetupProfile(profile).content).toContain(
       "Required env: DATABASE_URL",
+    );
+    expect(renderSetupProfile(profile).content).toContain("Required packages: jq");
+    expect(renderSetupProfile(profile).content).toContain(
+      "ARM caveats: native sqlite3 extension prebuilt binaries are not available for arm64",
     );
   });
 
@@ -67,6 +75,8 @@ describe("setup renderer", () => {
       "owner-repo-main-memory.md",
     ]);
     expect(view.files?.[0]?.content).toContain('"install": "npm ci"');
+    expect(view.files?.[0]?.content).toContain('"requiredPackages"');
+    expect(view.files?.[0]?.content).toContain('"jq"');
     expect(view.files?.[1]?.content).toBe("Use npm. Tests need Postgres.");
   });
 });
