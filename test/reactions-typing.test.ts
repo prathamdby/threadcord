@@ -4,6 +4,7 @@ import {
   setPendingUserTurnMessage,
   takePendingUserTurnMessages,
 } from "../src/discord/user-turn-message.js";
+import { FakeAgentTurn } from "../src/agentturn/index.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import {
   config,
@@ -11,7 +12,6 @@ import {
   InMemoryStore,
   World,
   flush,
-  makeAgentTurnFromDispatch,
 } from "./support/orchestrator-harness.js";
 
 const EYES = "👀";
@@ -158,8 +158,12 @@ describe("persistent typing indicator", () => {
     const store = new InMemoryStore(1);
     const dispatched: string[] = [];
     const typingThreadIds: string[] = [];
-    const agentTurn = makeAgentTurnFromDispatch(async (instanceId) => {
-      dispatched.push(instanceId);
+    const agentTurn = new FakeAgentTurn({
+      maxConcurrency: 1,
+      enableRestartNotifications: false,
+      onPrompt: (input) => {
+        dispatched.push(input.instanceId);
+      },
     });
     const orchestrator = new TaskOrchestrator(
       config,
@@ -331,16 +335,8 @@ describe("cancel during an in-flight turn", () => {
   });
 
   it("does not crash or post a spurious failure when cancelled after dispatch", async () => {
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const world = new World(1, 9000, {
-      dispatch: async (instanceId) => {
-        await gate;
-        world.dispatched.push(instanceId);
-      },
-    });
+    const world = new World(1, 9000);
+    const gate = world.blockNextPrompt();
     const posts: string[] = [];
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
       posts.push(content);
@@ -353,7 +349,7 @@ describe("cancel during an in-flight turn", () => {
     await world.sendThreadMessage(task.id, "cancel-dispatch", "cancel");
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
 
-    release();
+    gate.release();
     await flush();
     await flush();
 

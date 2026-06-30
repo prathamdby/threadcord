@@ -5,6 +5,7 @@ import {
   createFlueAgentTurn,
   type AgentTurn,
   type AgentTurnInput,
+  type TurnEvent,
 } from "../agentturn/index.js";
 import { execa } from "../task/execa.js";
 import {
@@ -26,13 +27,18 @@ export class SetupOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
   private readonly setupThreads = new Map<string, ThreadRef>();
   private readonly setupTypingTimers = new Map<string, NodeJS.Timeout>();
+  private readonly unsubscribeAgentTurn: () => void;
 
   constructor(
     private readonly config: AppConfig,
     private readonly store: SetupStore,
     private readonly agentTurn: AgentTurn = createFlueAgentTurn(),
     private readonly typingIntervalMs: number = SETUP_TYPING_INTERVAL_MS,
-  ) {}
+  ) {
+    this.unsubscribeAgentTurn = this.agentTurn.onEvent((event) =>
+      this.handleAgentTurnEvent(event),
+    );
+  }
 
   setMilestonePublisher(
     postMessage: (threadId: string, content: string) => Promise<void>,
@@ -207,6 +213,18 @@ export class SetupOrchestrator {
       await rm(run.workspacePath, { recursive: true, force: true });
     }
     return true;
+  }
+
+  private async handleAgentTurnEvent(event: TurnEvent): Promise<void> {
+    if (event.type !== "terminal") return;
+    if (event.outcome === "failed" || event.outcome === "aborted") {
+      await this.handleAgentFailure(
+        event.instanceId,
+        event.summary ?? "Setup agent turn failed",
+      );
+      return;
+    }
+    await this.handleAgentEnd(event.instanceId);
   }
 
   private async notifyRunFinished(

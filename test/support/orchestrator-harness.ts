@@ -3,10 +3,9 @@ import { join } from "node:path";
 import {
   TaskOrchestrator,
   type BootstrapTurn,
-  type DispatchTurn,
 } from "../../src/task/orchestrator.js";
 import {
-  createFlueAgentTurn,
+  FakeAgentTurn,
   type AgentTurn,
   type AgentTurnInput,
 } from "../../src/agentturn/index.js";
@@ -400,35 +399,13 @@ export interface SubmitResult {
 }
 
 export interface WorldOverrides {
-  dispatch?: DispatchTurn;
   bootstrap?: BootstrapTurn;
-}
-
-export function makeAgentTurnFromDispatch(dispatch: DispatchTurn): AgentTurn {
-  return {
-    async prompt(input: AgentTurnInput) {
-      const dispatchInput = {
-        kind: "threadcord.turn" as const,
-        workspacePath: input.workspacePath,
-        model: input.model,
-        repo: input.repo,
-        baseBranch: input.baseBranch,
-        instruction: input.instruction,
-      };
-      await dispatch(input.instanceId, dispatchInput);
-      return { accepted: true };
-    },
-    async cancel() {},
-    onEvent() {
-      return () => {};
-    },
-    async resumeAfterRestart() {},
-  };
 }
 
 export class World {
   readonly store: InMemoryStore;
   readonly orchestrator: TaskOrchestrator;
+  readonly fakeAgentTurn: FakeAgentTurn;
   readonly dispatched: string[] = [];
   private counter = 0;
 
@@ -438,17 +415,19 @@ export class World {
     overrides: WorldOverrides = {},
   ) {
     this.store = new InMemoryStore(maxConcurrent);
-    const agentTurn = makeAgentTurnFromDispatch(
-      overrides.dispatch ??
-        (async (instanceId: string) => {
-          this.dispatched.push(instanceId);
-        }),
-    );
+    this.fakeAgentTurn = new FakeAgentTurn({
+      maxConcurrency: maxConcurrent,
+      // The orchestrator posts its own restart notices; avoid duplicating them.
+      enableRestartNotifications: false,
+      onPrompt: (input) => {
+        this.dispatched.push(input.instanceId);
+      },
+    });
     this.orchestrator = new TaskOrchestrator(
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
       fakeSetupStore,
-      agentTurn,
+      this.fakeAgentTurn,
       overrides.bootstrap ??
         (async (task) => {
           const path = join(TEST_WORKSPACE_ROOT, task.id);
@@ -458,6 +437,10 @@ export class World {
       async () => {},
       typingIntervalMs,
     );
+  }
+
+  blockNextPrompt(): { release: () => void } {
+    return this.fakeAgentTurn.blockNextPrompt();
   }
 
   threadIdFor(messageId: string): string {

@@ -18,6 +18,8 @@ export interface AgentTurnInput {
   repo: string;
   baseBranch: string;
   setupProfileRevision: number;
+  /** Optional idempotency key (e.g., Discord message id) used to deduplicate turns. */
+  idempotencyKey?: string;
 }
 
 export type TerminalOutcome = "completed" | "failed" | "cancelled" | "aborted";

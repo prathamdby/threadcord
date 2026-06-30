@@ -13,6 +13,7 @@ import {
   createFlueAgentTurn,
   type AgentTurn,
   type AgentTurnInput,
+  type TurnEvent,
 } from "../agentturn/index.js";
 import {
   isPendingThreadId,
@@ -121,6 +122,7 @@ export class TaskOrchestrator {
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
   private readonly pendingInitiatorIds = new Map<string, Set<string>>();
   private readonly inFlightTurns = new Map<string, InFlightTurn>();
+  private readonly unsubscribeAgentTurn: () => void;
 
   constructor(
     private readonly config: AppConfig,
@@ -130,7 +132,11 @@ export class TaskOrchestrator {
     private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
     private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
-  ) {}
+  ) {
+    this.unsubscribeAgentTurn = this.agentTurn.onEvent((event) =>
+      this.handleAgentTurnEvent(event),
+    );
+  }
 
   setMilestonePublisher(
     postMessage: (threadId: string, content: string) => Promise<void>,
@@ -442,6 +448,18 @@ export class TaskOrchestrator {
     await this.fillConcurrencySlots();
   }
 
+  private async handleAgentTurnEvent(event: TurnEvent): Promise<void> {
+    if (event.type !== "terminal") return;
+    if (event.outcome === "failed" || event.outcome === "aborted") {
+      await this.handleAgentFailure(
+        event.instanceId,
+        event.summary ?? "Agent turn failed",
+      );
+      return;
+    }
+    await this.handleAgentEnd(event.instanceId);
+  }
+
   private async scheduleAfterTurn(taskId: string): Promise<void> {
     const claimed = await this.store.claimNextTurn(taskId);
     if (claimed) {
@@ -529,6 +547,10 @@ export class TaskOrchestrator {
         repo: task.repo,
         baseBranch: task.branch,
         setupProfileRevision: task.setupProfileRevision,
+        idempotencyKey:
+          source === "initial"
+            ? task.discordMessageId
+            : claimed.initiatorMessageId,
       };
       if (source === "initial" && this.renameDiscordThread) {
         scheduleReadableThreadRename(
