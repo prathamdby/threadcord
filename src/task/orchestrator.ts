@@ -17,6 +17,7 @@ import {
   type MachineEnvironment,
   type TurnEvent,
 } from "../agentturn/index.js";
+import type { Logger as RenameLogger } from "../agentturn/host-thread-namer.js";
 import {
   createNoopMcpRegistry,
   type McpRegistry,
@@ -74,6 +75,7 @@ interface ReactionTarget {
 }
 
 interface InFlightTurn {
+  source: "initial" | "followup";
   initiator?: ReactionTarget | undefined;
   typingTimer?: NodeJS.Timeout | undefined;
 }
@@ -97,6 +99,7 @@ export class TaskOrchestrator {
   private editHeaderMessage?: EditHeaderMessage;
   private sendThreadTyping?: SendThreadTyping;
   private renameDiscordThread?: RenameDiscordThread;
+  private threadRenameLogger?: RenameLogger;
   private readonly taskThreads = new Map<string, ThreadRef>();
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
   private readonly pendingInitiatorIds = new Map<string, Set<string>>();
@@ -141,6 +144,10 @@ export class TaskOrchestrator {
 
   setThreadRenamer(renameDiscordThread: RenameDiscordThread): void {
     this.renameDiscordThread = renameDiscordThread;
+  }
+
+  setThreadRenameLogger(logger: RenameLogger): void {
+    this.threadRenameLogger = logger;
   }
 
   async resumeAfterRestart(
@@ -391,6 +398,15 @@ export class TaskOrchestrator {
       }
       const turn = this.clearInFlight(instanceId);
       await this.flipReaction(turn?.initiator, CHECK);
+      if (this.renameDiscordThread && turn?.source === "initial") {
+        scheduleReadableThreadRename(
+          task.discordThreadId,
+          task.instruction,
+          this.config.defaultModel,
+          this.renameDiscordThread,
+          this.threadRenameLogger,
+        );
+      }
       await this.scheduleAfterTurn(task.id);
       return;
     }
@@ -472,7 +488,7 @@ export class TaskOrchestrator {
       this.initiatorMessages.delete(claimed.initiatorMessageId);
       this.pendingInitiatorIds.get(task.id)?.delete(claimed.initiatorMessageId);
     }
-    this.inFlightTurns.set(instanceId, { initiator });
+    this.inFlightTurns.set(instanceId, { source, initiator });
     await this.refreshHeader(
       task.id,
       source === "initial" ? "initial" : "follow-up",
@@ -544,14 +560,6 @@ export class TaskOrchestrator {
             ? task.discordMessageId
             : claimed.initiatorMessageId,
       };
-      if (source === "initial" && this.renameDiscordThread) {
-        scheduleReadableThreadRename(
-          task.discordThreadId,
-          instruction,
-          this.config.defaultModel,
-          this.renameDiscordThread,
-        );
-      }
       const promptResult = await this.agentTurn.prompt(input);
       if (!promptResult.accepted) {
         await this.post(

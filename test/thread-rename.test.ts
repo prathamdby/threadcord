@@ -52,7 +52,13 @@ describe("scheduleReadableThreadRename", () => {
     };
     process.on("unhandledRejection", handler);
     try {
-      scheduleReadableThreadRename("thread-1", "Fix the bug", defaultModel, rename);
+      scheduleReadableThreadRename(
+        "thread-1",
+        "Fix the bug",
+        defaultModel,
+        rename,
+        { log: () => {} },
+      );
       await flush();
     } finally {
       process.off("unhandledRejection", handler);
@@ -72,6 +78,44 @@ describe("scheduleReadableThreadRename", () => {
     await flush();
     // No Flue runtime functions are called; the rename is performed host-side.
     expect(rename).toHaveBeenCalledWith("thread-1", "Fix the login bug");
+  });
+
+  it("logs rename failures via an injected logger", async () => {
+    const logs: {
+      level: string;
+      message: string;
+      meta?: Record<string, unknown> | undefined;
+    }[] = [];
+    const logger = {
+      log: (
+        level: string,
+        message: string,
+        meta?: Record<string, unknown>,
+      ) => {
+        logs.push({ level, message, meta });
+      },
+    };
+    const rename = vi.fn(async () => {
+      throw new Error("discord: missing permissions");
+    });
+    scheduleReadableThreadRename(
+      "thread-1",
+      "Fix the bug",
+      defaultModel,
+      rename,
+      logger,
+    );
+    await flush();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(rename).toHaveBeenCalled();
+    expect(
+      logs.some(
+        (log) =>
+          log.message === "host-thread-namer-rename-failed" &&
+          log.meta?.summary === "discord: missing permissions",
+      ),
+    ).toBe(true);
   });
 });
 

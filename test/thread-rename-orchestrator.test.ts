@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { threadName } from "../src/task/thread-name.js";
-import { InMemoryStore, World, flush } from "./support/orchestrator-harness.js";
+import { World, flush } from "./support/orchestrator-harness.js";
 
 describe("thread rename through orchestrator", () => {
   it("creates a placeholder thread name and renames on the initial turn", async () => {
@@ -49,6 +49,7 @@ describe("thread rename through orchestrator", () => {
     const result = await world.submitRaw("m-rename-fail");
     const task = result.task!;
 
+    world.orchestrator.setThreadRenameLogger({ log: () => {} });
     world.orchestrator.setThreadRenamer(async () => {
       throw new Error("discord: missing permissions");
     });
@@ -68,5 +69,59 @@ describe("thread rename through orchestrator", () => {
 
     expect(expected).toMatch(/^threadcord-acme-web-[a-f0-9]{8}$/);
     expect(result.threadsCreated).toBe(1);
+  });
+
+  it("rename is scheduled after the initial turn terminal event, not before prompt", async () => {
+    const world = new World();
+    const { release } = world.blockNextPrompt();
+    const result = await world.submitRaw("m-block-rename");
+    const task = result.task!;
+
+    await flush();
+    expect(world.threadRenames).toHaveLength(0);
+
+    release();
+    await flush();
+    expect(world.threadRenames).toHaveLength(0);
+
+    world.fakeAgentTurn.complete(task.flueInstanceId);
+    await flush();
+    expect(world.threadRenames).toHaveLength(1);
+    expect(world.threadRenames).toContainEqual({
+      threadId: task.discordThreadId,
+      name: "Do the work",
+    });
+  });
+
+  it("logs thread rename failures through the orchestrator logger", async () => {
+    const world = new World();
+    const logs: {
+      level: string;
+      message: string;
+      meta?: Record<string, unknown> | undefined;
+    }[] = [];
+    world.orchestrator.setThreadRenameLogger({
+      log: (level, message, meta) => {
+        logs.push({ level, message, meta });
+      },
+    });
+    world.orchestrator.setThreadRenamer(async () => {
+      throw new Error("discord: missing permissions");
+    });
+
+    const result = await world.submitRaw("m-rename-log");
+    const task = result.task!;
+
+    world.fakeAgentTurn.complete(task.flueInstanceId);
+    await flush();
+
+    expect(world.store.snapshot(task.id).status).toBe("waiting");
+    expect(
+      logs.some(
+        (log) =>
+          log.message === "host-thread-namer-rename-failed" &&
+          log.meta?.summary === "discord: missing permissions",
+      ),
+    ).toBe(true);
   });
 });
