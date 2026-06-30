@@ -41,7 +41,7 @@ import {
   isTerminalBlock,
 } from "./tool-format.js";
 
-const PROGRESS_EDIT_INTERVAL_MS = 1500;
+export const PROGRESS_EDIT_INTERVAL_MS = 1500;
 
 export interface ObserveBridgeCallbacks {
   store: TaskStore;
@@ -56,11 +56,16 @@ interface PendingToolStart {
   args: unknown;
 }
 
-interface ObserveBridgeState {
+export interface ObserveBridgeState {
   renderState: Map<string, InstanceRenderState>;
   timers: Map<string, NodeJS.Timeout>;
   instanceChains: Map<string, Promise<void>>;
   pendingToolStarts: Map<string, PendingToolStart>;
+}
+
+export interface BridgeProgressLine {
+  line: string;
+  terminal: boolean;
 }
 
 export function registerObserveBridge(args: ObserveBridgeCallbacks): void {
@@ -148,6 +153,15 @@ export async function handleObserveEvent(
   const summary = await eventSummary(event, instanceId, args, state);
   if (!summary) return;
 
+  await renderProgressLine(instanceId, summary, args, state);
+}
+
+export async function renderProgressLine(
+  instanceId: string,
+  summary: BridgeProgressLine,
+  args: ObserveBridgeCallbacks,
+  state: ObserveBridgeState,
+): Promise<void> {
   const inst = state.renderState.get(instanceId) ?? newInstanceRenderState();
   const outcome = appendRenderedLine(inst, summary.line, summary.terminal);
   state.renderState.set(instanceId, inst);
@@ -185,7 +199,7 @@ export async function handleObserveEvent(
   }
 }
 
-async function resolveProgressStream(
+export async function resolveProgressStream(
   instanceId: string,
   args: ObserveBridgeCallbacks,
 ): Promise<{
