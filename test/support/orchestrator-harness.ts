@@ -80,12 +80,42 @@ export class InMemoryStore {
   private followups: StoredFollowup[] = [];
   private seq = 0;
   private breakTransition = false;
+  private readonly reserved = new Set<string>();
 
   constructor(private readonly maxConcurrent: number) {}
 
   /** Simulate a concurrent cancel committing between read and transition. */
   breakNextTransition(): void {
     this.breakTransition = true;
+  }
+
+  /** Release a reserved claim without committing the turn. */
+  releaseReservation(taskId: string): void {
+    this.reserved.delete(taskId);
+  }
+
+  /** Commit a reserved claim: move the task to running and consume the followup. */
+  async commitTurn(claimed: ClaimedTurn): Promise<TaskRecord | undefined> {
+    const task = this.tasks.get(claimed.task.id);
+    if (!task) return undefined;
+    if (!["queued", "waiting"].includes(task.status)) return undefined;
+
+    if (claimed.source === "followup") {
+      const idx = this.followups.findIndex(
+        (f) =>
+          f.taskId === claimed.task.id &&
+          f.discordMessageId === claimed.initiatorMessageId,
+      );
+      if (idx === -1) return undefined;
+      this.followups.splice(idx, 1);
+    }
+
+    task.status = "running";
+    if (claimed.source === "initial") {
+      task.initialTurnStarted = true;
+    }
+    this.reserved.delete(task.id);
+    return clone(task);
   }
 
   snapshot(taskId: string): TaskRecord {
@@ -210,16 +240,19 @@ export class InMemoryStore {
   }
 
   async claimNextTurn(preferTaskId?: string): Promise<ClaimedTurn | undefined> {
-    const active = [...this.tasks.values()].filter(
-      (t) => t.status === "running",
-    ).length;
+    const active =
+      [...this.tasks.values()].filter((t) => t.status === "running").length +
+      this.reserved.size;
     if (active >= this.maxConcurrent) return undefined;
 
-    return (
+    const claimed =
       this.claimFollowup(preferTaskId) ??
       this.claimInitial(preferTaskId) ??
-      this.claimFollowup(undefined)
-    );
+      this.claimFollowup(undefined);
+    if (claimed) {
+      this.reserved.add(claimed.task.id);
+    }
+    return claimed;
   }
 
   async queueSnapshot(
@@ -262,6 +295,7 @@ export class InMemoryStore {
       return undefined;
     }
     task.status = "cancelled";
+    this.reserved.delete(taskId);
     this.followups = this.followups.filter((f) => f.taskId !== taskId);
     return clone(task);
   }
@@ -273,6 +307,7 @@ export class InMemoryStore {
       task.status = "waiting";
       resumed.push(clone(task));
     }
+    this.reserved.clear();
     return resumed;
   }
 
@@ -304,12 +339,11 @@ export class InMemoryStore {
       .filter(
         (t) =>
           t.status === "queued" &&
+          !this.reserved.has(t.id) &&
           (preferTaskId === undefined || t.id === preferTaskId),
       )
       .sort(byCreatedThenId)[0];
     if (!candidate) return undefined;
-    candidate.status = "running";
-    candidate.initialTurnStarted = true;
     return {
       task: clone(candidate),
       instruction: candidate.instruction,
@@ -324,17 +358,15 @@ export class InMemoryStore {
         const task = this.tasks.get(f.taskId);
         return (
           task?.status === "waiting" &&
+          !this.reserved.has(task.id) &&
           task.initialTurnStarted &&
           (preferTaskId === undefined || task.id === preferTaskId)
         );
       })
       .sort((a, b) => a.seq - b.seq)[0];
     if (!followup) return undefined;
-    this.followups = this.followups.filter((f) => f.seq !== followup.seq);
-    const task = this.tasks.get(followup.taskId)!;
-    task.status = "running";
     return {
-      task: clone(task),
+      task: clone(this.tasks.get(followup.taskId)!),
       instruction: followup.instruction,
       source: "followup",
       initiatorMessageId: followup.discordMessageId,

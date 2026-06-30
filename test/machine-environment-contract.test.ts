@@ -401,10 +401,10 @@ describe("MachineEnvironment orchestrator seam", () => {
     expect(world.dispatched).toHaveLength(0);
     expect(posts.some((p) => p.includes("Environment issue"))).toBe(true);
     expect(posts.some((p) => p.includes("memory"))).toBe(true);
-    expect(result.task!.status).toBe("waiting");
+    expect(result.task!.status).toBe("queued");
   });
 
-  it("readiness probe failure keeps the task waiting and blocks model spend", async () => {
+  it("readiness probe failure keeps the task queued and blocks model spend", async () => {
     const world = new World(1, 9000, {
       machineEnvironment: new FakeMachineEnvironment({
         failReadinessCheck: "workspace is missing required marker",
@@ -421,7 +421,7 @@ describe("MachineEnvironment orchestrator seam", () => {
     expect(world.dispatched).toHaveLength(0);
     expect(posts.some((p) => p.includes("Environment issue"))).toBe(true);
     expect(posts.some((p) => p.includes("workspace is missing required marker"))).toBe(true);
-    expect(result.task!.status).toBe("waiting");
+    expect(result.task!.status).toBe("queued");
   });
 
   it("follow-up turn does not re-run setup install", async () => {

@@ -454,12 +454,13 @@ export class TaskOrchestrator {
 
   private async runTurn(claimed: ClaimedTurn): Promise<void> {
     const { task, instruction, source } = claimed;
+    const instanceId = task.flueInstanceId;
     const initiator = this.initiatorMessages.get(claimed.initiatorMessageId);
     if (initiator) {
       this.initiatorMessages.delete(claimed.initiatorMessageId);
       this.pendingInitiatorIds.get(task.id)?.delete(claimed.initiatorMessageId);
     }
-    this.inFlightTurns.set(task.flueInstanceId, { initiator });
+    this.inFlightTurns.set(instanceId, { initiator });
     await this.refreshHeader(
       task.id,
       source === "initial" ? "initial" : "follow-up",
@@ -476,7 +477,7 @@ export class TaskOrchestrator {
       }
 
       const prepareResult = await this.machineEnvironment.prepare({
-        instanceId: task.flueInstanceId,
+        instanceId,
         role: "coding",
         task,
         source,
@@ -492,21 +493,18 @@ export class TaskOrchestrator {
           task.discordThreadId,
           `Environment issue: ${prepareResult.reason}`,
         );
-        const current = await this.store.getByInstanceId(task.flueInstanceId);
-        if (current?.status === "running") {
-          await this.store.transition(task.id, "running", "waiting");
-        }
-        this.clearInFlight(task.flueInstanceId);
-        await this.fillConcurrencySlots();
+        this.store.releaseReservation(task.id);
+        this.clearInFlight(instanceId);
         return;
       }
 
-      // A concurrent cancel transitions the task out of running during setup;
-      // re-check the store (source of truth) before dispatching, since the
-      // in-flight entry may have been re-created here after cancel cleared it.
-      const current = await this.store.getByInstanceId(task.flueInstanceId);
-      if (!current || current.status !== "running") {
-        this.clearInFlight(task.flueInstanceId);
+      // A concurrent cancel may have changed the task status while we were
+      // preparing the environment. Re-check the store (source of truth) before
+      // asking AgentTurn to admit the turn.
+      const current = await this.store.getByInstanceId(instanceId);
+      if (!current || (current.status !== "queued" && current.status !== "waiting")) {
+        this.store.releaseReservation(task.id);
+        this.clearInFlight(instanceId);
         return;
       }
       const fullPrompt = buildPrompt(
@@ -519,7 +517,7 @@ export class TaskOrchestrator {
         prepareResult.workspacePath,
       );
       const input: AgentTurnInput = {
-        instanceId: task.flueInstanceId,
+        instanceId,
         role: "coding",
         instruction: fullPrompt,
         model: task.model,
@@ -541,16 +539,36 @@ export class TaskOrchestrator {
       }
       const promptResult = await this.agentTurn.prompt(input);
       if (!promptResult.accepted) {
-        throw new Error(promptResult.reason);
+        await this.post(
+          task.discordThreadId,
+          `Turn not started: ${promptResult.reason}`,
+        );
+        this.store.releaseReservation(task.id);
+        this.clearInFlight(instanceId);
+        return;
       }
-      const inFlight = this.inFlightTurns.get(task.flueInstanceId);
+
+      const committed = await this.store.commitTurn(claimed);
+      if (!committed) {
+        await this.agentTurn.cancel(instanceId);
+        this.store.releaseReservation(task.id);
+        this.clearInFlight(instanceId);
+        await this.fillConcurrencySlots();
+        return;
+      }
+
+      const inFlight = this.inFlightTurns.get(instanceId);
       if (inFlight) {
-        inFlight.typingTimer = this.startTypingLoop(task);
+        inFlight.typingTimer = this.startTypingLoop(committed);
       }
+      await this.refreshHeader(
+        task.id,
+        source === "initial" ? "initial" : "follow-up",
+      );
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {
       const summary = summarizeError(error);
-      takePendingUserTurnMessages(task.flueInstanceId);
+      takePendingUserTurnMessages(instanceId);
       console.error(
         `[threadcord] task ${task.id} turn failure details:`,
         summary,
@@ -563,10 +581,10 @@ export class TaskOrchestrator {
       );
       await this.refreshHeader(task.id);
       await this.post(task.discordThreadId, failureDiscordMessage(summary));
-      const turn = this.clearInFlight(task.flueInstanceId);
+      const turn = this.clearInFlight(instanceId);
       await this.flipReaction(turn?.initiator, CROSS);
       await this.disposeInitiators(task.id, CROSS);
-      this.taskThreads.delete(task.flueInstanceId);
+      this.taskThreads.delete(instanceId);
       await this.fillConcurrencySlots();
     }
   }

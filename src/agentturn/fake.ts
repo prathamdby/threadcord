@@ -96,7 +96,6 @@ export class FakeAgentTurn implements AgentTurn {
       // starting a new AgentOS session or attempt.
       return { accepted: true };
     }
-    this.idempotencyKeys.add(idempotencyKey);
 
     // A new turn for the same instance supersedes any prior active turn.
     // This mirrors the orchestrator invariant that a task has at most one
@@ -111,6 +110,11 @@ export class FakeAgentTurn implements AgentTurn {
       this.rejected.push({ input, reason });
       return { accepted: false, reason };
     }
+
+    // The idempotency key is only consumed once a turn has been successfully
+    // admitted. Rejected prompts do not consume the key, so a later prompt
+    // with the same key can still start a new turn.
+    this.idempotencyKeys.add(idempotencyKey);
 
     const turnId = makeId("turn");
     const attemptId = makeId("attempt");

@@ -213,6 +213,24 @@ describe("AgentTurn facade", () => {
     expect(fake.prompted).toHaveLength(1);
   });
 
+  it("does not consume an idempotency key on a rejected prompt", async () => {
+    const fake = new FakeAgentTurn();
+    fake.rejectNext("no concurrency slot available");
+    const first = await fake.prompt(
+      codingInput("discord:thread:thread-1", "msg-1"),
+    );
+    expect(first.accepted).toBe(false);
+
+    // A second prompt with the same idempotency key is not treated as a
+    // duplicate of the rejected one; it is admitted as a fresh turn.
+    const second = await fake.prompt(
+      codingInput("discord:thread:thread-2", "msg-1"),
+    );
+    expect(second.accepted).toBe(true);
+    expect(fake.prompted).toHaveLength(1);
+    expect(fake.prompted[0]?.instanceId).toBe("discord:thread:thread-2");
+  });
+
   it("resumeAfterRestart marks in-flight turns interrupted and notifies their threads", async () => {
     const fake = new FakeAgentTurn({
       maxConcurrency: 2,
@@ -345,6 +363,61 @@ describe("AgentTurn facade", () => {
 });
 
 describe("AgentTurn orchestrator seam", () => {
+  it("rejects an initial prompt with a typed reason and leaves the task queued", async () => {
+    const world = new World(1);
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+    world.fakeAgentTurn.rejectNext("resource limit exceeded");
+
+    const result = await world.submitRaw("m-reject-init");
+    const task = result.task!;
+
+    expect(task.status).toBe("queued");
+    expect(world.store.snapshot(task.id).status).toBe("queued");
+    expect(posts).toContain("Turn not started: resource limit exceeded");
+    expect(world.dispatched).not.toContain(task.flueInstanceId);
+  });
+
+  it("does not transition a task to running until AgentTurn accepts the prompt", async () => {
+    const world = new World(1);
+    const gate = world.blockNextPrompt();
+    const submitPromise = world.submitRaw("m-pending");
+
+    // Give the claim/prepare path a chance to reach the blocked prompt.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(world.store.findByMessageId("m-pending")?.status).toBe("queued");
+
+    gate.release();
+    const result = await submitPromise;
+
+    expect(result.task!.status).toBe("running");
+    expect(world.dispatched).toContain(result.task!.flueInstanceId);
+  });
+
+  it("rejects a follow-up prompt with a typed reason and leaves the task waiting", async () => {
+    const world = new World(1);
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+    const result = await world.submitRaw("m-reject-followup");
+    const task = result.task!;
+    world.fakeAgentTurn.complete(task.flueInstanceId);
+    await flush();
+    expect(world.store.snapshot(task.id).status).toBe("waiting");
+
+    world.dispatched.length = 0;
+    world.fakeAgentTurn.rejectNext("model unavailable");
+    const followup = await world.submitFollowup(task.id, "m-fu");
+
+    expect(world.store.snapshot(task.id).status).toBe("waiting");
+    expect(posts).toContain("Turn not started: model unavailable");
+    expect(followup.message.replies).toContain("Queued follow-up - position 1");
+    expect(world.dispatched).toHaveLength(0);
+  });
+
   it("waiting follow-up starts a prompt and holds the slot until a terminal event", async () => {
     const world = new World(1);
     const result = await world.submitRaw("m-tracer");

@@ -1150,7 +1150,9 @@ describe("TaskOrchestrator.handleAgentFailure", () => {
       toFlueInstanceId("thread-1"),
       "status-1",
     );
-    await store.claimNextTurn(task.id);
+    const claimed = await store.claimNextTurn(task.id);
+    expect(claimed).toBeDefined();
+    await store.commitTurn(claimed!);
 
     await orchestrator.handleAgentFailure(
       toFlueInstanceId("thread-1"),

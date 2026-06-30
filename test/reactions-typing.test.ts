@@ -312,7 +312,8 @@ describe("cancel during an in-flight turn", () => {
     const result = await world.submitRaw("m-race-setup");
     const task = result.task!;
 
-    expect(task.status).toBe("running");
+    // The task is reserved but not yet running while prepare is blocked.
+    expect(task.status).toBe("queued");
     expect(world.dispatched).not.toContain(task.flueInstanceId);
 
     await world.sendThreadMessage(task.id, "cancel-setup", "cancel");
@@ -338,7 +339,8 @@ describe("cancel during an in-flight turn", () => {
     const result = await world.submitRaw("m-race-dispatch");
     const task = result.task!;
 
-    expect(task.status).toBe("running");
+    // The task is reserved but not yet running while the prompt is blocked.
+    expect(task.status).toBe("queued");
 
     await world.sendThreadMessage(task.id, "cancel-dispatch", "cancel");
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
@@ -419,7 +421,8 @@ describe("guard against dispatching a cancelled task", () => {
 
     const result = await world.submitRaw("m-cancel-bootstrap");
     const task = result.task!;
-    expect(task.status).toBe("running");
+    // The task is reserved but not yet running while prepare is blocked.
+    expect(task.status).toBe("queued");
 
     // Simulate a concurrent cancel that does not go through the orchestrator
     // (so clearInFlight is not called); the in-flight entry remains set.

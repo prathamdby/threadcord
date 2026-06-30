@@ -10,10 +10,64 @@ import { TASK_STATUSES } from "../types.js";
 const SCHEDULER_LOCK_KEY = 8675309;
 
 export class TaskStore {
+  private readonly reserved = new Set<string>();
+
   constructor(
     private readonly pool: Pool,
     private readonly maxConcurrentTasks: number,
   ) {}
+
+  /** Release a reserved claim without committing the turn. */
+  releaseReservation(taskId: string): void {
+    this.reserved.delete(taskId);
+  }
+
+  async commitTurn(claimed: ClaimedTurn): Promise<TaskRecord | undefined> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      if (claimed.source === "followup") {
+        const deleted = await client.query(
+          `
+            DELETE FROM task_followups
+            WHERE task_id = $1 AND discord_message_id = $2
+            RETURNING id
+          `,
+          [claimed.task.id, claimed.initiatorMessageId],
+        );
+        if (deleted.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return undefined;
+        }
+      }
+
+      const result = await client.query(
+        `
+          UPDATE tasks
+          SET status = 'running',
+              initial_turn_started = true,
+              updated_at = now()
+          WHERE id = $1 AND status = ANY($2::text[])
+          RETURNING *
+        `,
+        [claimed.task.id, ["queued", "waiting"]],
+      );
+      if (!result.rows[0]) {
+        await client.query("ROLLBACK");
+        return undefined;
+      }
+
+      await client.query("COMMIT");
+      this.reserved.delete(claimed.task.id);
+      return rowToTask(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 
   async migrate(): Promise<void> {
     await this.pool.query(`
@@ -268,28 +322,46 @@ export class TaskStore {
         SCHEDULER_LOCK_KEY,
       ]);
 
+      const reservedIds = [...this.reserved];
       const running = await client.query(
         "SELECT COUNT(*)::int AS count FROM tasks WHERE status = 'running'",
       );
-      if (Number(singleRow(running.rows).count) >= this.maxConcurrentTasks) {
+      const active =
+        Number(singleRow(running.rows).count) + reservedIds.length;
+      if (active >= this.maxConcurrentTasks) {
         await client.query("ROLLBACK");
         return undefined;
       }
 
-      const claimed = await this.claimFollowupTurn(client, preferTaskId);
+      const claimed = await this.claimFollowupTurn(
+        client,
+        preferTaskId,
+        reservedIds,
+      );
       if (claimed) {
+        this.reserved.add(claimed.task.id);
         await client.query("COMMIT");
         return claimed;
       }
 
-      const initial = await this.claimInitialTurn(client, preferTaskId);
+      const initial = await this.claimInitialTurn(
+        client,
+        preferTaskId,
+        reservedIds,
+      );
       if (initial) {
+        this.reserved.add(initial.task.id);
         await client.query("COMMIT");
         return initial;
       }
 
-      const globalFollowup = await this.claimFollowupTurn(client);
+      const globalFollowup = await this.claimFollowupTurn(
+        client,
+        undefined,
+        reservedIds,
+      );
       if (globalFollowup) {
+        this.reserved.add(globalFollowup.task.id);
         await client.query("COMMIT");
         return globalFollowup;
       }
@@ -364,6 +436,7 @@ export class TaskStore {
         taskId,
       ]);
       await client.query("COMMIT");
+      this.reserved.delete(taskId);
       return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
     } catch (error) {
       await client.query("ROLLBACK");
@@ -382,6 +455,7 @@ export class TaskStore {
         RETURNING *
       `,
     );
+    this.reserved.clear();
     return result.rows.map(rowToTask);
   }
 
@@ -436,25 +510,24 @@ export class TaskStore {
 
   private async claimInitialTurn(
     client: PoolClient,
-    preferTaskId?: string,
+    preferTaskId: string | undefined,
+    reservedIds: string[],
   ): Promise<ClaimedTurn | undefined> {
     const result = await client.query(
       `
-        UPDATE tasks
-        SET status = 'running',
-            initial_turn_started = true,
-            updated_at = now()
+        SELECT *
+        FROM tasks
         WHERE id = (
           SELECT id FROM tasks
           WHERE status = 'queued'
+            AND id <> ALL($2::text[])
             AND ($1::text IS NULL OR id = $1)
           ORDER BY created_at, id
           FOR UPDATE SKIP LOCKED
           LIMIT 1
         )
-        RETURNING *
       `,
-      [preferTaskId ?? null],
+      [preferTaskId ?? null, reservedIds],
     );
     const row = result.rows[0];
     if (!row) return undefined;
@@ -469,37 +542,28 @@ export class TaskStore {
 
   private async claimFollowupTurn(
     client: PoolClient,
-    preferTaskId?: string,
+    preferTaskId: string | undefined,
+    reservedIds: string[],
   ): Promise<ClaimedTurn | undefined> {
     const result = await client.query(
       `
         WITH candidate AS (
-          SELECT f.id AS followup_id, f.instruction, t.id AS task_id
+          SELECT f.id AS followup_id, f.instruction, f.discord_message_id, t.id AS task_id
           FROM task_followups f
           JOIN tasks t ON t.id = f.task_id
           WHERE t.status = 'waiting'
             AND t.initial_turn_started = true
+            AND t.id <> ALL($2::text[])
             AND ($1::text IS NULL OR t.id = $1)
           ORDER BY f.created_at, f.id
           FOR UPDATE OF f, t SKIP LOCKED
           LIMIT 1
-        ),
-        deleted AS (
-          DELETE FROM task_followups
-          WHERE id = (SELECT followup_id FROM candidate)
-          RETURNING instruction, discord_message_id
-        ),
-        updated AS (
-          UPDATE tasks
-          SET status = 'running', updated_at = now()
-          WHERE id = (SELECT task_id FROM candidate)
-          RETURNING *
         )
-        SELECT updated.*, deleted.instruction AS run_instruction, deleted.discord_message_id AS run_initiator_message_id
-        FROM updated
-        JOIN deleted ON true
+        SELECT t.*, c.instruction AS run_instruction, c.discord_message_id AS run_initiator_message_id
+        FROM candidate c
+        JOIN tasks t ON t.id = c.task_id
       `,
-      [preferTaskId ?? null],
+      [preferTaskId ?? null, reservedIds],
     );
     const row = result.rows[0];
     if (!row || typeof row.run_instruction !== "string") return undefined;
