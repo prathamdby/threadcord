@@ -573,6 +573,10 @@ export class TaskOrchestrator {
         `[threadcord] task ${task.id} turn failure details:`,
         summary,
       );
+      // Release any reserved claim before failing the task. All pre-commit
+      // exception paths (missing setup profile, prepare throws, prompt throws,
+      // etc.) land here and must not leak concurrency capacity.
+      this.store.releaseReservation(task.id);
       await this.store.transition(
         task.id,
         ["queued", "waiting", "running"],

@@ -430,6 +430,7 @@ export interface SubmitResult {
 
 export interface WorldOverrides {
   machineEnvironment?: MachineEnvironment;
+  setupStore?: SetupStore;
 }
 
 export class World {
@@ -458,7 +459,7 @@ export class World {
     this.orchestrator = new TaskOrchestrator(
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
-      fakeSetupStore,
+      overrides.setupStore ?? fakeSetupStore,
       this.fakeAgentTurn,
       overrides.machineEnvironment ?? this.fakeMachineEnvironment,
       typingIntervalMs,

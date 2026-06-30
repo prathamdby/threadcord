@@ -45,6 +45,7 @@ export class FakeAgentTurn implements AgentTurn {
     | undefined;
   private blockNextFlag = false;
   private nextRejectionReason: string | undefined;
+  private nextThrow: Error | undefined;
 
   constructor(options: FakeAgentTurnOptions = {}) {
     this.maxConcurrency = options.maxConcurrency ?? 1;
@@ -56,6 +57,11 @@ export class FakeAgentTurn implements AgentTurn {
   /** Reject the next prompt() call with a human-readable reason. */
   rejectNext(reason: string): void {
     this.nextRejectionReason = reason;
+  }
+
+  /** Throw the given error on the next prompt() call. */
+  throwNext(error: Error): void {
+    this.nextThrow = error;
   }
 
   /**
@@ -88,6 +94,12 @@ export class FakeAgentTurn implements AgentTurn {
       this.nextRejectionReason = undefined;
       this.rejected.push({ input, reason });
       return { accepted: false, reason };
+    }
+
+    if (this.nextThrow) {
+      const error = this.nextThrow;
+      this.nextThrow = undefined;
+      throw error;
     }
 
     const idempotencyKey = input.idempotencyKey ?? input.instanceId;
