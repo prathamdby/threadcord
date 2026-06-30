@@ -33,6 +33,12 @@ export interface SetupEnvironment {
   armCaveats?: string[];
   /** Skill repo URLs; installed globally under workspace HOME after install. */
   skills?: string[];
+  /**
+   * When true, the setup profile requires execution primitives that AgentOS-only
+   * cannot faithfully provide (e.g. native Linux toolchain, Docker-in-Docker).
+   * The self-hosted sandbox/host-command fallback is engaged for install/checks.
+   */
+  requiresNativeExecution?: boolean;
 }
 
 export interface SetupProfile {
@@ -182,6 +188,11 @@ export function validateSetupEnvironment(
   }
   if (skills.value.length > 0) {
     environment.skills = skills.value;
+  }
+  const requiresNativeExecution = booleanField(value, "requiresNativeExecution");
+  if (!requiresNativeExecution.ok) return requiresNativeExecution;
+  if (requiresNativeExecution.value) {
+    environment.requiresNativeExecution = true;
   }
   return { ok: true, value: environment };
 }
@@ -367,6 +378,18 @@ function optionalSkillsField(value: unknown): ValidationResult<string[]> {
   const linkCheck = validateSkillLinkLines(unique);
   if (!linkCheck.ok) return linkCheck;
   return { ok: true, value: unique };
+}
+
+function booleanField(
+  object: Record<string, unknown>,
+  key: string,
+): ValidationResult<boolean> {
+  const value = object[key];
+  if (value === undefined) return { ok: true, value: false };
+  if (typeof value !== "boolean") {
+    return { ok: false, message: `Environment ${key} must be a boolean.` };
+  }
+  return { ok: true, value };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

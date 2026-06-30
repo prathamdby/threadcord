@@ -22,6 +22,7 @@ const SetupEnvironmentSchema = z.object({
   requiredPackages: z.array(z.string().min(1)).optional(),
   armCaveats: z.array(z.string().min(1)).optional(),
   skills: z.array(z.string().min(1)).optional(),
+  requiresNativeExecution: z.boolean().optional(),
 });
 
 const SetupEnvironmentPatchSchema = z.object({
@@ -33,6 +34,7 @@ const SetupEnvironmentPatchSchema = z.object({
   requiredPackages: z.array(z.string().min(1)).optional(),
   armCaveats: z.array(z.string().min(1)).optional(),
   skills: z.array(z.string().min(1)).optional(),
+  requiresNativeExecution: z.boolean().optional(),
 });
 
 const SaveSetupProfileInputSchema = z.object({
@@ -183,6 +185,12 @@ export function createProposeSetupProfileChangeTool(
           : {}),
         ...(input.environmentPatch?.skills
           ? { skills: input.environmentPatch.skills }
+          : {}),
+        ...(input.environmentPatch?.requiresNativeExecution !== undefined
+          ? {
+              requiresNativeExecution:
+                input.environmentPatch.requiresNativeExecution,
+            }
           : {}),
       };
       const memoryMarkdown = input.memoryMarkdown ?? profile.memoryMarkdown;

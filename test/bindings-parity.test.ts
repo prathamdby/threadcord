@@ -878,6 +878,22 @@ describe("AgentOS bindings parity", () => {
       ]);
     });
 
+    it("preserves requiresNativeExecution through propose", async () => {
+      const tool = createProposeSetupProfileChangeTool(host);
+      const result = await runTool(tool, {
+        instanceId: SETUP_INSTANCE.instanceId,
+        environmentPatch: {
+          requiresNativeExecution: true,
+        },
+        memoryMarkdown: "Updated memory.",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(host.setupDrafts).toHaveLength(1);
+      const draft = host.setupDrafts[0]!;
+      expect(draft.environment.requiresNativeExecution).toBe(true);
+    });
+
     it("creates a setup draft from a coding task instance using repo/branch", async () => {
       const tool = createProposeSetupProfileChangeTool(host);
       const result = await runTool(tool, {
@@ -989,6 +1005,31 @@ describe("AgentOS bindings parity", () => {
       expect(promotedEnvironment.armCaveats).toEqual([
         "native sqlite3 extension is not available on arm64",
       ]);
+    });
+
+    it("preserves requiresNativeExecution through save", async () => {
+      host.verifySetupEnvironment = async () => ({ ok: true });
+      let promotedEnvironment: any;
+      host.setupStore = {
+        ...host.setupStore,
+        promoteRun: async (input: any) => {
+          promotedEnvironment = input.environment;
+          return { id: "profile-1", revision: 1 } as any;
+        },
+      };
+      const tool = createSaveThreadcordSetupProfileTool(host);
+      const result = await runTool(tool, {
+        instanceId: SETUP_INSTANCE.instanceId,
+        environment: {
+          install: "npm install",
+          checks: { unit: "npm run test:unit" },
+          requiresNativeExecution: true,
+        },
+        memoryMarkdown: "Saved memory.",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(promotedEnvironment.requiresNativeExecution).toBe(true);
     });
   });
 

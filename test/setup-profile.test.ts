@@ -145,4 +145,25 @@ describe("setup profile validation", () => {
       }),
     ).toMatchObject({ ok: true });
   });
+
+  it("accepts optional requiresNativeExecution flag", () => {
+    const result = validateSetupEnvironment({
+      install: "npm ci",
+      requiresNativeExecution: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: expect.objectContaining({
+        requiresNativeExecution: true,
+      }),
+    });
+  });
+
+  it("rejects non-boolean requiresNativeExecution values", () => {
+    const result = validateSetupEnvironment({
+      install: "npm ci",
+      requiresNativeExecution: "yes",
+    });
+    expect(result).toMatchObject({ ok: false });
+  });
 });

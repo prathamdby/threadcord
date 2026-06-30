@@ -48,6 +48,13 @@ const EnvSchema = z
     OPENAI_API_KEY: optionalNonEmptyString,
     OPENAI_MODELS: optionalCsvString,
     PROVIDERS: optionalCsvString,
+    AGENTOS_SANDBOX_ENABLE: z.preprocess(
+      (value) =>
+        typeof value === "string" && value.trim() === ""
+          ? undefined
+          : value,
+      z.coerce.boolean().optional(),
+    ),
     NODE_ENV: z.string().optional(),
   })
   .superRefine((env, ctx) => {

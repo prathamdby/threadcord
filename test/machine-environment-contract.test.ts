@@ -15,9 +15,14 @@ import {
   type ServiceProbe,
   type SidecarInfo,
 } from "../src/agentturn/machine-environment.js";
+import {
+  HostCommandFallbackExecutor,
+  type FallbackExecutor,
+} from "../src/agentturn/fallback.js";
 import type { TaskRecord } from "../src/types.js";
 import type { SetupEnvironment, SetupProfile } from "../src/setup/profile.js";
-import { World, flush } from "./support/orchestrator-harness.js";
+import type { SetupStore } from "../src/setup/store.js";
+import { World, fakeSetupStore, flush } from "./support/orchestrator-harness.js";
 
 const baseTask: TaskRecord = {
   id: "task-1",
@@ -113,6 +118,7 @@ function makeDefaultEnv(
     mcpConfigProvider: { getPath: () => Promise<string>; parse: () => Promise<unknown> };
     credentialsProvider: { hasCredentials: (model: string) => Promise<boolean> };
     serviceProbe: ServiceProbe;
+    fallbackExecutor?: FallbackExecutor;
   }> = {},
 ) {
   const config: MachineEnvironmentConfig = {
@@ -151,6 +157,7 @@ function makeDefaultEnv(
       deps.credentialsProvider?.hasCredentials(model) ?? true,
   };
   if (deps.serviceProbe) envDeps.serviceProbe = deps.serviceProbe;
+  if (deps.fallbackExecutor) envDeps.fallbackExecutor = deps.fallbackExecutor;
   return new DefaultMachineEnvironment(config, envDeps);
 }
 
@@ -713,5 +720,234 @@ describe("DefaultMachineEnvironment with fake snapshots", () => {
 
     expect(result.ready).toBe(true);
     expect(checkCommandRun).toBe(false);
+  });
+});
+
+describe("MachineEnvironment self-hosted fallback", () => {
+  it("does not activate fallback for a normal profile", async () => {
+    const fallback: FallbackExecutor = {
+      run: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+    };
+    const env = new FakeMachineEnvironment({
+      sandboxEnabled: true,
+      fallbackExecutor: fallback,
+    });
+
+    const result = await env.prepare(makeInput());
+
+    expect(result.ready).toBe(true);
+    expect(env.fallbackCalls).toHaveLength(0);
+  });
+
+  it("rejects a native-execution profile when sandbox is disabled", async () => {
+    const env = new FakeMachineEnvironment({
+      sandboxEnabled: false,
+    });
+
+    const result = await env.prepare(
+      makeInput({
+        setupProfile: { environment: { requiresNativeExecution: true } },
+      }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("sandbox");
+    expect(result.issue?.kind).toBe("sandbox_unavailable");
+  });
+
+  it("routes check commands through the fallback when native execution is required", async () => {
+    const fallback: FallbackExecutor = {
+      run: async (command) => {
+        if (command === "npm run verify") {
+          return { exitCode: 0, stdout: "verified", stderr: "" };
+        }
+        return { exitCode: 127, stdout: "", stderr: "not allowed" };
+      },
+    };
+    const env = new FakeMachineEnvironment({
+      sandboxEnabled: true,
+      fallbackExecutor: fallback,
+    });
+
+    const result = await env.prepare(
+      makeInput({
+        setupProfile: {
+          environment: {
+            checks: { verify: "npm run verify" },
+            requiresNativeExecution: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.ready).toBe(true);
+    expect(env.fallbackCalls).toContainEqual({
+      command: "npm run verify",
+      cwd: "/workspaces/task-1/web",
+    });
+  });
+
+  it("surfaces a fallback check failure as an environment issue", async () => {
+    const fallback: FallbackExecutor = {
+      run: async () => ({ exitCode: 1, stdout: "", stderr: "native bin missing" }),
+    };
+    const env = new FakeMachineEnvironment({
+      sandboxEnabled: true,
+      fallbackExecutor: fallback,
+    });
+
+    const result = await env.prepare(
+      makeInput({
+        setupProfile: {
+          environment: {
+            checks: { verify: "npm run verify" },
+            requiresNativeExecution: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toContain("setup check verify failed");
+    expect(result.issue?.kind).toBe("toolchain_failure");
+  });
+
+  it("routes the install command through the fallback for native execution", async () => {
+    const fallback: FallbackExecutor = {
+      run: async () => ({ exitCode: 0, stdout: "installed", stderr: "" }),
+    };
+    const env = new FakeMachineEnvironment({
+      sandboxEnabled: true,
+      fallbackExecutor: fallback,
+    });
+
+    const result = await env.prepare(
+      makeInput({
+        source: "initial",
+        setupProfile: {
+          environment: {
+            install: "npm ci",
+            requiresNativeExecution: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.ready).toBe(true);
+    expect(env.installCalls).toHaveLength(0);
+    expect(env.fallbackCalls).toContainEqual({
+      command: "npm ci",
+      cwd: "/workspaces/task-1/web",
+    });
+  });
+
+  it("DefaultMachineEnvironment rejects native execution without fallback executor", async () => {
+    const env = makeDefaultEnv({
+      config: { sandboxEnabled: true, maxActiveVms: 2, reservedSystemMemoryMb: 4096, minFreeDiskMb: 2048, githubToken: "" },
+    });
+    const result = await env.prepare(
+      makeInput({
+        setupProfile: { environment: { requiresNativeExecution: true } },
+      }),
+    );
+
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.issue?.kind).toBe("sandbox_unavailable");
+  });
+
+  it("DefaultMachineEnvironment routes checks through the fallback when enabled", async () => {
+    let fallbackCommand: string | undefined;
+    let fallbackCwd: string | undefined;
+    const fallback: FallbackExecutor = {
+      run: async (command, cwd) => {
+        fallbackCommand = command;
+        fallbackCwd = cwd;
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      },
+    };
+    const env = makeDefaultEnv({
+      config: { sandboxEnabled: true, maxActiveVms: 2, reservedSystemMemoryMb: 4096, minFreeDiskMb: 2048, githubToken: "" },
+      fallbackExecutor: fallback,
+    });
+    const result = await env.prepare(
+      makeInput({
+        setupProfile: {
+          environment: {
+            checks: { verify: "npm run verify" },
+            requiresNativeExecution: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.ready).toBe(true);
+    expect(fallbackCommand).toBe("npm run verify");
+    expect(fallbackCwd).toBe("/workspaces/task-1/web");
+  });
+});
+
+function setupStoreWithNativeExecution(profile: SetupProfile): SetupStore {
+  return {
+    ...fakeSetupStore,
+    getReadyProfile: async () => profile,
+  } as unknown as SetupStore;
+}
+
+describe("MachineEnvironment fallback orchestrator seam", () => {
+  it("keeps the task queued when native execution is required but sandbox is disabled", async () => {
+    const profile: SetupProfile = {
+      ...baseProfile,
+      environment: {
+        ...baseProfile.environment,
+        requiresNativeExecution: true,
+      },
+    };
+    const world = new World(1, 9000, {
+      machineEnvironment: new FakeMachineEnvironment({
+        sandboxEnabled: false,
+      }),
+      setupStore: setupStoreWithNativeExecution(profile),
+    });
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+
+    const result = await world.submitRaw("m-native-no-sandbox");
+    await flush();
+
+    expect(world.dispatched).toHaveLength(0);
+    expect(posts.some((p) => p.includes("Environment issue"))).toBe(true);
+    expect(posts.some((p) => p.includes("sandbox"))).toBe(true);
+    expect(result.task!.status).toBe("queued");
+  });
+
+  it("accepts the turn when native execution is required and sandbox is enabled", async () => {
+    const fallback: FallbackExecutor = {
+      run: async () => ({ exitCode: 0, stdout: "ok", stderr: "" }),
+    };
+    const profile: SetupProfile = {
+      ...baseProfile,
+      environment: {
+        ...baseProfile.environment,
+        requiresNativeExecution: true,
+      },
+    };
+    const world = new World(1, 9000, {
+      machineEnvironment: new FakeMachineEnvironment({
+        sandboxEnabled: true,
+        fallbackExecutor: fallback,
+      }),
+      setupStore: setupStoreWithNativeExecution(profile),
+    });
+
+    const result = await world.submitRaw("m-native-sandbox");
+    await flush();
+
+    expect(world.dispatched).toHaveLength(1);
+    expect(result.task!.status).toBe("running");
   });
 });

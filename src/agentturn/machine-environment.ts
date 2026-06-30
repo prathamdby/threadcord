@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { z } from "zod";
 import type { TaskRecord } from "../types.js";
 import type { SetupProfile } from "../setup/profile.js";
+import { buildSkillsInstallShellCommand } from "../setup/skills.js";
 import type { AppConfig } from "../config.js";
 import { workspaceEnv, workspacePaths } from "../task/workspace-env.js";
 import {
@@ -13,6 +14,7 @@ import {
   type BootstrapMode,
 } from "../task/bootstrap.js";
 import type { AgentTurnRole } from "./types.js";
+import type { FallbackExecutor } from "./fallback.js";
 
 export const ENVIRONMENT_ISSUE_SEVERITIES = ["info", "warning", "error"] as const;
 export type EnvironmentIssueSeverity =
@@ -240,7 +242,7 @@ function defaultConfigFromAppConfig(config: AppConfig): MachineEnvironmentConfig
     maxActiveVms: 2,
     reservedSystemMemoryMb: 4096,
     minFreeDiskMb: 2048,
-    sandboxEnabled: false,
+    sandboxEnabled: config.AGENTOS_SANDBOX_ENABLE ?? false,
     githubToken: config.GITHUB_TOKEN,
   };
 }
@@ -256,6 +258,7 @@ export interface DefaultMachineEnvironmentDependencies {
   mcpConfigProvider?: McpConfigProvider;
   credentialsProvider?: CredentialsProvider;
   serviceProbe?: ServiceProbe;
+  fallbackExecutor?: FallbackExecutor;
   issueStore?: EnvironmentIssueStore;
   logger?: Logger;
 }
@@ -272,6 +275,7 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
   private readonly mcpConfigProvider: McpConfigProvider | undefined;
   private readonly credentialsProvider: CredentialsProvider;
   private readonly serviceProbe: ServiceProbe;
+  private readonly fallbackExecutor: FallbackExecutor | undefined;
   private readonly issueStore: EnvironmentIssueStore | undefined;
   private readonly logger: Logger;
 
@@ -296,6 +300,7 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
     this.credentialsProvider =
       deps.credentialsProvider ?? defaultCredentialsProvider();
     this.serviceProbe = deps.serviceProbe ?? defaultServiceProbe();
+    this.fallbackExecutor = deps.fallbackExecutor;
     this.issueStore = deps.issueStore;
     this.logger = deps.logger ?? consoleLogger();
   }
@@ -333,23 +338,46 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
       return admission.failure;
     }
 
+    const nativeExecution =
+      input.setupProfile.environment.requiresNativeExecution ?? false;
+    if (nativeExecution && !this.config.sandboxEnabled) {
+      return sandboxUnavailableFailure(input.instanceId);
+    }
+    if (nativeExecution && !this.fallbackExecutor) {
+      return sandboxUnavailableFailure(input.instanceId);
+    }
+
     const checkoutPath = join(input.task.workspacePath, basename(input.task.repo));
 
     if (input.source === "initial") {
       await this.bootstrapper.bootstrap(input.task, "initial");
-      await this.installRunner.run(
-        input.task.workspacePath,
-        checkoutPath,
-        input.setupProfile.environment.install,
-        this.config.githubToken,
-      );
-      if (input.setupProfile.environment.skills) {
-        await this.skillsInstallRunner?.run(
+      if (nativeExecution) {
+        await this.fallbackExecutor!.run(
+          input.setupProfile.environment.install,
+          checkoutPath,
+        );
+      } else {
+        await this.installRunner.run(
           input.task.workspacePath,
           checkoutPath,
-          input.setupProfile.environment.skills,
+          input.setupProfile.environment.install,
           this.config.githubToken,
         );
+      }
+      if (input.setupProfile.environment.skills) {
+        if (nativeExecution) {
+          const skillsCommand = buildSkillsInstallShellCommand(
+            input.setupProfile.environment.skills,
+          );
+          await this.fallbackExecutor!.run(skillsCommand, checkoutPath);
+        } else {
+          await this.skillsInstallRunner?.run(
+            input.task.workspacePath,
+            checkoutPath,
+            input.setupProfile.environment.skills,
+            this.config.githubToken,
+          );
+        }
       }
     } else {
       await this.bootstrapper.bootstrap(input.task, "continue");
@@ -365,6 +393,7 @@ export class DefaultMachineEnvironment implements MachineEnvironment {
       credentialsProvider: this.credentialsProvider,
       serviceProbe: this.serviceProbe,
       config: this.config,
+      fallbackExecutor: this.fallbackExecutor,
     });
 
     if (!probe.ok) {
@@ -560,6 +589,21 @@ function evaluateResourceAdmission(
   return { ok: true };
 }
 
+function sandboxUnavailableFailure(instanceId: string): PrepareFailure {
+  return {
+    ready: false,
+    reason: "sandbox fallback is not enabled",
+    issue: {
+      id: `env-issue-${randomUUID()}`,
+      severity: "error",
+      kind: "sandbox_unavailable",
+      message: `Profile requires native execution but AGENTOS_SANDBOX_ENABLE is not set for ${instanceId}.`,
+      suggestedAction: "Enable AGENTOS_SANDBOX_ENABLE and configure a self-hosted fallback executor.",
+      createdAt: new Date(),
+    },
+  };
+}
+
 interface ProbeFailure {
   ok: false;
   failure: PrepareFailure;
@@ -579,12 +623,15 @@ interface ReadinessProbeContext {
   credentialsProvider: CredentialsProvider;
   serviceProbe: ServiceProbe;
   config: MachineEnvironmentConfig;
+  fallbackExecutor: FallbackExecutor | undefined;
 }
 
 async function runReadinessProbe(
   ctx: ReadinessProbeContext,
 ): Promise<ProbeSuccess | ProbeFailure> {
   const { input, checkoutPath } = ctx;
+  const nativeExecution =
+    input.setupProfile.environment.requiresNativeExecution ?? false;
 
   const fs = await ctx.filesystemSnapshotProvider.getSnapshot(
     input.task.workspacePath,
@@ -651,7 +698,9 @@ async function runReadinessProbe(
     for (const [name, command] of Object.entries(
       input.setupProfile.environment.checks,
     )) {
-      const result = await ctx.commandExecutor.run(command, checkoutPath);
+      const result = nativeExecution
+        ? await ctx.fallbackExecutor!.run(command, checkoutPath)
+        : await ctx.commandExecutor.run(command, checkoutPath);
       if (result.exitCode !== 0) {
         return {
           ok: false,
@@ -815,8 +864,11 @@ async function runReadinessProbe(
     }
   }
 
-  if (ctx.config.sandboxEnabled && input.setupProfile.environment.skills) {
-    // Sandbox fallback is enabled; nothing else to check here.
+  if (nativeExecution && (!ctx.config.sandboxEnabled || !ctx.fallbackExecutor)) {
+    return {
+      ok: false,
+      failure: sandboxUnavailableFailure(input.instanceId),
+    };
   }
 
   return { ok: true };
@@ -834,6 +886,8 @@ export interface FakeMachineEnvironmentOptions {
   logger?: Logger;
   failReadinessCheck?: string;
   failAdmission?: boolean;
+  sandboxEnabled?: boolean;
+  fallbackExecutor?: FallbackExecutor;
 }
 
 export class FakeMachineEnvironment implements MachineEnvironment {
@@ -851,6 +905,7 @@ export class FakeMachineEnvironment implements MachineEnvironment {
   }[] = [];
   readonly resourceSamples: { tag: "start" | "end"; instanceId: string; snapshot: ResourceSnapshot }[] = [];
   readonly issues: EnvironmentIssue[] = [];
+  readonly fallbackCalls: { command: string; cwd: string }[] = [];
 
   private resourceSnapshot: ResourceSnapshot;
   private filesystemSnapshot: FilesystemSnapshot;
@@ -861,6 +916,8 @@ export class FakeMachineEnvironment implements MachineEnvironment {
   private serviceReachability: Record<string, boolean>;
   private failReadinessCheck: string | undefined;
   private failAdmission: boolean;
+  private sandboxEnabled: boolean;
+  private fallbackExecutor: FallbackExecutor | undefined;
   private issueStore: EnvironmentIssueStore | undefined;
   private logger: Logger;
   private blockNextPrepareFlag = false;
@@ -895,6 +952,8 @@ export class FakeMachineEnvironment implements MachineEnvironment {
     this.serviceReachability = options.serviceReachability ?? {};
     this.failReadinessCheck = options.failReadinessCheck;
     this.failAdmission = options.failAdmission ?? false;
+    this.sandboxEnabled = options.sandboxEnabled ?? false;
+    this.fallbackExecutor = options.fallbackExecutor;
     this.issueStore = options.issueStore;
     this.logger = options.logger ?? silentLogger();
   }
@@ -918,20 +977,40 @@ export class FakeMachineEnvironment implements MachineEnvironment {
   async prepare(input: PrepareInput): Promise<PrepareResult> {
     this.prepared.push(input);
     const checkoutPath = join(input.task.workspacePath, basename(input.task.repo));
+    const nativeExecution =
+      input.setupProfile.environment.requiresNativeExecution ?? false;
+
+    if (nativeExecution && (!this.sandboxEnabled || !this.fallbackExecutor)) {
+      return sandboxUnavailableFailure(input.instanceId);
+    }
 
     if (input.source === "initial") {
       this.bootstrapCalls.push({ taskId: input.task.id, mode: "initial" });
-      this.installCalls.push({
-        workspacePath: input.task.workspacePath,
-        checkoutPath,
-        installCommand: input.setupProfile.environment.install,
-      });
-      if (input.setupProfile.environment.skills) {
-        this.skillsInstallCalls.push({
+      if (nativeExecution) {
+        this.fallbackCalls.push({
+          command: input.setupProfile.environment.install,
+          cwd: checkoutPath,
+        });
+      } else {
+        this.installCalls.push({
           workspacePath: input.task.workspacePath,
           checkoutPath,
-          skillLinks: input.setupProfile.environment.skills,
+          installCommand: input.setupProfile.environment.install,
         });
+      }
+      if (input.setupProfile.environment.skills) {
+        if (nativeExecution) {
+          this.fallbackCalls.push({
+            command: `install-skills:${input.setupProfile.environment.skills.join(",")}`,
+            cwd: checkoutPath,
+          });
+        } else {
+          this.skillsInstallCalls.push({
+            workspacePath: input.task.workspacePath,
+            checkoutPath,
+            skillLinks: input.setupProfile.environment.skills,
+          });
+        }
       }
     } else {
       this.bootstrapCalls.push({ taskId: input.task.id, mode: "continue" });
@@ -1062,11 +1141,16 @@ export class FakeMachineEnvironment implements MachineEnvironment {
       for (const [name, command] of Object.entries(
         input.setupProfile.environment.checks,
       )) {
-        const result = this.commandResults[command] ?? {
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-        };
+        const result = nativeExecution
+          ? await this.fallbackExecutor!.run(command, checkoutPath)
+          : this.commandResults[command] ?? {
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+            };
+        if (nativeExecution) {
+          this.fallbackCalls.push({ command, cwd: checkoutPath });
+        }
         if (result.exitCode !== 0) {
           return {
             ready: false,

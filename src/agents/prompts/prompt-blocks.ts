@@ -137,7 +137,8 @@ A SetupEnvironment JSON object:
 - requiredEnv: UPPER_SNAKE names only.
 - requiredServices: host:port service names (e.g. localhost:5432 for postgres).
 - requiredPackages: OS package names required by the install or checks (e.g. jq, libssl-dev). Omit if none.
-- armCaveats: notes about ARM64/AArch64 limitations, unsupported native deps, or architecture issues. Omit if none.`;
+- armCaveats: notes about ARM64/AArch64 limitations, unsupported native deps, or architecture issues. Omit if none.
+- requiresNativeExecution: optional boolean, default false. Set true only when the repo needs a real Linux environment that AgentOS cannot faithfully emulate (e.g. Docker-in-Docker, native kernel modules, architecture-specific binary tools). When true, the operator must opt in to AGENTOS_SANDBOX_ENABLE for the self-hosted fallback.`;
 
 export const SETUP_SAVE_CONTRACT = `CONTRACT
 - Actually run install in the checkout; it must exit 0.

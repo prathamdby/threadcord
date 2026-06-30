@@ -163,6 +163,7 @@ function renderEnvironment(environment: SetupEnvironment): string {
         ? environment.skills.join("; ")
         : "(none)"
     }`,
+    `Requires native execution: ${environment.requiresNativeExecution ? "yes (sandbox fallback required)" : "no"}`,
   ].join("\n");
 }
 
