@@ -20,3 +20,9 @@ export {
   createDurableAgentTurn,
   type DurableAgentTurnDependencies,
 } from "./durable-agentturn.js";
+export {
+  HostThreadNamer,
+  createHostThreadNamer,
+  type HostThreadNamerOptions,
+  type RenameDiscordThread,
+} from "./host-thread-namer.js";

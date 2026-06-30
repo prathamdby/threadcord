@@ -418,6 +418,7 @@ export interface RecordingThread extends ThreadRef {
   pins: string[];
   edits: { messageId: string; content: string }[];
   sendTypingCalls: number;
+  setNameCalls: string[];
 }
 
 export interface SubmitResult {
@@ -442,6 +443,8 @@ export class World {
   readonly fakeMachineEnvironment: FakeMachineEnvironment;
   readonly fakeMcpRegistry: FakeMcpRegistry;
   readonly dispatched: string[] = [];
+  readonly threadRenames: { threadId: string; name: string }[] = [];
+  readonly threads = new Map<string, RecordingThread>();
   private counter = 0;
 
   constructor(
@@ -470,6 +473,10 @@ export class World {
       this.fakeMcpRegistry,
       typingIntervalMs,
     );
+    this.orchestrator.setThreadRenamer(async (threadId, name) => {
+      this.threadRenames.push({ threadId, name });
+      await this.threads.get(threadId)?.setName(name);
+    });
   }
 
   blockNextPrompt(): { release: () => void } {
@@ -497,6 +504,7 @@ export class World {
       pins,
       edits,
       sendTypingCalls: 0,
+      setNameCalls: [],
       send: async (content) => {
         if (failure.headerSend && content.includes("**Threadcord task**")) {
           throw new Error("discord: header send 500");
@@ -517,7 +525,9 @@ export class World {
         if (failure.typingFail) throw new Error("discord: sendTyping 403");
         thread.sendTypingCalls += 1;
       },
-      setName: async () => {},
+      setName: async (name) => {
+        thread.setNameCalls.push(name);
+      },
     };
 
     const message: RecordingControlMessage = {
@@ -539,6 +549,7 @@ export class World {
       createThread: async () => {
         if (failure.createThread) throw new Error("discord: thread create 500");
         threadsCreated += 1;
+        this.threads.set(threadId, thread);
         return thread;
       },
     });

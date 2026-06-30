@@ -548,6 +548,7 @@ export class TaskOrchestrator {
         scheduleReadableThreadRename(
           task.discordThreadId,
           instruction,
+          this.config.defaultModel,
           this.renameDiscordThread,
         );
       }

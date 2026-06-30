@@ -1,7 +1,6 @@
 import { dispatch } from "@flue/runtime";
 import codingAgent from "../agents/coding.js";
 import setupAgent from "../agents/setup.js";
-import threadNamerAgent from "../agents/thread-namer.js";
 import { abortAgentWorkForInstance } from "../flue/agent-work-abort.js";
 import type { DispatchAgentInput } from "../types.js";
 import type { AgentTurn, AgentTurnInput, TurnEvent } from "./types.js";
@@ -47,11 +46,10 @@ export class FlueAgentTurn implements AgentTurn {
           break;
         }
         case "thread-namer": {
-          await dispatch(threadNamerAgent, {
-            id: input.instanceId,
-            input: { instruction: input.instruction },
-          });
-          break;
+          return {
+            accepted: false,
+            reason: "thread-namer role must use the host-side namer, not Flue dispatch",
+          };
         }
         default: {
           const exhaustive: never = input.role;
