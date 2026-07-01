@@ -155,11 +155,12 @@ export async function createApp(
 
   const issueStore = new MemoryEnvironmentIssueStore();
   const activeVmCounter = { getCount: (): number => 0 };
+  const mcpConfigProvider = new McpRegistryConfigProvider(mcpRegistry);
   const machineEnvironment =
     options.machineEnvironment ??
     createDefaultMachineEnvironment(
       config,
-      new McpRegistryConfigProvider(mcpRegistry),
+      mcpConfigProvider,
       {
         issueStore,
         resourceSnapshotProvider: {
@@ -274,6 +275,7 @@ export async function createApp(
       agentTurn,
       machineEnvironment,
       mcpRegistry,
+      mcpConfigProvider,
     );
   const setupOrchestrator =
     options.setupOrchestrator ??

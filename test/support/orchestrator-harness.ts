@@ -479,6 +479,7 @@ export class World {
       overrides.agentTurn ?? this.fakeAgentTurn,
       overrides.machineEnvironment ?? this.fakeMachineEnvironment,
       this.fakeMcpRegistry,
+      undefined,
       typingIntervalMs,
     );
     this.orchestrator.setThreadRenamer(async (threadId, name) => {

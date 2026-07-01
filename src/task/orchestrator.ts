@@ -115,10 +115,12 @@ export class TaskOrchestrator {
     private readonly agentTurn: AgentTurn,
     machineEnvironment?: MachineEnvironment,
     mcpRegistry?: McpRegistry,
+    mcpConfigProvider?: McpRegistryConfigProvider,
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
   ) {
     this.mcpRegistry = mcpRegistry ?? createNoopMcpRegistry();
-    this.mcpConfigProvider = new McpRegistryConfigProvider(this.mcpRegistry);
+    this.mcpConfigProvider =
+      mcpConfigProvider ?? new McpRegistryConfigProvider(this.mcpRegistry);
     this.machineEnvironment =
       machineEnvironment ??
       createDefaultMachineEnvironment(config, this.mcpConfigProvider);
