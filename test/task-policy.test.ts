@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateTaskPolicy } from "../src/task/policy.js";
 import type { AppConfig } from "../src/config.js";
-import { loadProviderRegistry } from "../src/providers/index.js";
+import { anthropicPiConfig } from "./support/pi-config-harness.js";
 import type { TaskRequest } from "../src/types.js";
 
 const baseRequest: TaskRequest = {
@@ -32,13 +32,9 @@ const config: AppConfig = {
   TURN_HEARTBEAT_TIMEOUT_MS: 120000,
   SETUP_INSTALL_TIMEOUT_MS: 1800000,
   ANTHROPIC_API_KEY: "anthropic-key",
-  ANTHROPIC_MODELS: "claude-sonnet-4-5",
-  providerRegistry: loadProviderRegistry({
-    anthropicApiKey: "anthropic-key",
-    anthropicModels: "claude-sonnet-4-5",
+  ...anthropicPiConfig({
+    env: { ANTHROPIC_API_KEY: "anthropic-key" },
   }),
-  allowedModels: ["anthropic/claude-sonnet-4-5"],
-  defaultModel: "anthropic/claude-sonnet-4-5",
 };
 
 describe("validateTaskPolicy", () => {

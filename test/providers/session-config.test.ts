@@ -1,166 +1,109 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   GUEST_PI_AGENT_DIR,
-  loadProviderRegistry,
+  loadPiConfig,
   materializePiSessionConfig,
 } from "../../src/providers/index.js";
-
-const workspaceDirs: string[] = [];
-
-afterEach(() => {
-  workspaceDirs.length = 0;
-});
-
-async function makeWorkspace(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "threadcord-pi-session-"));
-  workspaceDirs.push(dir);
-  return dir;
-}
+import {
+  anthropicPiConfig,
+  opencodeGoPiConfig,
+  proxiedAnthropicPiConfig,
+} from "../support/pi-config-harness.js";
 
 describe("materializePiSessionConfig", () => {
-  it("writes project Pi settings and transport override models.json for opencode-go", async () => {
-    const workspacePath = await makeWorkspace();
-    const registry = loadProviderRegistry({
-      providersCsv: "opencode-go",
-      env: {
-        PROVIDER_OPENCODE_GO_BASE_URL: "https://opencode.ai/zen/go/v1",
-        PROVIDER_OPENCODE_GO_API: "openai-completions",
-        PROVIDER_OPENCODE_GO_API_KEY: "opencode-secret",
-        PROVIDER_OPENCODE_GO_MODELS: "deepseek-v4-flash",
-      },
-    });
-
-    const result = await materializePiSessionConfig({
-      workspacePath,
-      repo: "acme/threadcord",
-      model: "opencode-go/deepseek-v4-flash",
-      registry,
-    });
-
-    expect(result).toEqual({ wroteModelsJson: true, agentDir: GUEST_PI_AGENT_DIR });
-
-    const settings = JSON.parse(
-      await readFile(
-        join(workspacePath, "threadcord", ".pi", "settings.json"),
-        "utf8",
-      ),
-    );
-    expect(settings).toEqual({
-      defaultProvider: "opencode-go",
-      defaultModel: "deepseek-v4-flash",
-    });
-
-    const models = JSON.parse(
-      await readFile(
-        join(workspacePath, ".pi", "agent", "models.json"),
-        "utf8",
-      ),
-    );
-    expect(models.providers["opencode-go"]).toMatchObject({
-      baseUrl: "https://opencode.ai/zen/go/v1",
-      api: "openai-completions",
-    });
-  });
-
-  it("writes models.json for custom providers", async () => {
-    const workspacePath = await makeWorkspace();
-    const registry = loadProviderRegistry({
-      providersCsv: "ollama",
-      env: {
-        PROVIDER_OLLAMA_BASE_URL: "http://localhost:11434/v1",
-        PROVIDER_OLLAMA_API: "openai-completions",
-        PROVIDER_OLLAMA_API_KEY: "ollama",
-        PROVIDER_OLLAMA_MODELS: "llama3.1:8b",
-      },
-    });
-
-    const result = await materializePiSessionConfig({
-      workspacePath,
-      repo: "acme/web",
-      model: "ollama/llama3.1:8b",
-      registry,
-    });
-
-    expect(result.agentDir).toBe(GUEST_PI_AGENT_DIR);
-
-    const models = JSON.parse(
-      await readFile(
-        join(workspacePath, ".pi", "agent", "models.json"),
-        "utf8",
-      ),
-    );
-    expect(models.providers.ollama).toMatchObject({
-      baseUrl: "http://localhost:11434/v1",
-      api: "openai-completions",
-      apiKey: "OLLAMA_API_KEY",
-      models: [{ id: "llama3.1:8b" }],
-    });
-  });
-
-  it("writes only project settings for built-in providers without transport overrides", async () => {
-    const workspacePath = await makeWorkspace();
-    const registry = loadProviderRegistry({
-      anthropicApiKey: "anthropic",
-      anthropicModels: "claude-sonnet-4-5",
-    });
-
+  it("writes project Pi settings for every task model", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "threadcord-pi-"));
     const result = await materializePiSessionConfig({
       workspacePath,
       repo: "acme/web",
       model: "anthropic/claude-sonnet-4-5",
-      registry,
+      piConfig: anthropicPiConfig(),
     });
 
     expect(result).toEqual({ wroteModelsJson: false });
 
-    await expect(
-      readFile(join(workspacePath, ".pi", "agent", "models.json"), "utf8"),
-    ).rejects.toThrow();
+    const settings = JSON.parse(
+      await readFile(join(workspacePath, "web", ".pi", "settings.json"), "utf8"),
+    );
+    expect(settings).toEqual({
+      defaultProvider: "anthropic",
+      defaultModel: "claude-sonnet-4-5",
+    });
   });
 
-  it("writes models.json for proxied built-in anthropic providers", async () => {
-    const workspacePath = await makeWorkspace();
-    const registry = loadProviderRegistry({
-      anthropicApiKey: "anthropic",
-      anthropicModels: "claude-sonnet-4-5",
-      providersCsv: "anthropic",
-      env: {
-        PROVIDER_ANTHROPIC_BASE_URL: "https://proxy/v1",
-      },
-    });
-
+  it("writes verbatim PI_MODELS_JSON when configured", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "threadcord-pi-"));
+    const piConfig = proxiedAnthropicPiConfig();
     const result = await materializePiSessionConfig({
       workspacePath,
       repo: "acme/web",
       model: "anthropic/claude-sonnet-4-5",
-      registry,
+      piConfig,
     });
 
-    expect(result.agentDir).toBe(GUEST_PI_AGENT_DIR);
+    expect(result).toEqual({
+      agentDir: GUEST_PI_AGENT_DIR,
+      wroteModelsJson: true,
+    });
+
     const models = JSON.parse(
-      await readFile(
-        join(workspacePath, ".pi", "agent", "models.json"),
-        "utf8",
-      ),
+      await readFile(join(workspacePath, ".pi", "agent", "models.json"), "utf8"),
     );
-    expect(models.providers.anthropic.baseUrl).toBe("https://proxy/v1");
+    expect(models).toEqual(piConfig.modelsJson);
   });
 
-  it("does not write legacy .pi-agent paths", async () => {
-    const workspacePath = await makeWorkspace();
-    const registry = loadProviderRegistry({
-      anthropicApiKey: "anthropic",
-      anthropicModels: "claude-sonnet-4-5",
+  it("preserves a full custom provider block verbatim", async () => {
+    const modelsJson = {
+      providers: {
+        ollama: {
+          baseUrl: "http://localhost:11434/v1",
+          api: "openai-completions",
+          apiKey: "OLLAMA_API_KEY",
+          models: [{ id: "llama3.1:8b" }],
+        },
+      },
+    };
+    const piConfig = loadPiConfig({
+      modelsJsonRaw: JSON.stringify(modelsJson),
+      env: { OLLAMA_API_KEY: "ollama" },
     });
+    const workspacePath = await mkdtemp(join(tmpdir(), "threadcord-pi-"));
 
     await materializePiSessionConfig({
       workspacePath,
-      repo: "acme/threadcord",
+      repo: "acme/web",
+      model: "ollama/llama3.1:8b",
+      piConfig,
+    });
+
+    const written = JSON.parse(
+      await readFile(join(workspacePath, ".pi", "agent", "models.json"), "utf8"),
+    );
+    expect(written).toEqual(modelsJson);
+  });
+
+  it("does not write models.json for keys-only opencode-go deployments", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "threadcord-pi-"));
+    const result = await materializePiSessionConfig({
+      workspacePath,
+      repo: "acme/web",
+      model: "opencode-go/deepseek-v4-flash",
+      piConfig: opencodeGoPiConfig(),
+    });
+
+    expect(result).toEqual({ wroteModelsJson: false });
+  });
+
+  it("does not write legacy .pi-agent paths", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "threadcord-pi-"));
+    await materializePiSessionConfig({
+      workspacePath,
+      repo: "acme/web",
       model: "anthropic/claude-sonnet-4-5",
-      registry,
+      piConfig: anthropicPiConfig(),
     });
 
     await expect(
@@ -168,19 +111,14 @@ describe("materializePiSessionConfig", () => {
     ).rejects.toThrow();
   });
 
-  it("throws on invalid model references", async () => {
-    const workspacePath = await makeWorkspace();
-    const registry = loadProviderRegistry({
-      anthropicApiKey: "anthropic",
-      anthropicModels: "claude-sonnet-4-5",
-    });
-
+  it("throws for invalid model refs", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "threadcord-pi-"));
     await expect(
       materializePiSessionConfig({
         workspacePath,
         repo: "acme/web",
         model: "no-slash",
-        registry,
+        piConfig: anthropicPiConfig(),
       }),
     ).rejects.toThrow(/invalid model reference/);
   });

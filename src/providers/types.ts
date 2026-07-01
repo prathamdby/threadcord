@@ -1,25 +1,3 @@
-export type PiApiType =
-  | "openai-completions"
-  | "openai-responses"
-  | "anthropic-messages";
-
-export interface PiProviderTransport {
-  baseUrl?: string;
-  api?: PiApiType;
-  headers?: Record<string, string>;
-}
-
-export interface PiProviderDefinition {
-  id: string;
-  models: string[];
-  apiKey?: string;
-  transport?: PiProviderTransport;
-}
-
-export interface ProviderRegistry {
-  providers: PiProviderDefinition[];
-}
-
 export interface PiModelsJson {
   providers: Record<string, PiModelsJsonProviderEntry>;
 }
@@ -32,14 +10,27 @@ export interface PiModelsJsonProviderEntry {
   models?: Array<{ id: string }>;
 }
 
+export interface PiHostConfig {
+  /** Derived from configured Pi providers at startup; not an operator env list. */
+  allowedModels: string[];
+  defaultModel: string;
+  modelsJson?: PiModelsJson;
+}
+
 export interface MaterializePiSessionConfigInput {
   workspacePath: string;
   repo: string;
   model: string;
-  registry: ProviderRegistry;
+  piConfig: PiHostConfig;
 }
 
 export interface MaterializePiSessionConfigResult {
   agentDir?: string;
   wroteModelsJson: boolean;
+}
+
+export interface LoadPiConfigInput {
+  defaultModel?: string;
+  modelsJsonRaw?: string;
+  env?: NodeJS.ProcessEnv;
 }

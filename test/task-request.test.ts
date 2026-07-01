@@ -6,12 +6,10 @@ import { validateTaskPolicy } from "../src/task/policy.js";
 const env = {
   DATABASE_URL: "postgres://example",
   DISCORD_BOT_TOKEN: "discord",
-
   GITHUB_TOKEN: "github",
   ANTHROPIC_API_KEY: "anthropic",
-  ANTHROPIC_MODELS: "claude-sonnet-4-5,claude-opus-4-1",
   OPENAI_API_KEY: "openai",
-  OPENAI_MODELS: "gpt-5-codex",
+  DEFAULT_MODEL: "anthropic/claude-sonnet-4-5",
 };
 
 describe("task request resolution", () => {
@@ -33,7 +31,7 @@ describe("task request resolution", () => {
     expect(request.model).toBe("openai/gpt-5-codex");
   });
 
-  it("fills a missing model from the first configured provider model", () => {
+  it("fills a missing model from DEFAULT_MODEL", () => {
     const config = loadConfig(env);
     const parsed = parseTaskMessage(
       ["Fix the auth test.", "repo: acme/web", "branch: main"].join("\n"),

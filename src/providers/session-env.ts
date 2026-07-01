@@ -1,10 +1,7 @@
-/**
- * Canonical API-key env var names for Pi built-in providers.
- * Mirrors `@mariozechner/pi-ai` `env-api-keys.ts` `getApiKeyEnvVars` (first entry wins).
- *
- * Used when injecting host secrets into the guest session env and when writing
- * `apiKey` fields in `models.json`. Prefer `_API_KEY` names over OAuth tokens.
- */
+import type { PiHostConfig, PiModelsJson } from "./types.js";
+import { parseApiKeyEnvRef } from "./models-json.js";
+import { parseModelRef } from "./model-ref.js";
+
 function piAiCanonicalEnvVarCandidates(providerId: string): string[] {
   if (providerId === "github-copilot") {
     return ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"];
@@ -54,4 +51,43 @@ function piAiCanonicalEnvVarCandidates(providerId: string): string[] {
 export function apiKeyEnvVarForProvider(providerId: string): string {
   const candidates = piAiCanonicalEnvVarCandidates(providerId);
   return candidates.find((key) => key.endsWith("_API_KEY")) ?? candidates[0]!;
+}
+
+function envVarNamesForProvider(
+  providerId: string,
+  modelsJson?: PiModelsJson,
+): string[] {
+  const names = new Set<string>();
+  names.add(apiKeyEnvVarForProvider(providerId));
+
+  const apiKeyField = modelsJson?.providers[providerId]?.apiKey;
+  if (apiKeyField) {
+    names.add(parseApiKeyEnvRef(apiKeyField));
+  }
+
+  return [...names];
+}
+
+export function buildPiSessionEnv(
+  config: PiHostConfig,
+  modelRef: string,
+  hostEnv: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const { provider } = parseModelRef(modelRef);
+  const sessionEnv: Record<string, string> = {};
+
+  for (const envVarName of envVarNamesForProvider(provider, config.modelsJson)) {
+    const value = optionalHostEnv(hostEnv[envVarName]);
+    if (value !== undefined) {
+      sessionEnv[envVarName] = value;
+    }
+  }
+
+  return sessionEnv;
+}
+
+function optionalHostEnv(value: string | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

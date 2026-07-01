@@ -1,71 +1,101 @@
-import { apiKeyEnvVarForProvider } from "./env-var-names.js";
-import { isBuiltInPiProvider } from "./registry.js";
-import type {
-  PiModelsJson,
-  PiModelsJsonProviderEntry,
-  PiProviderDefinition,
-  ProviderRegistry,
-} from "./types.js";
+import { readFileSync } from "node:fs";
+import { readFile as readFileAsync } from "node:fs/promises";
+import type { PiModelsJson } from "./types.js";
 
-function providerNeedsModelsJsonEntry(provider: PiProviderDefinition): boolean {
-  if (!isBuiltInPiProvider(provider.id)) {
-    return true;
-  }
-  const transport = provider.transport;
-  if (!transport) {
-    return false;
-  }
-  return Boolean(transport.baseUrl || transport.headers || transport.api);
+export function splitCsv(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
-function buildProviderEntry(
-  provider: PiProviderDefinition,
-): PiModelsJsonProviderEntry {
-  const entry: PiModelsJsonProviderEntry = {};
-  const transport = provider.transport;
-
-  if (transport?.baseUrl) {
-    entry.baseUrl = transport.baseUrl;
-  }
-  if (transport?.api) {
-    entry.api = transport.api;
-  }
-  if (transport?.headers) {
-    entry.headers = transport.headers;
-  }
-
-  if (!isBuiltInPiProvider(provider.id)) {
-    entry.apiKey = apiKeyEnvVarForProvider(provider.id);
-    entry.models = provider.models.map((id) => ({ id }));
-  }
-
-  return entry;
+export function optionalEnv(value: string | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export function buildModelsJson(registry: ProviderRegistry): PiModelsJson | null {
-  const providers: Record<string, PiModelsJsonProviderEntry> = {};
+export function validateModelsJsonShape(value: unknown): PiModelsJson {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("PI_MODELS_JSON must be an object with a providers field");
+  }
+  const providers = (value as Record<string, unknown>).providers;
+  if (!providers || typeof providers !== "object" || Array.isArray(providers)) {
+    throw new Error("PI_MODELS_JSON must include a providers object");
+  }
+  return value as PiModelsJson;
+}
 
-  for (const provider of registry.providers) {
-    if (!providerNeedsModelsJsonEntry(provider)) {
-      continue;
+export function parseApiKeyEnvRef(apiKeyField: string): string {
+  const trimmed = apiKeyField.trim();
+  if (trimmed.startsWith("${") && trimmed.endsWith("}")) {
+    return trimmed.slice(2, -1).trim();
+  }
+  if (trimmed.startsWith("$")) {
+    return trimmed.slice(1).trim();
+  }
+  return trimmed;
+}
+
+export async function loadModelsJsonSource(
+  raw: string,
+): Promise<PiModelsJson> {
+  return loadModelsJsonSourceSync(raw);
+}
+
+export function loadModelsJsonSourceSync(raw: string): PiModelsJson {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      throw new Error("PI_MODELS_JSON inline value is not valid JSON");
     }
-    providers[provider.id] = buildProviderEntry(provider);
+    return validateModelsJsonShape(parsed);
   }
 
-  if (Object.keys(providers).length === 0) {
-    return null;
+  let fileContents: string;
+  try {
+    fileContents = readFileSync(trimmed, "utf8");
+  } catch {
+    throw new Error(`PI_MODELS_JSON path not readable: ${trimmed}`);
   }
 
-  return { providers };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fileContents);
+  } catch {
+    throw new Error(`PI_MODELS_JSON file is not valid JSON: ${trimmed}`);
+  }
+  return validateModelsJsonShape(parsed);
 }
 
-export function providerNeedsModelsJson(
-  registry: ProviderRegistry,
-  providerId: string,
-): boolean {
-  const provider = registry.providers.find((entry) => entry.id === providerId);
-  if (!provider) {
-    return false;
+export async function loadModelsJsonSourceAsync(
+  raw: string,
+): Promise<PiModelsJson> {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{")) {
+    return loadModelsJsonSourceSync(trimmed);
   }
-  return providerNeedsModelsJsonEntry(provider);
+
+  let fileContents: string;
+  try {
+    fileContents = await readFileAsync(trimmed, "utf8");
+  } catch {
+    throw new Error(`PI_MODELS_JSON path not readable: ${trimmed}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fileContents);
+  } catch {
+    throw new Error(`PI_MODELS_JSON file is not valid JSON: ${trimmed}`);
+  }
+  return validateModelsJsonShape(parsed);
+}
+
+export function stableStringifyModelsJson(modelsJson: PiModelsJson): string {
+  return `${JSON.stringify(modelsJson, null, 2)}\n`;
 }

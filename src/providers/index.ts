@@ -1,45 +1,42 @@
 export type {
+  LoadPiConfigInput,
   MaterializePiSessionConfigInput,
   MaterializePiSessionConfigResult,
-  PiApiType,
+  PiHostConfig,
   PiModelsJson,
   PiModelsJsonProviderEntry,
-  PiProviderDefinition,
-  PiProviderTransport,
-  ProviderRegistry,
 } from "./types.js";
 
-export {
-  apiKeyEnvVarForProvider,
-} from "./env-var-names.js";
+export { loadPiConfig, loadPiConfigAsync, loadPiConfigFromParsed } from "./config.js";
 
 export {
-  optionalEnv,
-  parseCustomProviderIds,
-  parseHeadersEnv,
-  parseProviderBlock,
-  providerEnvPrefix,
-  splitCsv,
-} from "./env.js";
+  assertModelAllowed,
+  validateAllowedModelRef,
+} from "./admission.js";
 
 export {
   deriveAllowedModels,
-  findProviderDefinition,
-  isBuiltInPiProvider,
-  loadProviderRegistry,
-  type LoadProviderRegistryInput,
-} from "./registry.js";
+  discoverConfiguredProviderIds,
+  assertProviderAuthConfigured,
+} from "./discovery.js";
 
 export {
-  buildModelsJson,
-  providerNeedsModelsJson,
+  loadModelsJsonSource,
+  loadModelsJsonSourceAsync,
+  loadModelsJsonSourceSync,
+  optionalEnv,
+  parseApiKeyEnvRef,
+  splitCsv,
+  stableStringifyModelsJson,
+  validateModelsJsonShape,
 } from "./models-json.js";
 
+export { parseModelRef } from "./model-ref.js";
+
 export {
-  createPiSessionCredentialsResolver,
-  parseModelRef,
-  resolvePiSessionCredentials,
-} from "./credentials.js";
+  apiKeyEnvVarForProvider,
+  buildPiSessionEnv,
+} from "./session-env.js";
 
 export {
   GUEST_PI_AGENT_DIR,
@@ -47,3 +44,5 @@ export {
   PI_AGENT_DIR_NAME,
   PI_PROJECT_DIR_NAME,
 } from "./session-config.js";
+
+export { apiKeyEnvVarForProvider as guestApiKeyEnvVarForProvider } from "./session-env.js";

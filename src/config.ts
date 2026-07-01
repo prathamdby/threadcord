@@ -4,22 +4,12 @@ import {
   DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
 } from "./discord/agent-guardrails.js";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
-import {
-  deriveAllowedModels,
-  loadProviderRegistry,
-  type ProviderRegistry,
-} from "./providers/index.js";
+import { loadPiConfig, type PiHostConfig } from "./providers/index.js";
 
 const optionalNonEmptyString = z.preprocess(
   (value) =>
     typeof value === "string" && value.trim() === "" ? undefined : value,
   z.string().min(1).optional(),
-);
-
-const optionalCsvString = z.preprocess(
-  (value) =>
-    typeof value === "string" && value.trim() === "" ? undefined : value,
-  z.string().optional(),
 );
 
 const EnvSchema = z
@@ -60,18 +50,14 @@ const EnvSchema = z
       .positive()
       .default(1800000),
     ANTHROPIC_API_KEY: optionalNonEmptyString,
-    ANTHROPIC_MODELS: optionalCsvString,
     OPENAI_API_KEY: optionalNonEmptyString,
-    OPENAI_MODELS: optionalCsvString,
-    PROVIDERS: optionalCsvString,
+    OPENCODE_API_KEY: optionalNonEmptyString,
+    DEFAULT_MODEL: optionalNonEmptyString,
+    PI_MODELS_JSON: optionalNonEmptyString,
     NODE_ENV: z.string().optional(),
   });
 
-export type AppConfig = z.infer<typeof EnvSchema> & {
-  providerRegistry: ProviderRegistry;
-  allowedModels: string[];
-  defaultModel: string;
-};
+export type AppConfig = z.infer<typeof EnvSchema> & PiHostConfig;
 
 export function resolveTaskRequest(
   request: ParsedTaskRequest,
@@ -98,29 +84,19 @@ export function getRuntimeConfig(): AppConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = EnvSchema.parse(env);
-  const providerRegistry = loadProviderRegistry({
-    ...(parsed.ANTHROPIC_API_KEY !== undefined
-      ? { anthropicApiKey: parsed.ANTHROPIC_API_KEY }
+  const piConfig = loadPiConfig({
+    ...(parsed.DEFAULT_MODEL !== undefined
+      ? { defaultModel: parsed.DEFAULT_MODEL }
       : {}),
-    ...(parsed.ANTHROPIC_MODELS !== undefined
-      ? { anthropicModels: parsed.ANTHROPIC_MODELS }
+    ...(parsed.PI_MODELS_JSON !== undefined
+      ? { modelsJsonRaw: parsed.PI_MODELS_JSON }
       : {}),
-    ...(parsed.OPENAI_API_KEY !== undefined
-      ? { openaiApiKey: parsed.OPENAI_API_KEY }
-      : {}),
-    ...(parsed.OPENAI_MODELS !== undefined
-      ? { openaiModels: parsed.OPENAI_MODELS }
-      : {}),
-    ...(parsed.PROVIDERS !== undefined ? { providersCsv: parsed.PROVIDERS } : {}),
     env,
   });
-  const allowedModels = deriveAllowedModels(providerRegistry);
 
   const config: AppConfig = {
     ...parsed,
-    providerRegistry,
-    allowedModels,
-    defaultModel: allowedModels[0]!,
+    ...piConfig,
   };
   return config;
 }

@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { buildModelsJson } from "./models-json.js";
-import { parseModelRef } from "./credentials.js";
+import { parseModelRef } from "./model-ref.js";
+import { stableStringifyModelsJson } from "./models-json.js";
 import type {
   MaterializePiSessionConfigInput,
   MaterializePiSessionConfigResult,
@@ -41,7 +41,7 @@ export async function materializePiSessionConfig(
     )}\n`,
   );
 
-  const modelsJson = buildModelsJson(input.registry);
+  const modelsJson = input.piConfig.modelsJson;
   if (!modelsJson) {
     return { wroteModelsJson: false };
   }
@@ -50,7 +50,7 @@ export async function materializePiSessionConfig(
   await mkdir(agentDir, { recursive: true });
   await writeFile(
     join(agentDir, "models.json"),
-    `${JSON.stringify(modelsJson, null, 2)}\n`,
+    stableStringifyModelsJson(modelsJson),
   );
 
   return {

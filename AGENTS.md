@@ -54,8 +54,9 @@ list of commands; this section only records non-obvious cloud-environment caveat
   `discord.js` throws `TokenInvalid` and the unhandled rejection terminates the process. This is
   expected without real credentials and still proves DB/config bootstrap works.
 - To exercise `/task`, `/setup`, `/mcp` end-to-end you need real values for `DISCORD_BOT_TOKEN`,
-  `GITHUB_TOKEN`, and at least one LLM provider (`ANTHROPIC_API_KEY` + `ANTHROPIC_MODELS`, or
-  `OPENAI_API_KEY` + `OPENAI_MODELS`). There is no standalone web UI; the interface is Discord.
+  `GITHUB_TOKEN`, and at least one Pi provider API key (e.g. `ANTHROPIC_API_KEY` or
+  `OPENCODE_API_KEY`, or `PI_MODELS_JSON` for custom providers). There is no standalone web UI;
+  the interface is Discord.
 
 ### Lint / test / build
 - Standard scripts in `package.json`: `npm run check` (typecheck), `npm test` (vitest), `npm run build`.

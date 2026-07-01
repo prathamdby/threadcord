@@ -8,10 +8,11 @@ import type { AgentOsCreateOptions } from "../src/agentturn/agentos.js";
 import type { AgentOsAcpEvent } from "../src/agentturn/agentos-event-mapper.js";
 import type { AgentTurnInput, TurnEvent } from "../src/agentturn/types.js";
 import type { AppConfig } from "../src/config.js";
+import type { PiHostConfig } from "../src/providers/index.js";
 import {
-  loadProviderRegistry,
-  type ProviderRegistry,
-} from "../src/providers/index.js";
+  opencodeGoPiConfig,
+  proxiedAnthropicPiConfig,
+} from "./support/pi-config-harness.js";
 
 const baseInput: AgentTurnInput = {
   instanceId: "discord:thread:thread-1",
@@ -86,35 +87,14 @@ function waitForTerminal(
   });
 }
 
-function opencodeGoRegistryWithoutTransport(): ProviderRegistry {
-  return loadProviderRegistry({
-    providersCsv: "opencode-go",
-    env: {
-      PROVIDER_OPENCODE_GO_MODELS: "deepseek-v4-flash",
-      PROVIDER_OPENCODE_GO_API_KEY: "opencode-secret",
-    },
-  });
-}
-
-function proxiedAnthropicRegistry(): ProviderRegistry {
-  return loadProviderRegistry({
-    anthropicApiKey: "anthropic",
-    anthropicModels: "claude-sonnet-4-5",
-    providersCsv: "anthropic",
-    env: {
-      PROVIDER_ANTHROPIC_BASE_URL: "https://proxy/v1",
-    },
-  });
-}
-
 function createHarness({
   includeBindingsHost = true,
-  providerRegistry = opencodeGoRegistryWithoutTransport(),
+  piConfig = opencodeGoPiConfig(),
   workspacePath,
   getCredentials,
 }: {
   includeBindingsHost?: boolean;
-  providerRegistry?: ProviderRegistry;
+  piConfig?: PiHostConfig;
   workspacePath?: string;
   getCredentials?: (model: string) => Record<string, string>;
 } = {}) {
@@ -122,7 +102,7 @@ function createHarness({
   const factoryCalls: AgentOsCreateOptions[] = [];
   const deps: import("../src/agentturn/agentos.js").AgentOsAgentTurnDependencies =
     {
-      providerRegistry,
+      piConfig,
       ...(getCredentials ? { getCredentials } : {}),
       agentOsFactory: {
         create: async (options) => {
@@ -170,7 +150,7 @@ function createHarness({
 async function createHarnessWithWorkspace(
   options: {
     includeBindingsHost?: boolean;
-    providerRegistry?: ProviderRegistry;
+    piConfig?: PiHostConfig;
     workspacePath?: string;
     getCredentials?: (model: string) => Record<string, string>;
   } = {},
@@ -288,13 +268,11 @@ describe("AgentOsAgentTurn setup role", () => {
   });
 
   it("materializes project Pi settings for built-in providers before prompting", async () => {
-    const registry = opencodeGoRegistryWithoutTransport();
+    process.env.OPENCODE_API_KEY = "opencode-secret";
+    const piConfig = opencodeGoPiConfig();
     const { agentTurn, fakeAgentOs, workspacePath } =
       await createHarnessWithWorkspace({
-        providerRegistry: registry,
-        getCredentials: createAgentOsCredentialsProvider({
-          providerRegistry: registry,
-        } as Pick<AppConfig, "providerRegistry"> as AppConfig),
+        piConfig,
       });
     const input = {
       ...baseInput,
@@ -327,13 +305,11 @@ describe("AgentOsAgentTurn setup role", () => {
   });
 
   it("materializes proxied anthropic models.json and PI_CODING_AGENT_DIR", async () => {
-    const registry = proxiedAnthropicRegistry();
+    process.env.ANTHROPIC_API_KEY = "anthropic";
+    const piConfig = proxiedAnthropicPiConfig();
     const { agentTurn, fakeAgentOs, workspacePath } =
       await createHarnessWithWorkspace({
-        providerRegistry: registry,
-        getCredentials: createAgentOsCredentialsProvider({
-          providerRegistry: registry,
-        } as Pick<AppConfig, "providerRegistry"> as AppConfig),
+        piConfig,
       });
     const input = {
       ...baseInput,

@@ -81,59 +81,68 @@ npm run build
 
 ## Configure model providers
 
-Models are allowed when their provider is configured in `.env`. Discord tasks use `model: <provider>/<model-id>`.
+Threadcord uses Pi-native configuration: standard Pi API key env vars and optional `PI_MODELS_JSON`. Models are derived automatically from configured providers at startup.
 
-### Built-in providers
+Discord tasks use `model: <provider>/<model-id>`. When omitted, `DEFAULT_MODEL` is used (or the first model from the first configured provider).
 
-| Provider  | Env vars                                | Discord example                      |
-| --------- | --------------------------------------- | ------------------------------------ |
-| anthropic | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODELS` | `model: anthropic/claude-sonnet-4-5` |
-| openai    | `OPENAI_API_KEY`, `OPENAI_MODELS`       | `model: openai/gpt-5-codex`          |
+### API keys (Pi built-ins)
 
-Threadcord resolves these from the provider configuration. Set the API key and a comma-separated model list. No extra registration code is needed.
+Set the Pi env vars documented in [Pi providers](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/providers.md). Examples:
 
-### Custom providers
+| Provider     | Env var             | Discord example                      |
+| ------------ | ------------------- | ------------------------------------ |
+| anthropic    | `ANTHROPIC_API_KEY` | `model: anthropic/claude-sonnet-4-5` |
+| openai       | `OPENAI_API_KEY`    | `model: openai/gpt-5-codex`          |
+| opencode-go  | `OPENCODE_API_KEY`  | `model: opencode-go/deepseek-v4-flash` |
 
-1. Add the provider ID to `PROVIDERS` (comma-separated for multiple).
-2. Set `PROVIDER_<ID>_BASE_URL`, `PROVIDER_<ID>_API`, and `PROVIDER_<ID>_MODELS`. Optional `PROVIDER_<ID>_API_KEY` and `PROVIDER_<ID>_HEADERS`.
-3. Normalise the ID for env var names: `my-gateway` becomes `PROVIDER_MY_GATEWAY_*`.
-4. Use `model: <id>/<model-id>` in Discord, where `<model-id>` comes from `_MODELS`.
+No `PROVIDERS` block or per-provider model env lists are required for built-ins.
 
-Example (local Ollama via OpenAI-compatible endpoint):
+### Default model
 
-```env
-PROVIDERS=ollama
-PROVIDER_OLLAMA_BASE_URL=http://localhost:11434/v1
-PROVIDER_OLLAMA_API=openai-completions
-PROVIDER_OLLAMA_MODELS=llama3.1:8b
-```
-
-Common `api` values: `openai-completions`, `openai-responses`, `anthropic-messages`. The AgentOS Pi software uses these protocol shapes to talk to the provider endpoint.
-
-To route a built-in provider through a proxy, list its ID in `PROVIDERS` and set `PROVIDER_<ID>_BASE_URL` (for example `PROVIDERS=anthropic` with `PROVIDER_ANTHROPIC_BASE_URL=...`). Threadcord writes a transport override to `<workspace>/.pi/agent/models.json` and sets `PI_CODING_AGENT_DIR=/workspace/.pi/agent` on the agentOS session so Pi merges the proxy endpoint with its built-in provider catalog. API keys stay in session env only — never on disk.
-
-Use `PROVIDER_<ID>_HEADERS` for providers that require custom request headers. The value must be a JSON object with string values:
+Optionally pin the default when Discord tasks omit `model:`:
 
 ```env
-PROVIDERS=agent-router
-PROVIDER_AGENT_ROUTER_BASE_URL=https://router.example.com/v1
-PROVIDER_AGENT_ROUTER_API=openai-completions
-PROVIDER_AGENT_ROUTER_MODELS=gpt-5-codex
-PROVIDER_AGENT_ROUTER_HEADERS={"User-Agent":"Threadcord"}
+DEFAULT_MODEL=anthropic/claude-sonnet-4-5
 ```
 
-Inside Docker Compose, `localhost` in a provider URL points at the container, not your host. Use `host.docker.internal`, a Compose service name, or host networking.
+When unset, Threadcord uses the first model from the first configured provider (anthropic, then openai, then alphabetical).
 
-Allowed models are derived at startup from these provider blocks. When a Discord task omits `model:`, the first configured model is used.
+### Custom providers and proxies (`PI_MODELS_JSON`)
+
+Configure transport overrides and non-catalog providers in Pi's `models.json` schema ([models.md](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/models.md)). Set inline JSON or a file path:
+
+```env
+PI_MODELS_JSON=/etc/threadcord/models.json
+```
+
+Example file (proxy + Ollama):
+
+```json
+{
+  "providers": {
+    "anthropic": { "baseUrl": "https://my-proxy.example.com/v1" },
+    "ollama": {
+      "baseUrl": "http://host.docker.internal:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "OLLAMA_API_KEY",
+      "models": [{ "id": "llama3.1:8b" }]
+    }
+  }
+}
+```
+
+With host `OLLAMA_API_KEY` set.
+
+Threadcord copies `PI_MODELS_JSON` verbatim to `<workspace>/.pi/agent/models.json` and sets `PI_CODING_AGENT_DIR=/workspace/.pi/agent` on the agentOS session. API keys stay in session env only — never on disk.
 
 ### Pi session files
 
-Before each agent turn, Threadcord materializes Pi-native config on disk:
+Before each agent turn, Threadcord materializes:
 
 - `<checkout>/.pi/settings.json` — default provider/model for the task (always written)
-- `<workspace>/.pi/agent/models.json` — transport overrides or custom providers (written when needed)
+- `<workspace>/.pi/agent/models.json` — only when `PI_MODELS_JSON` is configured
 
-Secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, custom provider keys) are injected into the agentOS session env at runtime, not written into these files.
+Secrets are injected into the agentOS session env at runtime, not written into these files.
 
 ## Creating tasks
 

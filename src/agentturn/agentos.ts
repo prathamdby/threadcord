@@ -11,9 +11,9 @@ import pi from "@agentos-software/pi";
 import type { AgentOsSessionEvent } from "../discord/session-event-bridge.js";
 import { redact } from "../util/redact.js";
 import type { AppConfig } from "../config.js";
-import type { ProviderRegistry } from "../providers/index.js";
+import type { PiHostConfig } from "../providers/index.js";
 import {
-  createPiSessionCredentialsResolver,
+  buildPiSessionEnv,
   materializePiSessionConfig,
 } from "../providers/index.js";
 import { createCodingToolKit, createSetupToolKit } from "../bindings/toolkits.js";
@@ -53,8 +53,8 @@ export interface AgentOsAgentTurnDependencies {
   nodeModulesPath?: string;
   /** Returns model credentials for the guest session env. */
   getCredentials?: (model: string) => Record<string, string>;
-  /** Provider registry used to materialize Pi models.json and session credentials. */
-  providerRegistry?: ProviderRegistry;
+  /** Pi host config used to materialize Pi session files and credential env. */
+  piConfig?: PiHostConfig;
   /** Forward mapped AgentOS session events to the Discord bridge / ConversationLog. */
   onSessionEvent?: (event: AgentOsSessionEvent) => void;
   /** Override the AgentOS sidecar binary path. */
@@ -384,16 +384,21 @@ export class AgentOsAgentTurn implements AgentTurn {
     input: AgentTurnInput,
     mcpServers: AcpMcpServerConfig[],
   ): Promise<string> {
+    const piConfig = this.deps.piConfig ?? {
+      allowedModels: [],
+      defaultModel: input.model,
+    };
     const materialized = await materializePiSessionConfig({
       workspacePath: input.workspacePath,
       repo: input.repo,
       model: input.model,
-      registry: this.deps.providerRegistry ?? { providers: [] },
+      piConfig,
     });
 
     const env: Record<string, string> = {
       ...(input.env ?? {}),
-      ...(this.deps.getCredentials?.(input.model) ?? {}),
+      ...(this.deps.getCredentials?.(input.model) ??
+        buildPiSessionEnv(piConfig, input.model)),
       ...(materialized.agentDir
         ? { PI_CODING_AGENT_DIR: materialized.agentDir }
         : {}),
@@ -528,7 +533,7 @@ export function createAgentOsAgentTurn(
 }
 
 export function createAgentOsCredentialsProvider(
-  config: Pick<AppConfig, "providerRegistry">,
+  config: Pick<AppConfig, "allowedModels" | "defaultModel" | "modelsJson">,
 ): (model: string) => Record<string, string> {
-  return createPiSessionCredentialsResolver(config.providerRegistry);
+  return (model) => buildPiSessionEnv(config, model);
 }

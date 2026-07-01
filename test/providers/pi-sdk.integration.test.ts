@@ -6,10 +6,8 @@ import {
   SessionManager,
 } from "@mariozechner/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  loadProviderRegistry,
-  materializePiSessionConfig,
-} from "../src/providers/index.js";
+import { materializePiSessionConfig } from "../../src/providers/index.js";
+import { opencodeGoPiConfig } from "../support/pi-config-harness.js";
 
 const PROVIDER_ENV_KEYS = [
   "OPENCODE_API_KEY",
@@ -46,18 +44,6 @@ function withOnlyOpencodeApiKey(): void {
   process.env.OPENCODE_API_KEY = "test-opencode-key";
 }
 
-function opencodeGoRegistry() {
-  return loadProviderRegistry({
-    providersCsv: "opencode-go",
-    env: {
-      PROVIDER_OPENCODE_GO_BASE_URL: "https://opencode.ai/zen/go/v1",
-      PROVIDER_OPENCODE_GO_API: "openai-completions",
-      PROVIDER_OPENCODE_GO_API_KEY: "opencode-secret",
-      PROVIDER_OPENCODE_GO_MODELS: "deepseek-v4-flash",
-    },
-  });
-}
-
 async function makeWorkspace(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "threadcord-pi-model-"));
   workspaceDirs.push(dir);
@@ -71,7 +57,7 @@ async function startPiSessionAtCheckout(checkoutPath: string) {
   });
 }
 
-describe("Pi initial model selection for OpenCode Go tasks", () => {
+describe("Pi SDK reads Threadcord checkout settings", () => {
   it("selects opencode-go after Threadcord materializes checkout project settings", async () => {
     withOnlyOpencodeApiKey();
     const workspacePath = await makeWorkspace();
@@ -82,7 +68,7 @@ describe("Pi initial model selection for OpenCode Go tasks", () => {
       workspacePath,
       repo,
       model: "opencode-go/deepseek-v4-flash",
-      registry: opencodeGoRegistry(),
+      piConfig: opencodeGoPiConfig(),
     });
 
     const { session } = await startPiSessionAtCheckout(checkoutPath);
@@ -91,7 +77,6 @@ describe("Pi initial model selection for OpenCode Go tasks", () => {
     expect(model).toMatchObject({
       provider: "opencode-go",
       id: "deepseek-v4-flash",
-      baseUrl: "https://opencode.ai/zen/go/v1",
     });
   });
 
@@ -113,7 +98,7 @@ describe("Pi initial model selection for OpenCode Go tasks", () => {
       workspacePath,
       repo: "acme/threadcord",
       model: "opencode-go/deepseek-v4-flash",
-      registry: opencodeGoRegistry(),
+      piConfig: opencodeGoPiConfig(),
     });
 
     await expect(

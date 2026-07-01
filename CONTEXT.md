@@ -136,13 +136,13 @@ The Agent Session survives restarts and is rebuilt from the ConversationLog tran
 
 ## Provider configuration
 
-Threadcord normalizes all model provider env (`ANTHROPIC_*`, `OPENAI_*`, `PROVIDERS` /
-`PROVIDER_*`) into a single **ProviderRegistry** (`src/providers/`). Before each Pi
-session, **materializePiSessionConfig** writes:
+Threadcord uses Pi-native host config (`src/providers/`):
 
-- `<checkout>/.pi/settings.json` for the task's default model
-- `<workspace>/.pi/agent/models.json` when transport overrides or custom providers require it
+- Pi API key env vars (`ANTHROPIC_API_KEY`, `OPENCODE_API_KEY`, …)
+- Optional `PI_MODELS_JSON` (inline or path; copied verbatim to `<workspace>/.pi/agent/models.json`)
+- Optional `DEFAULT_MODEL` for Discord tasks that omit `model:`
 
-Session API keys are resolved via **resolvePiSessionCredentials** using Pi's canonical env
-var names (e.g. `OPENCODE_API_KEY` for `opencode-go`). Legacy `.pi-agent/` paths are
-not used.
+At startup, Threadcord derives `allowedModels` from Pi's catalog for each provider with credentials (plus custom providers in `PI_MODELS_JSON`). Task admission rejects models outside that derived list.
+
+Before each Pi session, **materializePiSessionConfig** writes `<checkout>/.pi/settings.json`.
+Session credentials pass through via **buildPiSessionEnv** from host `process.env`.
