@@ -19,15 +19,7 @@ import type { TaskOrchestrator } from "../task/orchestrator.js";
 import { clampDiscordContent } from "./limits.js";
 import type { ThreadMessage } from "../types.js";
 
-export function startDiscordGateway(
-  token: string,
-  config: AppConfig,
-  orchestrator: TaskOrchestrator,
-  setupStore: SetupStore,
-  setupOrchestrator: SetupOrchestrator,
-  mcpStore: McpStore,
-  mcpRegistry: McpRegistry,
-): Client {
+export function createDiscordClient(token: string, _config: AppConfig): Client {
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -44,6 +36,19 @@ export function startDiscordGateway(
     });
   });
 
+  void client.login(token);
+  return client;
+}
+
+export function attachDiscordGateway(
+  client: Client,
+  config: AppConfig,
+  orchestrator: TaskOrchestrator,
+  setupStore: SetupStore,
+  setupOrchestrator: SetupOrchestrator,
+  mcpStore: McpStore,
+  mcpRegistry: McpRegistry,
+): void {
   client.on(Events.MessageCreate, (message) => {
     void routeMessage(message, orchestrator);
   });
@@ -59,8 +64,27 @@ export function startDiscordGateway(
       mcpRegistry,
     );
   });
+}
 
-  void client.login(token);
+export function startDiscordGateway(
+  token: string,
+  config: AppConfig,
+  orchestrator: TaskOrchestrator,
+  setupStore: SetupStore,
+  setupOrchestrator: SetupOrchestrator,
+  mcpStore: McpStore,
+  mcpRegistry: McpRegistry,
+): Client {
+  const client = createDiscordClient(token, config);
+  attachDiscordGateway(
+    client,
+    config,
+    orchestrator,
+    setupStore,
+    setupOrchestrator,
+    mcpStore,
+    mcpRegistry,
+  );
   return client;
 }
 

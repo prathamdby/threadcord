@@ -1,13 +1,22 @@
 import { Hono } from "hono";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
+import type { Pool } from "pg";
+import type { Client } from "discord.js";
 import type { AppConfig } from "./config.js";
 import { cacheConfig, loadConfig } from "./config.js";
 import { initializeDatabase } from "./db.js";
 import { McpStore } from "./mcp/store.js";
-import { DefaultMcpRegistry, setGlobalMcpRegistry } from "./mcp/registry.js";
+import {
+  DefaultMcpRegistry,
+  setGlobalMcpRegistry,
+  type McpRegistry,
+} from "./mcp/registry.js";
 import { McpRegistryConfigProvider } from "./mcp/registry.js";
-import { startDiscordGateway } from "./discord/gateway.js";
+import {
+  attachDiscordGateway,
+  createDiscordClient,
+} from "./discord/gateway.js";
 import { SessionEventBridgeImpl } from "./discord/session-event-bridge.js";
 import type { AgentOsSessionEvent } from "./discord/session-event-bridge.js";
 import { DiscordPublisher } from "./discord/publisher.js";
@@ -29,21 +38,101 @@ import {
   PostgresTurnAttemptStore,
   probeSidecar,
   TurnRunner,
+  type AgentTurn,
+  type MachineEnvironment,
+  type SidecarProbeResult,
 } from "./agentturn/index.js";
 import type { GitExecutor } from "./bindings/types.js";
 import { execa } from "./task/execa.js";
 
-export async function createApp(): Promise<{
+export interface CreateAppOptions {
+  config?: AppConfig;
+  pool?: Pool;
+  taskStore?: TaskStore;
+  setupStore?: SetupStore;
+  mcpStore?: McpStore;
+  mcpRegistry?: McpRegistry;
+  agentTurn?: AgentTurn;
+  machineEnvironment?: MachineEnvironment;
+  taskOrchestrator?: TaskOrchestrator;
+  setupOrchestrator?: SetupOrchestrator;
+  discordClient?: Client;
+  createDiscordClient?: typeof createDiscordClient;
+  attachDiscordGateway?: typeof attachDiscordGateway;
+}
+
+export interface HealthRouteDependencies {
+  store: TaskStore;
+  discordClient: { isReady(): boolean };
+  probeSidecar: () => Promise<SidecarProbeResult>;
+}
+
+export function mountHealthRoutes(
+  app: Hono,
+  deps: HealthRouteDependencies,
+): void {
+  app.get("/health/live", async (c) => {
+    const [postgres, agentos] = await Promise.all([
+      healthcheckPostgres(deps.store),
+      healthcheckAgentOs(deps.probeSidecar),
+    ]);
+    const ok = postgres && agentos.ok;
+    return c.json(
+      {
+        ok,
+        postgres,
+        agentos: {
+          ok: agentos.ok,
+          path: agentos.path,
+          arch: agentos.arch,
+          version: agentos.version,
+          error: agentos.error,
+        },
+      },
+      ok ? 200 : 503,
+    );
+  });
+
+  app.get("/health", async (c) => {
+    const [postgres, agentos] = await Promise.all([
+      healthcheckPostgres(deps.store),
+      healthcheckAgentOs(deps.probeSidecar),
+    ]);
+    const discord = deps.discordClient.isReady();
+    const ok = postgres && discord && agentos.ok;
+    return c.json(
+      {
+        ok,
+        postgres,
+        discord,
+        agentos: {
+          ok: agentos.ok,
+          path: agentos.path,
+          arch: agentos.arch,
+          version: agentos.version,
+          error: agentos.error,
+        },
+      },
+      ok ? 200 : 503,
+    );
+  });
+}
+
+export async function createApp(
+  options: CreateAppOptions = {},
+): Promise<{
   app: Hono;
   config: AppConfig;
   shutdown: () => Promise<void>;
 }> {
-  const config = loadConfig();
-  cacheConfig(config);
-  const pool = initializeDatabase(config.DATABASE_URL);
-  const store = new TaskStore(pool, config.MAX_CONCURRENT_TASKS);
-  const setupStore = new SetupStore(pool);
-  const mcpStore = new McpStore(pool);
+  const config = options.config ?? loadConfig();
+  if (!options.config) {
+    cacheConfig(config);
+  }
+  const pool = options.pool ?? initializeDatabase(config.DATABASE_URL);
+  const store = options.taskStore ?? new TaskStore(pool, config.MAX_CONCURRENT_TASKS);
+  const setupStore = options.setupStore ?? new SetupStore(pool);
+  const mcpStore = options.mcpStore ?? new McpStore(pool);
   const agentTurnPersistence = new PostgresAgentTurnPersistence(pool);
   const conversationLogStore = new PostgresConversationLogStore(pool);
   const turnAttemptStore = new PostgresTurnAttemptStore(pool);
@@ -56,18 +145,21 @@ export async function createApp(): Promise<{
 
   await verifyAgentOsReadiness();
 
-  const mcpRegistry = new DefaultMcpRegistry({ store: mcpStore });
+  const mcpRegistry =
+    options.mcpRegistry ?? new DefaultMcpRegistry({ store: mcpStore });
   setGlobalMcpRegistry(mcpRegistry);
-  void mcpRegistry.warm().catch((error) => {
+  await mcpRegistry.warm().catch((error) => {
     console.error("[threadcord] MCP registry warm failed", error);
   });
 
   const issueStore = new MemoryEnvironmentIssueStore();
-  const machineEnvironment = createDefaultMachineEnvironment(
-    config,
-    new McpRegistryConfigProvider(mcpRegistry),
-    { issueStore },
-  );
+  const machineEnvironment =
+    options.machineEnvironment ??
+    createDefaultMachineEnvironment(
+      config,
+      new McpRegistryConfigProvider(mcpRegistry),
+      { issueStore },
+    );
   const conversationLog = new DurableConversationLog(conversationLogStore);
   const turnRunner = new TurnRunner(turnAttemptStore, {
     leaseOwner: process.env.THREADCORD_LEASE_OWNER ?? hostname(),
@@ -87,78 +179,79 @@ export async function createApp(): Promise<{
     fn: async (_instanceId: string, _events: AgentEventRecord[]) => {},
   };
 
-  const agentTurn = createDurableAgentTurn({
-    inner: createAgentOsAgentTurn({
-      machineEnvironment,
-      logger: {
-        log: (level, message, meta) => console.log(level, message, meta),
-      },
-      nodeModulesPath: resolve(process.cwd(), "node_modules"),
-      getCredentials: createAgentOsCredentialsProvider(config),
-      bindingsHost: {
-        githubToken: config.GITHUB_TOKEN,
-        discordUserId: config.DISCORD_BOT_USER_ID ?? "",
-        postMessage: async (threadId, content) => {
-          await sessionEventBridge.handle({
-            type: "final_output",
-            instanceId: `discord:thread:${threadId}`,
-            content,
-          });
+  const agentTurn =
+    options.agentTurn ??
+    createDurableAgentTurn({
+      inner: createAgentOsAgentTurn({
+        machineEnvironment,
+        logger: {
+          log: (level, message, meta) => console.log(level, message, meta),
         },
-        editMessage: async (threadId, _messageId, content) => {
-          // Host bindings currently do not edit existing messages through the bridge.
-          await sessionEventBridge.handle({
-            type: "final_output",
-            instanceId: `discord:thread:${threadId}`,
-            content,
-          });
+        nodeModulesPath: resolve(process.cwd(), "node_modules"),
+        getCredentials: createAgentOsCredentialsProvider(config),
+        bindingsHost: {
+          githubToken: config.GITHUB_TOKEN,
+          discordUserId: config.DISCORD_BOT_USER_ID ?? "",
+          postMessage: async (threadId, content) => {
+            await sessionEventBridge.handle({
+              type: "final_output",
+              instanceId: `discord:thread:${threadId}`,
+              content,
+            });
+          },
+          editMessage: async (threadId, _messageId, content) => {
+            // Host bindings currently do not edit existing messages through the bridge.
+            await sessionEventBridge.handle({
+              type: "final_output",
+              instanceId: `discord:thread:${threadId}`,
+              content,
+            });
+          },
+          environmentIssueStore: issueStore,
+          setupStore,
+          taskStore: store,
+          gitExecutor: createGitExecutor(),
         },
-        environmentIssueStore: issueStore,
-        setupStore,
-        taskStore: store,
-        gitExecutor: createGitExecutor(),
+        mcpRegistry,
+      }),
+      turnRunner,
+      conversationLog,
+      sessionStore: agentTurnPersistence,
+      onSessionEvent: (event) => {
+        sessionEventBridge.handle(event);
       },
-      mcpRegistry,
-    }),
-    turnRunner,
-    conversationLog,
-    sessionStore: agentTurnPersistence,
-    onSessionEvent: (event) => {
-      sessionEventBridge.handle(event);
-    },
-    rebuildStatus: async (instanceId, events) => {
-      await rebuildStatusHandle.fn(instanceId, events);
-    },
-    getThreadId: (instanceId) => {
-      const prefix = "discord:thread:";
-      return instanceId.startsWith(prefix)
-        ? instanceId.slice(prefix.length)
-        : undefined;
-    },
-  });
+      rebuildStatus: async (instanceId, events) => {
+        await rebuildStatusHandle.fn(instanceId, events);
+      },
+      getThreadId: (instanceId) => {
+        const prefix = "discord:thread:";
+        return instanceId.startsWith(prefix)
+          ? instanceId.slice(prefix.length)
+          : undefined;
+      },
+    });
 
-  const orchestrator = new TaskOrchestrator(
-    config,
-    store,
-    setupStore,
-    agentTurn,
-    machineEnvironment,
-    mcpRegistry,
-  );
-  const setupOrchestrator = new SetupOrchestrator(
-    config,
-    setupStore,
-    agentTurn,
-  );
-  const discordClient = await startDiscordGateway(
-    config.DISCORD_BOT_TOKEN,
-    config,
-    orchestrator,
-    setupStore,
-    setupOrchestrator,
-    mcpStore,
-    mcpRegistry,
-  );
+  const orchestrator =
+    options.taskOrchestrator ??
+    new TaskOrchestrator(
+      config,
+      store,
+      setupStore,
+      agentTurn,
+      machineEnvironment,
+      mcpRegistry,
+    );
+  const setupOrchestrator =
+    options.setupOrchestrator ??
+    new SetupOrchestrator(config, setupStore, agentTurn);
+
+  const discordClient =
+    options.discordClient ??
+    (options.createDiscordClient ?? createDiscordClient)(
+      config.DISCORD_BOT_TOKEN,
+      config,
+    );
+
   const publisher = new DiscordPublisher(discordClient);
   orchestrator.setMilestonePublisher(async (threadId, content) => {
     await publisher.send(threadId, content);
@@ -190,7 +283,9 @@ export async function createApp(): Promise<{
         await orchestrator.handleAgentEnd(instanceId);
       },
       onAgentFailure: async (instanceId, errorSummary) => {
-        if (await setupOrchestrator.handleAgentFailure(instanceId, errorSummary))
+        if (
+          await setupOrchestrator.handleAgentFailure(instanceId, errorSummary)
+        )
           return;
         await orchestrator.handleAgentFailure(instanceId, errorSummary);
       },
@@ -214,59 +309,35 @@ export async function createApp(): Promise<{
     workspaceTtlDays: config.WORKSPACE_TTL_DAYS,
   });
 
-  void orchestrator
-    .resumeAfterRestart(async (threadId, content) => {
-      await publisher.send(threadId, content);
-    })
-    .catch((error) => {
-      console.error("[threadcord] startup reconciliation failed", error);
-    });
+  await orchestrator.resumeAfterRestart(async (threadId, content) => {
+    await publisher.send(threadId, content);
+  });
+
+  const attach = options.attachDiscordGateway;
+  if (attach) {
+    attach(
+      discordClient,
+      config,
+      orchestrator,
+      setupStore,
+      setupOrchestrator,
+      mcpStore,
+      mcpRegistry,
+    );
+  } else if (!options.discordClient) {
+    attachDiscordGateway(
+      discordClient,
+      config,
+      orchestrator,
+      setupStore,
+      setupOrchestrator,
+      mcpStore,
+      mcpRegistry,
+    );
+  }
 
   const app = new Hono();
-
-  app.get("/health/live", async (c) => {
-    const [postgres, agentos] = await Promise.all([
-      healthcheckPostgres(store),
-      healthcheckAgentOs(),
-    ]);
-    const ok = postgres && agentos.ok;
-    return c.json(
-      {
-        ok,
-        postgres,
-        agentos: {
-          ok: agentos.ok,
-          path: agentos.path,
-          arch: agentos.arch,
-          version: agentos.version,
-        },
-      },
-      ok ? 200 : 503,
-    );
-  });
-
-  app.get("/health", async (c) => {
-    const [postgres, agentos] = await Promise.all([
-      healthcheckPostgres(store),
-      healthcheckAgentOs(),
-    ]);
-    const discord = discordClient.isReady();
-    const ok = postgres && discord && agentos.ok;
-    return c.json(
-      {
-        ok,
-        postgres,
-        discord,
-        agentos: {
-          ok: agentos.ok,
-          path: agentos.path,
-          arch: agentos.arch,
-          version: agentos.version,
-        },
-      },
-      ok ? 200 : 503,
-    );
-  });
+  mountHealthRoutes(app, { store, discordClient, probeSidecar });
 
   return {
     app,
@@ -281,35 +352,30 @@ export async function createApp(): Promise<{
 
 async function healthcheckPostgres(store: TaskStore): Promise<boolean> {
   try {
-    await store.health();
-    return true;
+    return await store.health();
   } catch {
     return false;
   }
 }
 
 async function verifyAgentOsReadiness(): Promise<void> {
-  const probe = await probeSidecar();
+  const probe = await healthcheckAgentOs();
   if (!probe.ok) {
-    throw new Error(
-      `AgentOS runtime is not ready: ${probe.error ?? "sidecar probe failed"} (path=${probe.path}, arch=${probe.arch}, executable=${probe.executable})`,
+    console.error(
+      `[threadcord] AgentOS runtime is not ready; health endpoint will report failure: ${probe.error ?? "sidecar probe failed"} (path=${probe.path}, arch=${probe.arch}, executable=${probe.executable})`,
+    );
+  } else {
+    console.log(
+      `[threadcord] AgentOS sidecar ready at ${probe.path} (${probe.arch})`,
     );
   }
-  console.log(
-    `[threadcord] AgentOS sidecar ready at ${probe.path} (${probe.arch})`,
-  );
 }
 
-async function healthcheckAgentOs(): Promise<{
-  ok: boolean;
-  path: string;
-  executable: boolean;
-  arch: string;
-  version?: string | undefined;
-  error?: string | undefined;
-}> {
+async function healthcheckAgentOs(
+  probe: () => Promise<SidecarProbeResult> = probeSidecar,
+): Promise<SidecarProbeResult> {
   try {
-    return await probeSidecar();
+    return await probe();
   } catch (error) {
     return {
       ok: false,
