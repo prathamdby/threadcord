@@ -48,7 +48,13 @@ describe("MCP refresh parity", () => {
     const config = await world.fakeMcpRegistry.readConfig(result.task!.workspacePath);
     expect(config).toEqual({
       mcpServers: [
-        { id: "server-a", type: "remote", url: "https://a.example.com", headers: { Authorization: "Bearer tok-a" } },
+        {
+          id: "server-a",
+          type: "sse",
+          name: "server-a",
+          url: "https://a.example.com",
+          headers: [{ name: "Authorization", value: "Bearer tok-a" }],
+        },
       ],
     });
   });

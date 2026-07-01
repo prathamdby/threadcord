@@ -6,7 +6,7 @@ import type {
 } from "../../src/mcp/registry.js";
 import type { McpServerInput, McpServerRow } from "../../src/mcp/store.js";
 import type { AgentTurnRole } from "../../src/agentturn/types.js";
-import type { McpServerConfig as AgentOsMcpServerConfig } from "@rivet-dev/agentos-core";
+import { toAcpMcpServer, type AcpMcpServerConfig } from "../../src/mcp/acp-config.js";
 
 interface McpServerConnection {
   name: string;
@@ -49,26 +49,20 @@ export class FakeMcpRegistry implements McpRegistry {
   async materializeConfig(
     workspacePath: string,
     role?: AgentTurnRole,
-  ): Promise<AgentOsMcpServerConfig[]> {
+  ): Promise<AcpMcpServerConfig[]> {
     this.materializeConfigCalls.push({ workspacePath, role });
     if (this.failMaterialize) {
       throw new Error("MCP materialize failed");
     }
     await mkdir(workspacePath, { recursive: true });
     const rows = [...this.servers.values()].sort((a, b) => a.id.localeCompare(b.id));
-    const servers: Array<AgentOsMcpServerConfig & { id: string }> =
+    const servers: Array<AcpMcpServerConfig & { id: string }> =
       role === "setup"
         ? []
-        : rows.map((row) => {
-            const headers = { ...(row.headers ?? {}) };
-            if (row.token) headers.Authorization = `Bearer ${row.token}`;
-            return {
-              id: row.id,
-              type: "remote" as const,
-              url: row.url,
-              ...(Object.keys(headers).length > 0 ? { headers } : {}),
-            };
-          });
+        : rows.map((row) => ({
+            id: row.id,
+            ...toAcpMcpServer(row),
+          }));
     await writeFile(
       this.getConfigPath(workspacePath),
       JSON.stringify({ mcpServers: servers }, null, 2),

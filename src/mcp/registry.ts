@@ -2,10 +2,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { McpServerConfig as AgentOsMcpServerConfig } from "@rivet-dev/agentos-core";
 export type { McpServerConfig as AgentOsMcpServerConfig } from "@rivet-dev/agentos-core";
+import type { AcpMcpServerConfig } from "./acp-config.js";
+import { toAcpMcpServer } from "./acp-config.js";
 import type { McpConfigProvider } from "../agentturn/machine-environment.js";
 import type { AgentTurnRole } from "../agentturn/types.js";
 import type { McpServerInput, McpStore } from "./store.js";
-import { buildHeaders } from "./validation.js";
 
 export interface Logger {
   log(level: string, message: string, meta?: Record<string, unknown>): void;
@@ -23,11 +24,11 @@ export interface McpRegistry {
   snapshot(): Promise<McpServerSnapshot[]>;
   /** Returns the path where the agent-specific MCP config is written. */
   getConfigPath(workspacePath: string): string;
-  /** Writes the agent-specific `.mcp.json` config and returns the servers for AgentOS createSession. */
+  /** Writes the agent-specific `.mcp.json` config and returns ACP session/new MCP servers. */
   materializeConfig(
     workspacePath: string,
     role?: AgentTurnRole,
-  ): Promise<AgentOsMcpServerConfig[]>;
+  ): Promise<AcpMcpServerConfig[]>;
   /** Load persisted servers into the live connection pool (AgentOS manages its own pool). */
   warm(): Promise<void>;
   /** Close the live connection pool (AgentOS manages its own pool). */
@@ -77,27 +78,21 @@ export class DefaultMcpRegistry implements McpRegistry {
   async materializeConfig(
     workspacePath: string,
     role?: AgentTurnRole,
-  ): Promise<AgentOsMcpServerConfig[]> {
+  ): Promise<AcpMcpServerConfig[]> {
     await mkdir(workspacePath, { recursive: true });
     const path = this.getConfigPath(workspacePath);
 
     if (role === "setup") {
-      const empty: AgentOsMcpServerConfig[] = [];
+      const empty: AcpMcpServerConfig[] = [];
       await writeFile(path, JSON.stringify({ mcpServers: empty }, null, 2));
       return empty;
     }
 
     const rows = await this.store.listServers();
-    const servers = rows.map((row) => {
-      const headers = buildHeaders(row.headers, row.token);
-      const entry: AgentOsMcpServerConfig & { id: string } = {
-        id: row.id,
-        type: "remote" as const,
-        url: row.url,
-        ...(headers ? { headers } : {}),
-      };
-      return entry;
-    });
+    const servers = rows.map((row) => ({
+      id: row.id,
+      ...toAcpMcpServer(row),
+    }));
     await writeFile(path, JSON.stringify({ mcpServers: servers }, null, 2));
     return servers.map(({ id, ...config }) => config);
   }
@@ -173,7 +168,7 @@ export class NoopMcpRegistry implements McpRegistry {
   async materializeConfig(
     workspacePath: string,
     _role?: AgentTurnRole,
-  ): Promise<AgentOsMcpServerConfig[]> {
+  ): Promise<AcpMcpServerConfig[]> {
     await mkdir(workspacePath, { recursive: true });
     await writeFile(
       join(workspacePath, ".mcp.json"),

@@ -1,7 +1,15 @@
 # Threadcord Domain Context
 
-This document defines the ubiquitous language used by the Threadcord AgentOS rewrite.
+This document defines the ubiquitous language used by the Threadcord agentOS rewrite.
 It is the authoritative glossary for reviews, tests, and implementation discussions.
+
+## Naming
+
+- **agentOS** — the product/runtime name. Use this spelling in prose, commit messages,
+  Discord copy, and docs. Not `AgentOS`, `Agent OS`, or `agentos` unless quoting an
+  npm package or env var (e.g. `@rivet-dev/agentos-core`, `AGENTOS_SIDECAR_BIN`).
+- **ACP** — Agent Client Protocol. Pi sessions are created via ACP `session/new` inside
+  the agentOS sidecar.
 
 ## Task
 
@@ -74,20 +82,20 @@ terminal event.
 - cancellation races and exactly-one terminal event durability
 
 TurnRunner is the self-hosted replacement for the small slice of Temporal that
-Threadcord needs. It does not know Discord formatting, AgentOS APIs, or GitHub tools.
+Threadcord needs. It does not know Discord formatting, agentOS APIs, or GitHub tools.
 
 ## MachineEnvironment
 
 **MachineEnvironment** is the deep module that owns the agent's machine and workspace.
 It is responsible for:
 
-- workspace directory creation and read-write mount into the AgentOS VM
-- AgentOS VM lifecycle (createSession, prompt, cancelSession, dispose)
+- workspace directory creation and read-write mount into the agentOS VM
+- agentOS VM lifecycle (createSession, prompt, cancelSession, dispose)
 - setup profile environment materialization (non-secret env names, install/check commands)
 - resource admission (CPU, memory, active VM count, workspace disk, sidecar count)
 - ARM64 compatibility checks and sidecar binary readiness
 - the environment readiness probe that blocks a turn before any model spend
-- an optional self-hosted sandbox fallback when AgentOS alone cannot run the target repo
+- an optional self-hosted sandbox fallback when agentOS alone cannot run the target repo
 
 MachineEnvironment does not know Discord threads or queue ordering.
 
@@ -115,7 +123,7 @@ Task ──► AgentSession (one per task/setup run)
   │        │
   │        └──► TurnRunner terminal event
   │                ▲
-  │                └── AgentOS session events ──► SessionEventBridge
+  │                └── agentOS session events ──► SessionEventBridge
   │                                                  ▼
   │                                             Discord progress bridge
   │

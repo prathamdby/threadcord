@@ -15,6 +15,7 @@ import { createCodingToolKit, createSetupToolKit } from "../bindings/toolkits.js
 import { createBindingsHost } from "../bindings/host.js";
 import type { BindingsHostDependencies } from "../bindings/host.js";
 import type { McpRegistry } from "../mcp/registry.js";
+import type { AcpMcpServerConfig } from "../mcp/acp-config.js";
 import type { MachineEnvironment } from "./machine-environment.js";
 import type {
   AgentTurn,
@@ -371,7 +372,7 @@ export class AgentOsAgentTurn implements AgentTurn {
     agentOs: AgentOs,
     guestCheckoutPath: string,
     input: AgentTurnInput,
-    mcpServers: AgentOsMcpServerConfig[],
+    mcpServers: AcpMcpServerConfig[],
   ): Promise<string> {
     const env: Record<string, string> = {
       ...(input.env ?? {}),
@@ -381,7 +382,7 @@ export class AgentOsAgentTurn implements AgentTurn {
     const { sessionId } = await agentOs.createSession("pi", {
       cwd: guestCheckoutPath,
       env,
-      mcpServers,
+      mcpServers: mcpServers as unknown as AgentOsMcpServerConfig[],
       additionalInstructions: "Be concise and follow the task instruction.",
     });
     return sessionId;

@@ -123,12 +123,23 @@ describe("McpRegistry materializeConfig", () => {
     const servers = await registry.materializeConfig(workspace, "coding");
 
     expect(servers).toEqual([
-      { type: "remote", url: "https://a.example.com", headers: { Authorization: "Bearer tok" } },
+      {
+        type: "sse",
+        name: "server-a",
+        url: "https://a.example.com",
+        headers: [{ name: "Authorization", value: "Bearer tok" }],
+      },
     ]);
     const parsed = await readConfigFile(workspace);
     expect(parsed).toEqual({
       mcpServers: [
-        { id: "server-a", type: "remote", url: "https://a.example.com", headers: { Authorization: "Bearer tok" } },
+        {
+          id: "server-a",
+          type: "sse",
+          name: "server-a",
+          url: "https://a.example.com",
+          headers: [{ name: "Authorization", value: "Bearer tok" }],
+        },
       ],
     });
     cleanWorkspace(workspace);
@@ -147,14 +158,19 @@ describe("McpRegistry materializeConfig", () => {
     cleanWorkspace(workspace);
   });
 
-  it("converts streamable-http transport to a remote AgentOS config", async () => {
+  it("converts streamable-http transport to ACP http config", async () => {
     const { registry, store } = makeRegistry();
     await store.addServer({ id: "server-a", url: "https://a.example.com", transport: "streamable-http" });
     const workspace = tempWorkspace();
 
     const servers = await registry.materializeConfig(workspace, "coding");
 
-    expect(servers[0]).toMatchObject({ type: "remote", url: "https://a.example.com" });
+    expect(servers[0]).toEqual({
+      type: "http",
+      name: "server-a",
+      url: "https://a.example.com",
+      headers: [],
+    });
     cleanWorkspace(workspace);
   });
 });
@@ -213,7 +229,17 @@ describe("McpRegistryConfigProvider", () => {
 
     const parsed = await provider.parse();
 
-    expect(parsed).toEqual({ mcpServers: [{ id: "server-a", type: "remote", url: "https://a.example.com" }] });
+    expect(parsed).toEqual({
+      mcpServers: [
+        {
+          id: "server-a",
+          type: "http",
+          name: "server-a",
+          url: "https://a.example.com",
+          headers: [],
+        },
+      ],
+    });
     cleanWorkspace(workspace);
   });
 });

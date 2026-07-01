@@ -3,8 +3,26 @@
 ## Cursor Cloud specific instructions
 
 Threadcord is a single Node/TypeScript service: a Discord bot + small Hono HTTP server
-that runs AgentOS coding-agent tasks. See `README.md` for the product overview and the full
+that runs agentOS coding-agent tasks. See `README.md` for the product overview and the full
 list of commands; this section only records non-obvious cloud-environment caveats.
+
+### Naming
+- Write **agentOS** in prose and commit messages, not `AgentOS` or `Agent OS`.
+- Lowercase `agentos` is only for npm scopes (`@rivet-dev/agentos-core`) and env vars
+  (`AGENTOS_SIDECAR_BIN`). See `CONTEXT.md` → Naming.
+
+### MCP servers → ACP session/new
+- Registered MCP servers live in Postgres (`mcp_servers`). Before each coding turn,
+  `DefaultMcpRegistry.materializeConfig()` writes `.mcp.json` and returns configs for
+  `agentOs.createSession()`.
+- The sidecar forwards `mcpServers` JSON to ACP `session/new` **without translation**.
+  Each entry must match the ACP schema in `src/mcp/acp-config.ts`:
+  - `type`: `"http"` (transport `streamable-http` or default) or `"sse"`
+  - `name`: server id
+  - `url`: remote MCP URL
+  - `headers`: `[{ name, value }]` array (required; use `[]` when empty)
+- Do **not** emit agentos-core host shape `{ type: "remote", headers: Record }` — ACP
+  rejects it and turns fail pre-start with `session/new failed: Invalid params`.
 
 ### Node version (important)
 - Threadcord targets Node `>=22.18`. The base image's `/exec-daemon/node` is `22.14`, which makes
@@ -22,14 +40,14 @@ list of commands; this section only records non-obvious cloud-environment caveat
 - On boot the app runs `store.migrate()` / `setupStore.migrate()` / `mcpStore.migrate()` /
   `agentTurnPersistence.migrate()`, creating the Threadcord-owned tables (`tasks`, `setup_profiles`,
   `mcp_servers`, `agent_sessions`, `agent_turns`, `agent_events`, `agent_turn_attempts`, etc.).
-  Migrations are idempotent. The AgentOS runtime itself manages its own state outside Postgres.
+  Migrations are idempotent. The agentOS runtime itself manages its own state outside Postgres.
 
 ### Running the app
 - Dev: `npm run dev` runs `tsx watch src/server.ts` on port `3583`. `tsx` loads `.env` automatically.
 - `node dist/server.js` (`npm start`) does NOT load `.env` — it reads the real process env, so
   export the variables (or use the Docker/compose path) when running the built server directly.
 - `.env` is gitignored. A local dev `.env` exists with placeholder Discord/GitHub/provider values.
-- Health endpoints: `GET /health/live` (Postgres + AgentOS sidecar), `GET /health` (Postgres + Discord ready + AgentOS sidecar).
+- Health endpoints: `GET /health/live` (Postgres + agentOS sidecar), `GET /health` (Postgres + Discord ready + agentOS sidecar).
 
 ### Secrets needed for the full task flow
 - With a placeholder `DISCORD_BOT_TOKEN`, the process boots, runs DB migrations, then exits:
