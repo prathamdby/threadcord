@@ -117,11 +117,17 @@ export class TaskStore {
       SET progress_message_ids = ARRAY[status_message_id]
       WHERE status_message_id IS NOT NULL AND progress_message_ids IS NULL
     `);
-    await this.pool.query(`
-      UPDATE tasks
-      SET agent_instance_id = flue_instance_id
-      WHERE agent_instance_id IS NULL AND flue_instance_id IS NOT NULL
+    const columnExists = await this.pool.query(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'tasks' AND column_name = 'flue_instance_id'
     `);
+    if (columnExists.rows.length > 0) {
+      await this.pool.query(`
+        UPDATE tasks
+        SET agent_instance_id = flue_instance_id
+        WHERE agent_instance_id IS NULL AND flue_instance_id IS NOT NULL
+      `);
+    }
     await this.pool.query(`
       ALTER TABLE tasks ALTER COLUMN agent_instance_id SET NOT NULL
     `);

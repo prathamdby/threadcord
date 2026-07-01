@@ -97,7 +97,7 @@ export async function probeSidecar(): Promise<SidecarProbeResult> {
     }
   }
 
-  const ok = executable && arch === "arm64";
+  const ok = executable && (arch === "arm64" || arch === "x64");
   return { ok, path, executable, arch, version, error };
 }
 
