@@ -29,7 +29,7 @@ list of commands; this section only records non-obvious cloud-environment caveat
 - `node dist/server.js` (`npm start`) does NOT load `.env` — it reads the real process env, so
   export the variables (or use the Docker/compose path) when running the built server directly.
 - `.env` is gitignored. A local dev `.env` exists with placeholder Discord/GitHub/provider values.
-- Health endpoints: `GET /health/live` (Postgres only), `GET /health` (Postgres + Discord ready).
+- Health endpoints: `GET /health/live` (Postgres + AgentOS sidecar), `GET /health` (Postgres + Discord ready + AgentOS sidecar).
 
 ### Secrets needed for the full task flow
 - With a placeholder `DISCORD_BOT_TOKEN`, the process boots, runs DB migrations, then exits:

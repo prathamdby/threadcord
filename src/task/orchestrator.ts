@@ -488,11 +488,11 @@ export class TaskOrchestrator {
       this.pendingInitiatorIds.get(task.id)?.delete(claimed.initiatorMessageId);
     }
     this.inFlightTurns.set(instanceId, { source, initiator });
-    await this.refreshHeader(
-      task.id,
-      source === "initial" ? "initial" : "follow-up",
-    );
     try {
+      await this.refreshHeader(
+        task.id,
+        source === "initial" ? "initial" : "follow-up",
+      );
       const setupProfile = await this.setupStore.getReadyProfile(
         task.repo,
         task.branch,

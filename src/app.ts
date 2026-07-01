@@ -41,6 +41,7 @@ import {
   type AgentTurn,
   type MachineEnvironment,
   type SidecarProbeResult,
+  AgentOsAgentTurn,
 } from "./agentturn/index.js";
 import type { GitExecutor } from "./bindings/types.js";
 import { execa } from "./task/execa.js";
@@ -153,12 +154,26 @@ export async function createApp(
   });
 
   const issueStore = new MemoryEnvironmentIssueStore();
+  const activeVmCounter = { getCount: (): number => 0 };
   const machineEnvironment =
     options.machineEnvironment ??
     createDefaultMachineEnvironment(
       config,
       new McpRegistryConfigProvider(mcpRegistry),
-      { issueStore },
+      {
+        issueStore,
+        resourceSnapshotProvider: {
+          getSnapshot: async () => ({
+            rssBytes: 0,
+            freeMemoryMb: Number.MAX_SAFE_INTEGER,
+            freeDiskMb: Number.MAX_SAFE_INTEGER,
+            loadAverage: [0, 0, 0] as [number, number, number],
+            workspaceSizeBytes: 0,
+            sidecarCount: 0,
+            activeVmCount: activeVmCounter.getCount(),
+          }),
+        },
+      },
     );
   const conversationLog = new DurableConversationLog(conversationLogStore);
   const turnRunner = new TurnRunner(turnAttemptStore, {
@@ -178,17 +193,27 @@ export async function createApp(
   const rebuildStatusHandle = {
     fn: async (_instanceId: string, _events: AgentEventRecord[]) => {},
   };
+  const editMessageHandle = {
+    fn: async (_threadId: string, _messageId: string, _content: string) => {},
+  };
+  const durableSessionEventForwarder = {
+    forward: async (_event: AgentOsSessionEvent) => {},
+  };
 
+  let innerAgentTurn: AgentOsAgentTurn | undefined;
   const agentTurn =
     options.agentTurn ??
-    createDurableAgentTurn({
-      inner: createAgentOsAgentTurn({
+    (() => {
+      innerAgentTurn = createAgentOsAgentTurn({
         machineEnvironment,
         logger: {
           log: (level, message, meta) => console.log(level, message, meta),
         },
         nodeModulesPath: resolve(process.cwd(), "node_modules"),
         getCredentials: createAgentOsCredentialsProvider(config),
+        onSessionEvent: (event) => {
+          void durableSessionEventForwarder.forward(event);
+        },
         bindingsHost: {
           githubToken: config.GITHUB_TOKEN,
           discordUserId: config.DISCORD_BOT_USER_ID ?? "",
@@ -199,13 +224,8 @@ export async function createApp(
               content,
             });
           },
-          editMessage: async (threadId, _messageId, content) => {
-            // Host bindings currently do not edit existing messages through the bridge.
-            await sessionEventBridge.handle({
-              type: "final_output",
-              instanceId: `discord:thread:${threadId}`,
-              content,
-            });
+          editMessage: async (threadId, messageId, content) => {
+            await editMessageHandle.fn(threadId, messageId, content);
           },
           environmentIssueStore: issueStore,
           setupStore,
@@ -213,23 +233,37 @@ export async function createApp(
           gitExecutor: createGitExecutor(),
         },
         mcpRegistry,
-      }),
-      turnRunner,
-      conversationLog,
-      sessionStore: agentTurnPersistence,
-      onSessionEvent: (event) => {
-        sessionEventBridge.handle(event);
-      },
-      rebuildStatus: async (instanceId, events) => {
-        await rebuildStatusHandle.fn(instanceId, events);
-      },
-      getThreadId: (instanceId) => {
-        const prefix = "discord:thread:";
-        return instanceId.startsWith(prefix)
-          ? instanceId.slice(prefix.length)
-          : undefined;
-      },
-    });
+      }) as AgentOsAgentTurn;
+
+      const durable = createDurableAgentTurn({
+        inner: innerAgentTurn,
+        turnRunner,
+        conversationLog,
+        sessionStore: agentTurnPersistence,
+        heartbeatTimeoutMs: config.TURN_HEARTBEAT_TIMEOUT_MS,
+        onSessionEvent: (event) => {
+          sessionEventBridge.handle(event);
+        },
+        rebuildStatus: async (instanceId, events) => {
+          await rebuildStatusHandle.fn(instanceId, events);
+        },
+        getThreadId: (instanceId) => {
+          const prefix = "discord:thread:";
+          return instanceId.startsWith(prefix)
+            ? instanceId.slice(prefix.length)
+            : undefined;
+        },
+      });
+
+      durableSessionEventForwarder.forward = (event) =>
+        durable.onSessionEvent(event);
+
+      return durable;
+    })();
+
+  if (innerAgentTurn) {
+    activeVmCounter.getCount = () => innerAgentTurn!.getActiveVmCount();
+  }
 
   const orchestrator =
     options.taskOrchestrator ??
@@ -290,7 +324,6 @@ export async function createApp(
         await orchestrator.handleAgentFailure(instanceId, errorSummary);
       },
     },
-    conversationLog,
   });
   sessionEventBridge.handle = (event) => {
     void bridge.handleEvent(event).catch((error) => {
@@ -303,15 +336,35 @@ export async function createApp(
   rebuildStatusHandle.fn = async (instanceId, events) => {
     await bridge.rebuildStatus(instanceId, events);
   };
+  editMessageHandle.fn = async (threadId, messageId, content) => {
+    await publisher.edit(threadId, messageId, content);
+  };
+
+  const timeoutJanitor = setInterval(() => {
+    void turnRunner.enforceTimeouts().catch((error) => {
+      console.error(
+        "[threadcord] turn timeout enforcement failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    });
+  }, 60_000);
+  timeoutJanitor.unref?.();
 
   const janitor = startWorkspaceJanitor({
     store,
     workspaceTtlDays: config.WORKSPACE_TTL_DAYS,
   });
 
-  await orchestrator.resumeAfterRestart(async (threadId, content) => {
-    await publisher.send(threadId, content);
-  });
+  try {
+    await orchestrator.resumeAfterRestart(async (threadId, content) => {
+      await publisher.send(threadId, content);
+    });
+  } catch (error) {
+    console.error(
+      "[threadcord] resumeAfterRestart failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 
   const attach = options.attachDiscordGateway;
   if (attach) {
@@ -343,6 +396,7 @@ export async function createApp(
     app,
     config,
     shutdown: async () => {
+      clearInterval(timeoutJanitor);
       clearInterval(janitor);
       await mcpRegistry.close();
       await pool.end();

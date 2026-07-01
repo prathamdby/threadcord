@@ -1,4 +1,5 @@
 import { mkdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import type { AppConfig } from "../config.js";
 import {
@@ -137,6 +138,7 @@ export class SetupOrchestrator {
       repo: input.repo,
       baseBranch: input.branch,
       setupProfileRevision: 0, // setup runs are not pinned to a profile revision
+      idempotencyKey: `setup:${input.runId}:${randomUUID()}`,
     };
     try {
       const result = await this.agentTurn.prompt(agentTurnInput);

@@ -36,7 +36,6 @@ const EnvSchema = z
       .positive()
       .default(DEFAULT_AGENT_MAX_VALIDATION_FAILURES),
     PORT: z.coerce.number().int().positive().default(3583),
-    THREADCORD_HTTP_BEARER: optionalNonEmptyString,
     WORKSPACE_TTL_DAYS: z.coerce.number().int().positive().default(14),
     MAX_ACTIVE_VMS: z.coerce.number().int().positive().default(2),
     RESERVED_SYSTEM_MEMORY_MB: z.coerce.number().int().positive().default(4096),
@@ -61,15 +60,6 @@ const EnvSchema = z
     OPENAI_MODELS: optionalCsvString,
     PROVIDERS: optionalCsvString,
     NODE_ENV: z.string().optional(),
-  })
-  .superRefine((env, ctx) => {
-    if (env.NODE_ENV === "production" && !env.THREADCORD_HTTP_BEARER) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["THREADCORD_HTTP_BEARER"],
-        message: "THREADCORD_HTTP_BEARER is required when NODE_ENV=production",
-      });
-    }
   });
 
 export interface CustomProviderConfig {

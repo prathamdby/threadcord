@@ -48,12 +48,11 @@ docker compose build
 docker compose up
 ```
 
-Compose sets `THREADCORD_HTTP_BEARER` to `threadcord-dev-bearer` when `.env` leaves it blank. Change it before any network-exposed deploy.
+Compose brings up Postgres and the app on port `3583`.
 
-- `GET /health` returns 200 when Postgres is up and the Discord client is ready.
-- `GET /health/live` checks Postgres only.
+- `GET /health` returns 200 when Postgres is up, the Discord client is ready, and the AgentOS sidecar is reachable.
+- `GET /health/live` checks Postgres and the AgentOS sidecar.
 - Default port is `3583`.
-- Set `THREADCORD_HTTP_BEARER` before exposing the service. Required when `NODE_ENV=production`.
 
 Health check:
 
@@ -61,7 +60,7 @@ Health check:
 curl http://localhost:3583/health
 ```
 
-Liveness (Postgres only):
+Liveness (Postgres + AgentOS sidecar):
 
 ```bash
 curl http://localhost:3583/health/live

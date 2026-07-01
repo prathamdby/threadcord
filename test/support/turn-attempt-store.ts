@@ -38,4 +38,15 @@ export class InMemoryTurnAttemptStore implements TurnAttemptStore {
     this.records.set(attemptId, updated);
     return { ...updated };
   }
+
+  async updateIfActive(
+    attemptId: string,
+    patch: Partial<TurnAttemptRecord>,
+  ): Promise<TurnAttemptRecord | undefined> {
+    const existing = this.records.get(attemptId);
+    if (!existing || existing.status !== "active") return undefined;
+    const updated = { ...existing, ...patch };
+    this.records.set(attemptId, updated);
+    return { ...updated };
+  }
 }

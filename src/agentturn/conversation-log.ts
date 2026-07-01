@@ -70,6 +70,8 @@ export interface ConversationLogStore {
   listBySessionId(sessionId: string): Promise<AgentEventRecord[]>;
   listByAttemptId(attemptId: string): Promise<AgentEventRecord[]>;
   markSuperseded(attemptId: string): Promise<number>;
+  nextSeq(sessionId: string): Promise<number>;
+  nextAttemptSeq(sessionId: string, attemptId: string): Promise<number>;
 }
 
 /**
@@ -175,10 +177,11 @@ export class DurableConversationLog implements ConversationLog {
     if (!isAgentEventKind(event.event_kind)) {
       throw new Error(`Unknown agent event kind: ${event.event_kind}`);
     }
-    const existing = await this.store.listBySessionId(event.session_id);
-    const seq = this.nextSequence(existing);
-    const attemptEvents = existing.filter((e) => e.attempt_id === event.attempt_id);
-    const attempt_seq = this.nextAttemptSequence(attemptEvents);
+    const seq = await this.store.nextSeq(event.session_id);
+    const attempt_seq = await this.store.nextAttemptSeq(
+      event.session_id,
+      event.attempt_id,
+    );
 
     return this.store.insert({
       session_id: event.session_id,
@@ -209,15 +212,5 @@ export class DurableConversationLog implements ConversationLog {
     return events
       .filter((event) => !event.superseded || isRetainedMilestone(event))
       .sort((a, b) => a.seq - b.seq);
-  }
-
-  private nextSequence(events: AgentEventRecord[]): number {
-    if (events.length === 0) return 1;
-    return Math.max(...events.map((event) => event.seq)) + 1;
-  }
-
-  private nextAttemptSequence(events: AgentEventRecord[]): number {
-    if (events.length === 0) return 1;
-    return Math.max(...events.map((event) => event.attempt_seq)) + 1;
   }
 }

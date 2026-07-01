@@ -1,9 +1,4 @@
-import type {
-  AgentEventKind,
-  AgentEventRecord,
-  ConversationLog,
-  ConversationLogEventInput,
-} from "../agentturn/conversation-log.js";
+import type { AgentEventRecord } from "../agentturn/conversation-log.js";
 import {
   DEFAULT_AGENT_MAX_TOOL_FAILURES,
   DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
@@ -93,8 +88,8 @@ export function newSessionEventBridgeState(): ObserveBridgeState {
 export interface SessionEventBridge {
   /**
    * Process a single AgentOS session event: translate it into Discord
-   * progress bridge inputs, log it to the ConversationLog, and invoke lifecycle
-   * callbacks.
+   * progress bridge inputs and invoke lifecycle callbacks. Persistence is owned
+   * by DurableAgentTurn; this bridge only projects live progress.
    */
   handleEvent(event: AgentOsSessionEvent): Promise<void>;
 
@@ -109,7 +104,6 @@ export interface SessionEventBridge {
 
 export interface SessionEventBridgeDependencies {
   callbacks: ObserveBridgeCallbacks;
-  conversationLog: ConversationLog;
 }
 
 export class SessionEventBridgeImpl implements SessionEventBridge {
@@ -124,8 +118,6 @@ export class SessionEventBridgeImpl implements SessionEventBridge {
     if (!instanceId) return;
 
     await withInstanceEventLock(instanceId, this.state, async () => {
-      await this.persistEvent(event);
-
       const isTaskInstance = isThreadcordInstance(instanceId);
       const isSetupInstance = instanceId.startsWith("setup:");
       const maxFailures = resolveMaxFailuresForSessionBridge();
@@ -325,12 +317,6 @@ export class SessionEventBridgeImpl implements SessionEventBridge {
     }
   }
 
-  private async persistEvent(event: AgentOsSessionEvent): Promise<void> {
-    const logInput = toConversationLogEvent(event);
-    if (!logInput) return;
-    await this.deps.conversationLog.append(logInput);
-  }
-
   private async evaluateToolFailureGuard(
     event: AgentOsSessionEvent,
     instanceId: string,
@@ -475,57 +461,6 @@ function clearPendingToolStartsForInstance(
   }
 }
 
-function toConversationLogEvent(
-  event: AgentOsSessionEvent,
-): ConversationLogEventInput | undefined {
-  const base = {
-    session_id: event.instanceId,
-    turn_id: event.turnId ?? event.instanceId,
-    attempt_id: event.attemptId ?? event.instanceId,
-  };
-
-  switch (event.type) {
-    case "turn_start":
-      return undefined;
-    case "text_delta":
-      return { ...base, event_kind: "text_delta", payload: { delta: event.delta } };
-    case "agent_message":
-      return { ...base, event_kind: "agent_message", payload: { content: event.content } };
-    case "tool_start":
-      return {
-        ...base,
-        event_kind: "tool_start",
-        payload: { toolName: event.toolName, args: event.args, toolCallId: event.toolCallId },
-      };
-    case "tool_result":
-      return {
-        ...base,
-        event_kind: event.isError ? "tool_failure" : "tool_result",
-        payload: {
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          result: event.result,
-        },
-      };
-    case "permission_failure":
-      return { ...base, event_kind: "permission_failure", payload: { summary: event.summary } };
-    case "final_output":
-      return { ...base, event_kind: "final_output", payload: { content: event.content } };
-    case "turn_completed":
-      return { ...base, event_kind: "turn_completed", payload: {} };
-    case "turn_failed":
-      return { ...base, event_kind: "turn_failed", payload: { summary: event.summary } };
-    case "turn_cancelled":
-      return { ...base, event_kind: "turn_cancelled", payload: {} };
-    case "environment_issue":
-      return { ...base, event_kind: "environment_issue", payload: { summary: event.summary } };
-    case "unknown":
-      return { ...base, event_kind: "text_delta", payload: { rawType: event.rawType, payload: event.payload } };
-    default:
-      return undefined;
-  }
-}
-
 function resolveMaxFailuresForSessionBridge(): {
   maxFailures: number;
   maxValidationFailures: number;
@@ -558,7 +493,6 @@ function redactPayloadForLog(payload: unknown): unknown {
 
 export function registerSessionEventBridge(
   args: ObserveBridgeCallbacks,
-  conversationLog: ConversationLog,
 ): SessionEventBridge {
-  return new SessionEventBridgeImpl({ callbacks: args, conversationLog });
+  return new SessionEventBridgeImpl({ callbacks: args });
 }

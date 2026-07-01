@@ -69,7 +69,7 @@ function recordingBridge(): {
   } as unknown as ObserveBridgeCallbacks;
 
   const log = new DurableConversationLog(new InMemoryConversationLogStore());
-  const bridge = registerSessionEventBridge(callbacks, log);
+  const bridge = registerSessionEventBridge(callbacks);
 
   return { callbacks, edits, sends, onAgentEnd, onAgentFailure, bridge, log, store };
 }
@@ -373,7 +373,7 @@ describe("SessionEventBridge", () => {
     vi.useRealTimers();
   });
 
-  it("logs events to the ConversationLog", async () => {
+  it("does not persist events to ConversationLog (projection only)", async () => {
     vi.useFakeTimers();
     const { bridge, log } = recordingBridge();
 
@@ -389,11 +389,7 @@ describe("SessionEventBridge", () => {
     await vi.runAllTimersAsync();
 
     const transcript = await log.rebuildTranscript(instanceId);
-    expect(transcript.map((event) => event.event_kind)).toEqual([
-      "text_delta",
-      "tool_start",
-      "turn_completed",
-    ]);
+    expect(transcript).toHaveLength(0);
     vi.useRealTimers();
   });
 
@@ -452,7 +448,7 @@ describe("SessionEventBridge", () => {
       onAgentFailure: async () => {},
     } as unknown as ObserveBridgeCallbacks;
     const log = new DurableConversationLog(new InMemoryConversationLogStore());
-    const serialBridge = registerSessionEventBridge(callbacks, log);
+    const serialBridge = registerSessionEventBridge(callbacks);
 
     await Promise.all([
       serialBridge.handleEvent({ type: "text_delta", instanceId: instanceA, delta: "A1" }),
@@ -543,7 +539,7 @@ describe("SessionEventBridge", () => {
       onAgentFailure: async () => {},
     } as unknown as ObserveBridgeCallbacks;
     const log = new DurableConversationLog(new InMemoryConversationLogStore());
-    const bridge = registerSessionEventBridge(callbacks, log);
+    const bridge = registerSessionEventBridge(callbacks);
 
     await bridge.handleEvent({
       type: "tool_start",
@@ -579,10 +575,29 @@ describe("SessionEventBridge", () => {
     vi.useRealTimers();
   });
 
-  it("logs the conversation event id for every rendered progress line", async () => {
+  it("renders progress lines without persisting to ConversationLog", async () => {
     vi.useFakeTimers();
     const { bridge, log } = recordingBridge();
 
+    await bridge.handleEvent({ type: "text_delta", instanceId, delta: "hello" });
+    await vi.runAllTimersAsync();
+
+    const events = await log.rebuildTranscript(instanceId);
+    expect(events).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it("projects canonical events after durable persistence", async () => {
+    vi.useFakeTimers();
+    const { bridge, log } = recordingBridge();
+
+    await log.append({
+      session_id: instanceId,
+      turn_id: "turn-1",
+      attempt_id: "attempt-1",
+      event_kind: "text_delta",
+      payload: { delta: "hello" },
+    });
     await bridge.handleEvent({ type: "text_delta", instanceId, delta: "hello" });
     await vi.runAllTimersAsync();
 
@@ -593,23 +608,25 @@ describe("SessionEventBridge", () => {
     vi.useRealTimers();
   });
 
-  it("marks superseded attempt events when the bridge sees a retry", async () => {
+  it("excludes superseded attempt events from canonical transcript", async () => {
     vi.useFakeTimers();
-    const { bridge, log } = recordingBridge();
+    const { log } = recordingBridge();
     const attempt1 = "attempt-1";
     const attempt2 = "attempt-2";
 
-    await bridge.handleEvent({
-      type: "text_delta",
-      instanceId,
-      attemptId: attempt1,
-      delta: "stale",
+    await log.append({
+      session_id: instanceId,
+      turn_id: "turn-1",
+      attempt_id: attempt1,
+      event_kind: "text_delta",
+      payload: { delta: "stale" },
     });
-    await bridge.handleEvent({
-      type: "text_delta",
-      instanceId,
-      attemptId: attempt2,
-      delta: "canonical",
+    await log.append({
+      session_id: instanceId,
+      turn_id: "turn-1",
+      attempt_id: attempt2,
+      event_kind: "text_delta",
+      payload: { delta: "canonical" },
     });
     await log.markSuperseded(attempt1);
 
@@ -658,6 +675,21 @@ describe("SessionEventBridge", () => {
     const { bridge, edits, log } = recordingBridge();
     const attempt1 = "attempt-1";
     const attempt2 = "attempt-2";
+
+    await log.append({
+      session_id: instanceId,
+      turn_id: "turn-1",
+      attempt_id: attempt1,
+      event_kind: "text_delta",
+      payload: { delta: "stale" },
+    });
+    await log.append({
+      session_id: instanceId,
+      turn_id: "turn-1",
+      attempt_id: attempt2,
+      event_kind: "text_delta",
+      payload: { delta: "canonical" },
+    });
 
     await bridge.handleEvent({
       type: "text_delta",

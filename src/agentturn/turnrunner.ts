@@ -41,6 +41,10 @@ export interface TurnAttemptStore {
     attemptId: string,
     patch: Partial<TurnAttemptRecord>,
   ): Promise<TurnAttemptRecord | undefined>;
+  updateIfActive(
+    attemptId: string,
+    patch: Partial<TurnAttemptRecord>,
+  ): Promise<TurnAttemptRecord | undefined>;
 }
 
 export interface TurnRunnerConfig {
@@ -180,11 +184,16 @@ export class TurnRunner {
 
     const status = terminalStatusForOutcome(outcome);
     const terminalReason = reason ?? outcome;
-    await this.store.update(attemptId, {
+    const updated = await this.store.updateIfActive(attemptId, {
       status,
       terminal_at: this.clock.now(),
       terminal_reason: terminalReason,
     });
+    if (!updated) {
+      const current = await this.store.get(attemptId);
+      if (!current) return undefined;
+      return this.outcomeFromStatus(current.status, current.terminal_reason);
+    }
     return outcome;
   }
 

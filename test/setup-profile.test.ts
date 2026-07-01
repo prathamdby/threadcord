@@ -56,6 +56,23 @@ describe("setup profile validation", () => {
     });
   });
 
+  it("accepts environment JSON without requiredPackages or armCaveats fields", () => {
+    const result = validateSetupEnvironment({
+      install: "npm ci",
+      requiredEnv: ["DATABASE_URL"],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        install: "npm ci",
+        requiredEnv: ["DATABASE_URL"],
+      },
+    });
+    expect(result.ok && "requiredPackages" in result.value).toBe(false);
+    expect(result.ok && "armCaveats" in result.value).toBe(false);
+  });
+
   it("omits optional requiredPackages and armCaveats when empty", () => {
     const result = validateSetupEnvironment({
       install: "npm ci",

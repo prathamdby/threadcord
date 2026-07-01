@@ -7,6 +7,9 @@ import type {
 } from "./conversation-log.js";
 import type { TurnAttemptRecord, TurnAttemptStore } from "./turnrunner.js";
 import type { EnvironmentIssue, EnvironmentIssueStore } from "./machine-environment.js";
+import { hashInstruction } from "./utils.js";
+
+export { hashInstruction };
 
 /**
  * Postgres row shape for `agent_sessions`. A session is the stable conversation
@@ -172,7 +175,12 @@ export class PostgresAgentTurnPersistence implements AgentTurnPersistence {
       CREATE INDEX IF NOT EXISTS agent_turn_attempts_status_idx ON agent_turn_attempts(status)
     `);
     await this.pool.query(`
-      CREATE INDEX IF NOT EXISTS agent_environment_issues_task_id_idx ON agent_environment_issues(task_id)
+      CREATE UNIQUE INDEX IF NOT EXISTS agent_events_session_id_seq_idx
+      ON agent_events(session_id, seq)
+    `);
+    await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS agent_turn_attempts_turn_id_attempt_number_idx
+      ON agent_turn_attempts(turn_id, attempt_number)
     `);
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS agent_environment_issues_setup_id_idx ON agent_environment_issues(setup_id)
@@ -379,6 +387,26 @@ export class PostgresConversationLogStore implements ConversationLogStore {
     );
     return result.rowCount ?? 0;
   }
+
+  async nextSeq(sessionId: string): Promise<number> {
+    const result = await this.pool.query(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM agent_events WHERE session_id = $1`,
+      [sessionId],
+    );
+    return Number(result.rows[0]?.next_seq ?? 1);
+  }
+
+  async nextAttemptSeq(sessionId: string, attemptId: string): Promise<number> {
+    const result = await this.pool.query(
+      `
+        SELECT COALESCE(MAX(attempt_seq), 0) + 1 AS next_attempt_seq
+        FROM agent_events
+        WHERE session_id = $1 AND attempt_id = $2
+      `,
+      [sessionId, attemptId],
+    );
+    return Number(result.rows[0]?.next_attempt_seq ?? 1);
+  }
 }
 
 export class PostgresTurnAttemptStore implements TurnAttemptStore {
@@ -439,6 +467,22 @@ export class PostgresTurnAttemptStore implements TurnAttemptStore {
     const values = entries.map(([, value]) => value);
     const result = await this.pool.query(
       `UPDATE agent_turn_attempts SET ${setters} WHERE attempt_id = $1 RETURNING *`,
+      [attemptId, ...values],
+    );
+    return result.rows[0] ? rowToAttemptRecord(result.rows[0]) : undefined;
+  }
+
+  async updateIfActive(
+    attemptId: string,
+    patch: Partial<TurnAttemptRecord>,
+  ): Promise<TurnAttemptRecord | undefined> {
+    const allowed = ["lease_owner", "heartbeat_at", "timeout_ms", "retry_reason", "terminal_reason", "terminal_at", "status"] as const;
+    const entries = Object.entries(patch).filter(([key]) => allowed.includes(key as typeof allowed[number]));
+    if (entries.length === 0) return this.get(attemptId);
+    const setters = entries.map(([key], idx) => `${key} = $${idx + 2}`).join(", ");
+    const values = entries.map(([, value]) => value);
+    const result = await this.pool.query(
+      `UPDATE agent_turn_attempts SET ${setters} WHERE attempt_id = $1 AND status = 'active' RETURNING *`,
       [attemptId, ...values],
     );
     return result.rows[0] ? rowToAttemptRecord(result.rows[0]) : undefined;
@@ -627,15 +671,3 @@ function rowToDate(value: unknown): Date {
   if (typeof value === "string" || typeof value === "number") return new Date(value);
   return new Date();
 }
-
-function hashInstruction(instruction: string): string {
-  // Simple stable hash for instruction deduplication. Not cryptographically secure,
-  // but sufficient for transcript integrity checks and duplicate detection.
-  let h = 0;
-  for (let i = 0; i < instruction.length; i++) {
-    h = ((h << 5) - h + instruction.charCodeAt(i)) | 0;
-  }
-  return `hash-${Math.abs(h).toString(16)}`;
-}
-
-export { hashInstruction };

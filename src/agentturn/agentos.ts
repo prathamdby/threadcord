@@ -68,6 +68,11 @@ interface ActiveSession {
   guestCheckoutPath: string;
 }
 
+interface InstanceVm {
+  agentOs: AgentOs;
+  hostWorkspace: string;
+}
+
 /**
  * Real AgentOS-backed AgentTurn implementation for coding and setup turns.
  *
@@ -80,14 +85,17 @@ interface ActiveSession {
  * redaction.
  */
 export class AgentOsAgentTurn implements AgentTurn {
-  private agentOs: AgentOs | undefined;
-  private mountedHostWorkspace: string | undefined;
+  private readonly vms = new Map<string, InstanceVm>();
   private readonly sessions = new Map<string, ActiveSession>();
   private readonly handlers = new Set<(event: TurnEvent) => void>();
   private readonly deps: AgentOsAgentTurnDependencies;
 
   constructor(deps: AgentOsAgentTurnDependencies = {}) {
     this.deps = deps;
+  }
+
+  getActiveVmCount(): number {
+    return this.vms.size;
   }
 
   async prompt(
@@ -112,7 +120,12 @@ export class AgentOsAgentTurn implements AgentTurn {
       const guestWorkspacePath = "/workspace";
       const guestCheckoutPath = join(guestWorkspacePath, basename(input.repo));
 
-      await this.createAgentOs(input);
+      await this.ensureAgentOs(input);
+      const agentOs = this.getAgentOs(input.instanceId);
+      if (!agentOs) {
+        throw new Error(`AgentOS VM missing for ${input.instanceId}`);
+      }
+
       const mcpServers =
         input.role === "coding"
           ? await this.deps.mcpRegistry?.materializeConfig(
@@ -121,6 +134,7 @@ export class AgentOsAgentTurn implements AgentTurn {
             ) ?? []
           : [];
       const sessionId = await this.createSession(
+        agentOs,
         guestCheckoutPath,
         input,
         mcpServers,
@@ -182,7 +196,12 @@ export class AgentOsAgentTurn implements AgentTurn {
       input.instanceId,
     );
 
-    const unsubscribe = this.agentOs!.onSessionEvent(
+    const agentOs = this.getAgentOs(input.instanceId);
+    if (!agentOs) {
+      throw new Error(`AgentOS VM missing for ${input.instanceId}`);
+    }
+
+    const unsubscribe = agentOs.onSessionEvent(
       session.sessionId,
       (event) => {
         this.handleAcpEvent(session, event as AgentOsAcpEvent);
@@ -190,7 +209,7 @@ export class AgentOsAgentTurn implements AgentTurn {
     );
 
     try {
-      const result = await this.agentOs!.prompt(
+      const result = await agentOs.prompt(
         session.sessionId,
         input.instruction,
       );
@@ -209,14 +228,17 @@ export class AgentOsAgentTurn implements AgentTurn {
       this.emitTerminal(input.instanceId, "failed", summary);
     } finally {
       unsubscribe();
+      this.sessions.delete(input.instanceId);
+      await this.disposeVm(input.instanceId);
     }
   }
 
   async cancel(instanceId: string): Promise<void> {
     const session = this.sessions.get(instanceId);
-    if (!session || !this.agentOs) return;
+    const agentOs = this.getAgentOs(instanceId);
+    if (!session || !agentOs) return;
     try {
-      await this.agentOs.cancelSession(session.sessionId);
+      await agentOs.cancelSession(session.sessionId);
     } catch (error) {
       const summary = error instanceof Error ? error.message : String(error);
       this.deps.logger?.log("warn", "agentos-cancel-failed", {
@@ -238,8 +260,9 @@ export class AgentOsAgentTurn implements AgentTurn {
     notify: (threadId: string, content: string) => Promise<void>,
   ): Promise<void> {
     for (const [instanceId, session] of this.sessions) {
+      const agentOs = this.getAgentOs(instanceId);
       try {
-        await this.agentOs?.closeSession(session.sessionId);
+        await agentOs?.closeSession(session.sessionId);
       } catch (error) {
         this.deps.logger?.log("warn", "agentos-close-on-restart-failed", {
           instanceId,
@@ -264,24 +287,21 @@ export class AgentOsAgentTurn implements AgentTurn {
       }
     }
     this.sessions.clear();
-    try {
-      await this.agentOs?.dispose();
-    } catch (error) {
-      this.deps.logger?.log("warn", "agentos-dispose-on-restart-failed", {
-        summary: error instanceof Error ? error.message : String(error),
-      });
-    }
-    this.agentOs = undefined;
-    this.mountedHostWorkspace = undefined;
+    await this.disposeAllVms();
   }
 
-  private async createAgentOs(input: AgentTurnInput): Promise<void> {
-    if (this.agentOs && this.mountedHostWorkspace === input.workspacePath) {
+  private getAgentOs(instanceId: string): AgentOs | undefined {
+    return this.vms.get(instanceId)?.agentOs;
+  }
+
+  private async ensureAgentOs(input: AgentTurnInput): Promise<void> {
+    const existing = this.vms.get(input.instanceId);
+    if (existing && existing.hostWorkspace === input.workspacePath) {
       return;
     }
 
-    if (this.agentOs) {
-      await this.agentOs.dispose();
+    if (existing) {
+      await this.disposeVm(input.instanceId);
     }
 
     const sidecarBinPath = this.deps.sidecarBinPath;
@@ -296,7 +316,6 @@ export class AgentOsAgentTurn implements AgentTurn {
       ? await buildToolKits(input, this.deps.bindingsHost)
       : [];
 
-    this.mountedHostWorkspace = input.workspacePath;
     const options: AgentOsCreateOptions = {
       software: [pi],
       defaultSoftware: true,
@@ -319,12 +338,37 @@ export class AgentOsAgentTurn implements AgentTurn {
         });
       },
     };
-    this.agentOs = this.deps.agentOsFactory
+    const agentOs = this.deps.agentOsFactory
       ? await this.deps.agentOsFactory.create(options)
       : await AgentOs.create(options);
+    this.vms.set(input.instanceId, {
+      agentOs,
+      hostWorkspace: input.workspacePath,
+    });
+  }
+
+  private async disposeVm(instanceId: string): Promise<void> {
+    const entry = this.vms.get(instanceId);
+    if (!entry) return;
+    this.vms.delete(instanceId);
+    try {
+      await entry.agentOs.dispose();
+    } catch (error) {
+      this.deps.logger?.log("warn", "agentos-dispose-failed", {
+        instanceId,
+        summary: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async disposeAllVms(): Promise<void> {
+    for (const instanceId of [...this.vms.keys()]) {
+      await this.disposeVm(instanceId);
+    }
   }
 
   private async createSession(
+    agentOs: AgentOs,
     guestCheckoutPath: string,
     input: AgentTurnInput,
     mcpServers: AgentOsMcpServerConfig[],
@@ -334,7 +378,7 @@ export class AgentOsAgentTurn implements AgentTurn {
       ...(this.deps.getCredentials?.(input.model) ?? {}),
     };
 
-    const { sessionId } = await this.agentOs!.createSession("pi", {
+    const { sessionId } = await agentOs.createSession("pi", {
       cwd: guestCheckoutPath,
       env,
       mcpServers,

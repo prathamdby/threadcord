@@ -19,6 +19,7 @@ import type {
   TerminalOutcome,
   TurnEvent,
 } from "./types.js";
+import { hashInstruction } from "./utils.js";
 
 export interface DurableAgentTurnDependencies {
   /** The inner AgentTurn implementation that executes the actual agent prompt. */
@@ -39,6 +40,8 @@ export interface DurableAgentTurnDependencies {
   logger?: {
     log(level: string, message: string, meta?: Record<string, unknown>): void;
   };
+  /** Heartbeat timeout used to drive attempt heartbeats while a turn is active. */
+  heartbeatTimeoutMs?: number;
 }
 
 interface ActiveDurableTurn {
@@ -70,6 +73,7 @@ const RESTART_NOTICE = "Resumed after restart. Ready for the next instruction.";
 export class DurableAgentTurn implements AgentTurn {
   private readonly handlers = new Set<(event: TurnEvent) => void>();
   private readonly turns = new Map<string, ActiveDurableTurn>();
+  private readonly heartbeatTimers = new Map<string, NodeJS.Timeout>();
   private readonly deps: DurableAgentTurnDependencies;
 
   constructor(deps: DurableAgentTurnDependencies) {
@@ -143,6 +147,8 @@ export class DurableAgentTurn implements AgentTurn {
       return { accepted: false, reason: attempt.reason };
     }
 
+    this.startHeartbeat(sessionId, attempt.heartbeat);
+
     await this.deps.sessionStore.updateTurn(turnId, {
       status: "running",
       started_at: now,
@@ -169,6 +175,7 @@ export class DurableAgentTurn implements AgentTurn {
     try {
       const result = await this.deps.inner.prompt(inputWithTranscript);
       if (!result.accepted) {
+        this.stopHeartbeat(sessionId);
         this.turns.delete(sessionId);
         await this.deps.turnRunner.markTerminal(attempt.attemptId, "failed", result.reason);
         await this.deps.sessionStore.updateTurn(turnId, {
@@ -179,6 +186,7 @@ export class DurableAgentTurn implements AgentTurn {
         return { accepted: false, reason: result.reason };
       }
     } catch (error) {
+      this.stopHeartbeat(sessionId);
       this.turns.delete(sessionId);
       const summary = error instanceof Error ? error.message : String(error);
       await this.deps.turnRunner.markTerminal(attempt.attemptId, "failed", summary);
@@ -330,6 +338,7 @@ export class DurableAgentTurn implements AgentTurn {
 
     if (event.type === "terminal") {
       turn.terminal = true;
+      this.stopHeartbeat(event.instanceId);
       try {
         await this.deps.turnRunner.markTerminal(
           turn.attemptId,
@@ -347,9 +356,32 @@ export class DurableAgentTurn implements AgentTurn {
       } catch (error) {
         this.logError("terminal-state-update-failed", turn.sessionId, error);
       }
+      this.turns.delete(event.instanceId);
     }
 
     this.emit(event);
+  }
+
+  private startHeartbeat(
+    instanceId: string,
+    heartbeat: () => Promise<void>,
+  ): void {
+    this.stopHeartbeat(instanceId);
+    const timeoutMs = this.deps.heartbeatTimeoutMs ?? 120_000;
+    const timer = setInterval(() => {
+      void heartbeat().catch((error) => {
+        this.logError("heartbeat-failed", instanceId, error);
+      });
+    }, timeoutMs / 3);
+    timer.unref?.();
+    this.heartbeatTimers.set(instanceId, timer);
+  }
+
+  private stopHeartbeat(instanceId: string): void {
+    const timer = this.heartbeatTimers.get(instanceId);
+    if (!timer) return;
+    clearInterval(timer);
+    this.heartbeatTimers.delete(instanceId);
   }
 
   private async rebuildTranscript(sessionId: string): Promise<string> {
@@ -410,14 +442,6 @@ function validateInput(
     };
   }
   return { ok: true };
-}
-
-function hashInstruction(instruction: string): string {
-  let h = 0;
-  for (let i = 0; i < instruction.length; i++) {
-    h = ((h << 5) - h + instruction.charCodeAt(i)) | 0;
-  }
-  return `hash-${Math.abs(h).toString(16)}`;
 }
 
 function toConversationLogEvent(

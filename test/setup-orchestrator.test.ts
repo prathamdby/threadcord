@@ -137,6 +137,35 @@ describe("SetupOrchestrator", () => {
       composePrompt({ role: "setup", ctx: { repo: "acme/web", branch: "main" } }),
     );
     expect(input.instruction).toContain("save_threadcord_setup_profile");
+    expect(input.idempotencyKey).toMatch(/^setup:run-1:[0-9a-f-]{36}$/);
+  });
+
+  it("passes a unique idempotency key on each setup dispatch", async () => {
+    const store = createFakeStore();
+    const fakeAgentTurn = new FakeAgentTurn();
+    const orchestrator = new SetupOrchestrator(config, store, fakeAgentTurn);
+
+    await orchestrator.dispatchSetupAgent({
+      runId: "run-1",
+      repo: "acme/web",
+      branch: "main",
+      model: config.defaultModel,
+      workspacePath: "/workspaces/setup/acme-web/main",
+    });
+    fakeAgentTurn.complete("setup:run-1");
+    await orchestrator.dispatchSetupAgent({
+      runId: "run-1",
+      repo: "acme/web",
+      branch: "main",
+      model: config.defaultModel,
+      workspacePath: "/workspaces/setup/acme-web/main",
+    });
+
+    expect(fakeAgentTurn.prompted).toHaveLength(2);
+    const keys = fakeAgentTurn.prompted.map((input) => input.idempotencyKey);
+    expect(keys[0]).toMatch(/^setup:run-1:[0-9a-f-]{36}$/);
+    expect(keys[1]).toMatch(/^setup:run-1:[0-9a-f-]{36}$/);
+    expect(keys[0]).not.toBe(keys[1]);
   });
 
   it("fails the run and removes workspace when AgentTurn.prompt is rejected", async () => {

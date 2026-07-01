@@ -27,6 +27,10 @@ export class TaskStore {
     try {
       await client.query("BEGIN");
 
+      await client.query(`SELECT id FROM tasks WHERE id = $1 FOR UPDATE`, [
+        claimed.task.id,
+      ]);
+
       if (claimed.source === "followup") {
         const deleted = await client.query(
           `

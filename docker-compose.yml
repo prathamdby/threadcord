@@ -26,7 +26,6 @@ services:
     environment:
       DATABASE_URL: **********************************************/threadcord
       WORKSPACE_ROOT: /workspaces
-      THREADCORD_HTTP_BEARER: ${THREADCORD_HTTP_BEARER:-threadcord-dev-bearer}
     ports:
       - "3583:3583"
     volumes:
