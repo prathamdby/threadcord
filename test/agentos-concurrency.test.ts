@@ -11,6 +11,8 @@ class TrackingFakeAgentOs {
     return { sessionId: "session-1" };
   }
 
+  async setSessionModel(): Promise<void> {}
+
   async prompt(): Promise<{ response: { result?: unknown }; text: string }> {
     await this.promptGate;
     return { response: { result: { stopReason: "end_turn" } }, text: "done" };

@@ -68,6 +68,7 @@ function buildResourceSnapshot(): ResourceSnapshot {
 
 class FakeAgentOs {
   readonly createSessionCalls: { software: string; opts: unknown }[] = [];
+  readonly setSessionModelCalls: { sessionId: string; model: string }[] = [];
   readonly promptCalls: { sessionId: string; instruction: string }[] = [];
   private readonly handlers = new Map<
     string,
@@ -83,6 +84,10 @@ class FakeAgentOs {
   ): Promise<{ sessionId: string }> {
     this.createSessionCalls.push({ software, opts });
     return { sessionId: "session-1" };
+  }
+
+  async setSessionModel(sessionId: string, model: string): Promise<void> {
+    this.setSessionModelCalls.push({ sessionId, model });
   }
 
   async prompt(

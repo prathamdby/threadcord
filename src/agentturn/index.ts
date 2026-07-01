@@ -9,6 +9,7 @@ export {
   AgentOsAgentTurn,
   createAgentOsAgentTurn,
   createAgentOsCredentialsProvider,
+  guestApiKeyEnvVarForProvider,
   type AgentOsAgentTurnDependencies,
   type AgentOsCreateOptions,
   type AgentOsFactory,

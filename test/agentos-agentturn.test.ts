@@ -18,6 +18,7 @@ const baseInput: AgentTurnInput = {
 
 class FakeAgentOs {
   readonly createSessionCalls: { software: string; opts: unknown }[] = [];
+  readonly setSessionModelCalls: { sessionId: string; model: string }[] = [];
   readonly promptCalls: { sessionId: string; instruction: string }[] = [];
   private readonly handlers = new Map<
     string,
@@ -27,6 +28,10 @@ class FakeAgentOs {
   async createSession(software: string, opts: unknown): Promise<{ sessionId: string }> {
     this.createSessionCalls.push({ software, opts });
     return { sessionId: "session-1" };
+  }
+
+  async setSessionModel(sessionId: string, model: string): Promise<void> {
+    this.setSessionModelCalls.push({ sessionId, model });
   }
 
   async prompt(sessionId: string, instruction: string): Promise<{
@@ -215,6 +220,22 @@ describe("AgentOsAgentTurn setup role", () => {
     const options = factoryCalls[0]!;
     expect(options.toolKits).toHaveLength(1);
     expect(options.toolKits![0]!.name).toBe("threadcord-coding");
+  });
+
+  it("selects the requested model on the AgentOS session before prompting", async () => {
+    const { agentTurn, fakeAgentOs } = createHarness();
+    const input = {
+      ...baseInput,
+      model: "opencode-go/deepseek-v4-flash",
+    };
+
+    const result = await agentTurn.prompt(input);
+    await waitForTerminal(agentTurn, input.instanceId);
+
+    expect(result.accepted).toBe(true);
+    expect(fakeAgentOs.setSessionModelCalls).toEqual([
+      { sessionId: "session-1", model: "opencode-go/deepseek-v4-flash" },
+    ]);
   });
 });
 
