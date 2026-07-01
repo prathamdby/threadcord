@@ -26,3 +26,10 @@ export {
   type HostThreadNamerOptions,
   type RenameDiscordThread,
 } from "./host-thread-namer.js";
+export {
+  createSidecarResolver,
+  getSidecarInfo,
+  probeSidecar,
+  resolveSidecarPath,
+  type SidecarProbeResult,
+} from "./sidecar.js";

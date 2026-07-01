@@ -239,10 +239,10 @@ export interface MachineEnvironmentConfig {
 
 function defaultConfigFromAppConfig(config: AppConfig): MachineEnvironmentConfig {
   return {
-    maxActiveVms: 2,
-    reservedSystemMemoryMb: 4096,
-    minFreeDiskMb: 2048,
-    sandboxEnabled: config.AGENTOS_SANDBOX_ENABLE ?? false,
+    maxActiveVms: config.MAX_ACTIVE_VMS,
+    reservedSystemMemoryMb: config.RESERVED_SYSTEM_MEMORY_MB,
+    minFreeDiskMb: config.MIN_FREE_DISK_MB,
+    sandboxEnabled: config.AGENTOS_SANDBOX_ENABLE,
     githubToken: config.GITHUB_TOKEN,
   };
 }

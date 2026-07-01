@@ -15,7 +15,11 @@ import { SetupStore } from "./setup/store.js";
 import { startWorkspaceJanitor } from "./task/janitor.js";
 import { TaskOrchestrator } from "./task/orchestrator.js";
 import { TaskStore } from "./task/store.js";
-import { createFlueAgentTurn, PostgresAgentTurnPersistence } from "./agentturn/index.js";
+import {
+  createFlueAgentTurn,
+  PostgresAgentTurnPersistence,
+  probeSidecar,
+} from "./agentturn/index.js";
 
 export async function createApp(): Promise<{
   app: Hono;
@@ -37,6 +41,8 @@ export async function createApp(): Promise<{
     mcpStore.migrate(),
     agentTurnPersistence.migrate(),
   ]);
+
+  await verifyAgentOsReadiness();
 
   const mcpRegistry = new DefaultMcpRegistry({ store: mcpStore });
   setGlobalMcpRegistry(mcpRegistry);
@@ -118,16 +124,32 @@ export async function createApp(): Promise<{
   const app = new Hono();
 
   app.get("/health/live", async (c) => {
-    const postgres = await healthcheckPostgres(store);
-    return c.json({ ok: postgres, postgres }, postgres ? 200 : 503);
+    const [postgres, agentos] = await Promise.all([
+      healthcheckPostgres(store),
+      healthcheckAgentOs(),
+    ]);
+    const ok = postgres && agentos.ok;
+    return c.json(
+      { ok, postgres, agentos: { ok: agentos.ok, path: agentos.path, arch: agentos.arch, version: agentos.version } },
+      ok ? 200 : 503,
+    );
   });
 
   app.get("/health", async (c) => {
-    const postgres = await healthcheckPostgres(store);
+    const [postgres, agentos] = await Promise.all([
+      healthcheckPostgres(store),
+      healthcheckAgentOs(),
+    ]);
     const discord = discordClient.isReady();
+    const ok = postgres && discord && agentos.ok;
     return c.json(
-      { ok: postgres && discord, postgres, discord },
-      postgres && discord ? 200 : 503,
+      {
+        ok,
+        postgres,
+        discord,
+        agentos: { ok: agentos.ok, path: agentos.path, arch: agentos.arch, version: agentos.version },
+      },
+      ok ? 200 : 503,
     );
   });
 
@@ -151,15 +173,45 @@ export async function createApp(): Promise<{
   };
 }
 
-const { app } = await createApp();
-export default app;
-
 async function healthcheckPostgres(store: TaskStore): Promise<boolean> {
   try {
     await store.health();
     return true;
   } catch {
     return false;
+  }
+}
+
+async function verifyAgentOsReadiness(): Promise<void> {
+  const probe = await probeSidecar();
+  if (!probe.ok) {
+    throw new Error(
+      `AgentOS runtime is not ready: ${probe.error ?? "sidecar probe failed"} (path=${probe.path}, arch=${probe.arch}, executable=${probe.executable})`,
+    );
+  }
+  console.log(
+    `[threadcord] AgentOS sidecar ready at ${probe.path} (${probe.arch})`,
+  );
+}
+
+async function healthcheckAgentOs(): Promise<{
+  ok: boolean;
+  path: string;
+  executable: boolean;
+  arch: string;
+  version?: string | undefined;
+  error?: string | undefined;
+}> {
+  try {
+    return await probeSidecar();
+  } catch (error) {
+    return {
+      ok: false,
+      path: "",
+      executable: false,
+      arch: `${process.platform}/${process.arch}`,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 

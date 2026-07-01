@@ -43,18 +43,28 @@ const EnvSchema = z
     PORT: z.coerce.number().int().positive().default(3583),
     THREADCORD_HTTP_BEARER: optionalNonEmptyString,
     WORKSPACE_TTL_DAYS: z.coerce.number().int().positive().default(14),
+    MAX_ACTIVE_VMS: z.coerce.number().int().positive().default(2),
+    RESERVED_SYSTEM_MEMORY_MB: z.coerce.number().int().positive().default(4096),
+    MIN_FREE_DISK_MB: z.coerce.number().int().positive().default(2048),
+    AGENTOS_SIDECAR_BIN: optionalNonEmptyString,
+    AGENTOS_SANDBOX_ENABLE: z.coerce.boolean().default(false),
+    RUNTIME_LOG_LEVEL: z.string().min(1).default("info"),
+    TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(3600000),
+    TURN_HEARTBEAT_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(120000),
+    SETUP_INSTALL_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(1800000),
     ANTHROPIC_API_KEY: optionalNonEmptyString,
     ANTHROPIC_MODELS: optionalCsvString,
     OPENAI_API_KEY: optionalNonEmptyString,
     OPENAI_MODELS: optionalCsvString,
     PROVIDERS: optionalCsvString,
-    AGENTOS_SANDBOX_ENABLE: z.preprocess(
-      (value) =>
-        typeof value === "string" && value.trim() === ""
-          ? undefined
-          : value,
-      z.coerce.boolean().optional(),
-    ),
     NODE_ENV: z.string().optional(),
   })
   .superRefine((env, ctx) => {
@@ -208,6 +218,16 @@ function parseCustomProvider(
   const prefix = providerEnvPrefix(id);
   const baseUrl = requiredEnv(env, `${prefix}_BASE_URL`, id);
   const api = requiredEnv(env, `${prefix}_API`, id);
+  const supportedApis = [
+    "openai-completions",
+    "openai-responses",
+    "anthropic-messages",
+  ];
+  if (!supportedApis.includes(api)) {
+    throw new Error(
+      `${prefix}_API must be one of ${supportedApis.join(", ")} for Pi agent software; got "${api}"`,
+    );
+  }
   const models = splitCsv(requiredEnv(env, `${prefix}_MODELS`, id));
   if (models.length === 0) {
     throw new Error(`${prefix}_MODELS must not be empty`);

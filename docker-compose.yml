@@ -16,6 +16,7 @@ services:
 
   threadcord:
     build: .
+    platform: linux/arm64
     # Dockerfile ENTRYPOINT already runs tini; compose init stacked a second reaper.
     depends_on:
       postgres:
@@ -23,7 +24,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://threadcord:threadcord@postgres:5432/threadcord
+      DATABASE_URL: **********************************************/threadcord
       WORKSPACE_ROOT: /workspaces
       THREADCORD_HTTP_BEARER: ${THREADCORD_HTTP_BEARER:-threadcord-dev-bearer}
     ports:
@@ -44,9 +45,12 @@ services:
       start_period: 30s
     deploy:
       resources:
+        # OCI target is 4 vCPU / 24 GB. Leave 1 core and ~4 GB for Postgres and
+        # the host; give the rest to Threadcord. Dynamic admission (RESERVED_
+        # SYSTEM_MEMORY_MB, MAX_ACTIVE_VMS) prevents the agent from overshooting.
         limits:
-          cpus: "2"
-          memory: 4g
+          cpus: "3"
+          memory: 20g
 
 volumes:
   postgres-data:
