@@ -24,7 +24,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: **********************************************/threadcord
+      DATABASE_URL: postgres://threadcord:threadcord@postgres:5432/threadcord
       WORKSPACE_ROOT: /workspaces
     ports:
       - "3583:3583"
