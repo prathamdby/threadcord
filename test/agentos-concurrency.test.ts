@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { AgentOs } from "@rivet-dev/agentos-core";
 import { AgentOsAgentTurn } from "../src/agentturn/agentos.js";
@@ -11,7 +14,9 @@ class TrackingFakeAgentOs {
     return { sessionId: "session-1" };
   }
 
-  async setSessionModel(): Promise<void> {}
+  async setSessionModel(): Promise<{ error?: { code: number } }> {
+    return { error: { code: -32601 } };
+  }
 
   async prompt(): Promise<{ response: { result?: unknown }; text: string }> {
     await this.promptGate;
@@ -54,8 +59,10 @@ describe("AgentOsAgentTurn per-instance VMs", () => {
       },
     });
 
-    const inputA = baseInput("discord:thread:a", "/workspaces/task-a");
-    const inputB = baseInput("discord:thread:b", "/workspaces/task-b");
+    const workspaceA = await mkdtemp(join(tmpdir(), "threadcord-task-a-"));
+    const workspaceB = await mkdtemp(join(tmpdir(), "threadcord-task-b-"));
+    const inputA = baseInput("discord:thread:a", workspaceA);
+    const inputB = baseInput("discord:thread:b", workspaceB);
 
     expect(await agentTurn.prompt(inputA)).toEqual({ accepted: true });
     expect(await agentTurn.prompt(inputB)).toEqual({ accepted: true });

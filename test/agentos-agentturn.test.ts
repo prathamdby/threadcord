@@ -1,9 +1,13 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { AgentOs } from "@rivet-dev/agentos-core";
 import { AgentOsAgentTurn } from "../src/agentturn/agentos.js";
 import type { AgentOsCreateOptions } from "../src/agentturn/agentos.js";
 import type { AgentOsAcpEvent } from "../src/agentturn/agentos-event-mapper.js";
 import type { AgentTurnInput, TurnEvent } from "../src/agentturn/types.js";
+import type { CustomProviderConfig } from "../src/config.js";
 
 const baseInput: AgentTurnInput = {
   instanceId: "discord:thread:thread-1",
@@ -30,8 +34,11 @@ class FakeAgentOs {
     return { sessionId: "session-1" };
   }
 
-  async setSessionModel(sessionId: string, model: string): Promise<void> {
+  async setSessionModel(sessionId: string, model: string): Promise<{
+    error?: { code: number; message?: string };
+  }> {
     this.setSessionModelCalls.push({ sessionId, model });
+    return { error: { code: -32601, message: "Method not found" } };
   }
 
   async prompt(sessionId: string, instruction: string): Promise<{
@@ -75,13 +82,28 @@ function waitForTerminal(
   });
 }
 
+const opencodeGoProvider: CustomProviderConfig = {
+  id: "opencode-go",
+  baseUrl: "https://opencode.ai/zen/go/v1",
+  api: "openai-completions",
+  apiKey: "opencode-secret",
+  models: ["deepseek-v4-flash"],
+};
+
 function createHarness({
   includeBindingsHost = true,
-}: { includeBindingsHost?: boolean } = {}) {
+  customProviders = [opencodeGoProvider],
+  workspacePath,
+}: {
+  includeBindingsHost?: boolean;
+  customProviders?: CustomProviderConfig[];
+  workspacePath?: string;
+} = {}) {
   const fakeAgentOs = new FakeAgentOs();
   const factoryCalls: AgentOsCreateOptions[] = [];
   const deps: import("../src/agentturn/agentos.js").AgentOsAgentTurnDependencies =
     {
+      customProviders: [...customProviders],
       agentOsFactory: {
         create: async (options) => {
           factoryCalls.push(options);
@@ -122,7 +144,23 @@ function createHarness({
     };
   }
   const agentTurn = new AgentOsAgentTurn(deps);
-  return { agentTurn, fakeAgentOs, factoryCalls };
+  return { agentTurn, fakeAgentOs, factoryCalls, workspacePath };
+}
+
+async function createHarnessWithWorkspace(
+  options: {
+    includeBindingsHost?: boolean;
+    customProviders?: CustomProviderConfig[];
+    workspacePath?: string;
+  } = {},
+) {
+  const workspacePath =
+    options.workspacePath ??
+    (await mkdtemp(join(tmpdir(), "threadcord-agentos-")));
+  return {
+    ...createHarness({ ...options, workspacePath }),
+    workspacePath,
+  };
 }
 
 describe("AgentOsAgentTurn input validation", () => {
@@ -165,12 +203,14 @@ describe("AgentOsAgentTurn input validation", () => {
 
 describe("AgentOsAgentTurn setup role", () => {
   it("accepts a setup role prompt and emits a turnStarted event", async () => {
-    const { agentTurn, fakeAgentOs } = createHarness();
+    const { agentTurn, fakeAgentOs, workspacePath } =
+      await createHarnessWithWorkspace();
     const events: { type: string }[] = [];
     agentTurn.onEvent((event) => events.push(event as { type: string }));
 
     const input = {
       ...baseInput,
+      workspacePath,
       role: "setup" as const,
       instanceId: "setup:run-1",
     };
@@ -189,9 +229,11 @@ describe("AgentOsAgentTurn setup role", () => {
   });
 
   it("registers the setup toolkit and no MCP servers for setup role", async () => {
-    const { agentTurn, factoryCalls, fakeAgentOs } = createHarness();
+    const { agentTurn, factoryCalls, fakeAgentOs, workspacePath } =
+      await createHarnessWithWorkspace();
     await agentTurn.prompt({
       ...baseInput,
+      workspacePath,
       role: "setup",
       instanceId: "setup:run-1",
     });
@@ -210,9 +252,11 @@ describe("AgentOsAgentTurn setup role", () => {
   });
 
   it("registers the coding toolkit and materializes MCP servers for coding role", async () => {
-    const { agentTurn, factoryCalls } = createHarness();
+    const { agentTurn, factoryCalls, workspacePath } =
+      await createHarnessWithWorkspace();
     await agentTurn.prompt({
       ...baseInput,
+      workspacePath,
       role: "coding",
     });
 
@@ -222,10 +266,12 @@ describe("AgentOsAgentTurn setup role", () => {
     expect(options.toolKits![0]!.name).toBe("threadcord-coding");
   });
 
-  it("selects the requested model on the AgentOS session before prompting", async () => {
-    const { agentTurn, fakeAgentOs } = createHarness();
+  it("materializes Pi agent config and passes PI_CODING_AGENT_DIR before prompting", async () => {
+    const { agentTurn, fakeAgentOs, workspacePath } =
+      await createHarnessWithWorkspace();
     const input = {
       ...baseInput,
+      workspacePath,
       model: "opencode-go/deepseek-v4-flash",
     };
 
@@ -233,6 +279,21 @@ describe("AgentOsAgentTurn setup role", () => {
     await waitForTerminal(agentTurn, input.instanceId);
 
     expect(result.accepted).toBe(true);
+
+    const sessionOpts = fakeAgentOs.createSessionCalls[0]!.opts as {
+      env?: Record<string, string>;
+    };
+    expect(sessionOpts.env?.PI_CODING_AGENT_DIR).toBe("/workspace/.pi-agent");
+    expect(sessionOpts.env?.OPENCODE_API_KEY).toBeUndefined();
+
+    const settings = JSON.parse(
+      await readFile(join(workspacePath, ".pi-agent", "settings.json"), "utf8"),
+    );
+    expect(settings).toEqual({
+      defaultProvider: "opencode-go",
+      defaultModel: "deepseek-v4-flash",
+    });
+
     expect(fakeAgentOs.setSessionModelCalls).toEqual([
       { sessionId: "session-1", model: "opencode-go/deepseek-v4-flash" },
     ]);
@@ -241,6 +302,7 @@ describe("AgentOsAgentTurn setup role", () => {
 
 describe("AgentOsAgentTurn pre-start failures", () => {
   it("returns typed rejection and does not emit terminal when createSession fails before turnStarted", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "threadcord-agentos-"));
     const fakeAgentOs = new ThrowingOnCreateSessionAgentOs();
     const agentTurn = new AgentOsAgentTurn({
       agentOsFactory: {
@@ -250,7 +312,7 @@ describe("AgentOsAgentTurn pre-start failures", () => {
     const events: TurnEvent[] = [];
     agentTurn.onEvent((event) => events.push(event));
 
-    const result = await agentTurn.prompt(baseInput);
+    const result = await agentTurn.prompt({ ...baseInput, workspacePath });
 
     expect(result.accepted).toBe(false);
     if (!result.accepted) {

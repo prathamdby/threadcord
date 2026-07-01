@@ -10,7 +10,8 @@ import {
 import pi from "@agentos-software/pi";
 import type { AgentOsSessionEvent } from "../discord/session-event-bridge.js";
 import { redact } from "../util/redact.js";
-import type { AppConfig } from "../config.js";
+import type { AppConfig, CustomProviderConfig } from "../config.js";
+import { materializePiAgentConfig } from "./pi-agent-config.js";
 import { createCodingToolKit, createSetupToolKit } from "../bindings/toolkits.js";
 import { createBindingsHost } from "../bindings/host.js";
 import type { BindingsHostDependencies } from "../bindings/host.js";
@@ -48,6 +49,8 @@ export interface AgentOsAgentTurnDependencies {
   nodeModulesPath?: string;
   /** Returns model credentials for the guest session env. */
   getCredentials?: (model: string) => Record<string, string>;
+  /** Custom provider transport config used to materialize Pi models.json. */
+  customProviders?: CustomProviderConfig[];
   /** Forward mapped AgentOS session events to the Discord bridge / ConversationLog. */
   onSessionEvent?: (event: AgentOsSessionEvent) => void;
   /** Override the AgentOS sidecar binary path. */
@@ -136,11 +139,12 @@ export class AgentOsAgentTurn implements AgentTurn {
           : [];
       const sessionId = await this.createSession(
         agentOs,
+        guestWorkspacePath,
         guestCheckoutPath,
         input,
         mcpServers,
       );
-      await agentOs.setSessionModel(sessionId, input.model);
+      await this.applySessionModel(agentOs, sessionId, input.model);
       const session: ActiveSession = {
         sessionId,
         turnId,
@@ -371,13 +375,21 @@ export class AgentOsAgentTurn implements AgentTurn {
 
   private async createSession(
     agentOs: AgentOs,
+    guestWorkspacePath: string,
     guestCheckoutPath: string,
     input: AgentTurnInput,
     mcpServers: AcpMcpServerConfig[],
   ): Promise<string> {
+    const piAgentDir = await materializePiAgentConfig({
+      workspacePath: input.workspacePath,
+      model: input.model,
+      customProviders: this.deps.customProviders ?? [],
+    });
+
     const env: Record<string, string> = {
       ...(input.env ?? {}),
       ...(this.deps.getCredentials?.(input.model) ?? {}),
+      PI_CODING_AGENT_DIR: piAgentDir,
     };
 
     const { sessionId } = await agentOs.createSession("pi", {
@@ -387,6 +399,23 @@ export class AgentOsAgentTurn implements AgentTurn {
       additionalInstructions: "Be concise and follow the task instruction.",
     });
     return sessionId;
+  }
+
+  private async applySessionModel(
+    agentOs: AgentOs,
+    sessionId: string,
+    model: string,
+  ): Promise<void> {
+    const response = await agentOs.setSessionModel(sessionId, model);
+    if (response.error?.code === -32601) {
+      return;
+    }
+    if (response.error) {
+      throw new Error(
+        response.error.message ??
+          `failed to set AgentOS session model to ${model}`,
+      );
+    }
   }
 
   private handleAcpEvent(
