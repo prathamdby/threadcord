@@ -10,7 +10,7 @@ function draftInput(messageId: string): NewTaskRecord {
     id,
     discordMessageId: messageId,
     discordThreadId: `pending:${id}`,
-    flueInstanceId: `pending:${id}`,
+    agentInstanceId: `pending:${id}`,
     workspacePath: `/workspaces/${id}`,
     repo: "acme/web",
     branch: "main",
@@ -44,7 +44,7 @@ describe("task admission when Discord succeeds", () => {
         edit.content.includes("State: running"),
       ),
     ).toBe(true);
-    expect(world.dispatched).toContain(task!.flueInstanceId);
+    expect(world.dispatched).toContain(task!.agentInstanceId);
   });
 
   it("queues without dispatching when no concurrency slot is free", async () => {
@@ -61,7 +61,7 @@ describe("task admission when Discord succeeds", () => {
         edit.content.includes("Queue: position 1 of 1"),
       ),
     ).toBe(true);
-    expect(world.dispatched).not.toContain(second.task!.flueInstanceId);
+    expect(world.dispatched).not.toContain(second.task!.agentInstanceId);
   });
 });
 
@@ -100,7 +100,7 @@ describe("task admission when header message throws", () => {
       formatTaskInstructionForDiscord("Do the work"),
       "Queued",
     ]);
-    expect(world.dispatched).toContain(result.task!.flueInstanceId);
+    expect(world.dispatched).toContain(result.task!.agentInstanceId);
   });
 });
 
@@ -117,7 +117,7 @@ describe("task admission when header pin throws", () => {
         edit.content.includes("State: running"),
       ),
     ).toBe(true);
-    expect(world.dispatched).toContain(result.task!.flueInstanceId);
+    expect(world.dispatched).toContain(result.task!.agentInstanceId);
   });
 });
 
@@ -128,7 +128,7 @@ describe("task header edit failures", () => {
     const task = result.task!;
 
     await expect(
-      world.orchestrator.handleAgentEnd(task.flueInstanceId),
+      world.orchestrator.handleAgentEnd(task.agentInstanceId),
     ).resolves.toBeUndefined();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
@@ -241,7 +241,7 @@ describe("milestone post failures", () => {
     expect(task.status).toBe("running");
 
     await expect(
-      world.orchestrator.handleAgentEnd(task.flueInstanceId),
+      world.orchestrator.handleAgentEnd(task.agentInstanceId),
     ).resolves.toBeUndefined();
     await flush();
 
@@ -300,7 +300,7 @@ describe("restart reconciliation with bad Discord threads", () => {
     });
 
     // The queued task was dispatched despite the notification failure.
-    expect(world.dispatched).toContain(resultQueued.task!.flueInstanceId);
+    expect(world.dispatched).toContain(resultQueued.task!.agentInstanceId);
   });
 
   it("still cleans up abandoned drafts after a notification failure", async () => {

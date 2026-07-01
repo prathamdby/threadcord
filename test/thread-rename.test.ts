@@ -5,17 +5,19 @@ import {
 } from "../src/task/rename-thread.js";
 import { flush } from "./support/orchestrator-harness.js";
 
+const defaultModel = "anthropic/claude-sonnet-4-5";
+
 describe("scheduleReadableThreadRename", () => {
   it("does not throw when instruction is empty", async () => {
     const rename = vi.fn(async () => {});
-    scheduleReadableThreadRename("thread-1", "", rename);
+    scheduleReadableThreadRename("thread-1", "", defaultModel, rename);
     await flush();
     expect(rename).not.toHaveBeenCalled();
   });
 
   it("does not throw when instruction is only whitespace", async () => {
     const rename = vi.fn(async () => {});
-    scheduleReadableThreadRename("thread-1", "   ", rename);
+    scheduleReadableThreadRename("thread-1", "   ", defaultModel, rename);
     await flush();
     expect(rename).not.toHaveBeenCalled();
   });
@@ -23,35 +25,24 @@ describe("scheduleReadableThreadRename", () => {
   it("does not throw synchronously for a valid instruction", async () => {
     const rename = vi.fn(async () => {});
     expect(() =>
-      scheduleReadableThreadRename("thread-1", "Fix the bug", rename),
+      scheduleReadableThreadRename("thread-1", "Fix the bug", defaultModel, rename),
     ).not.toThrow();
     await flush();
   });
 
-  it("does not produce an unhandledRejection when dispatch fails", async () => {
-    // In the test environment, dispatch will fail (no real Flue runtime),
-    // but the catch block should absorb the rejection.
+  it("renames the thread with a readable name derived from the instruction", async () => {
     const rename = vi.fn(async () => {});
-    const rejections: unknown[] = [];
-    const handler = (reason: unknown) => {
-      rejections.push(reason);
-    };
-    process.on("unhandledRejection", handler);
-    try {
-      scheduleReadableThreadRename("thread-1", "Fix the bug", rename);
-      await flush();
-    } finally {
-      process.off("unhandledRejection", handler);
-    }
-    // Give a microtask cycle for any pending rejections to surface.
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(rejections).toHaveLength(0);
+    scheduleReadableThreadRename(
+      "thread-1",
+      "Fix the login bug",
+      defaultModel,
+      rename,
+    );
+    await flush();
+    expect(rename).toHaveBeenCalledWith("thread-1", "Fix the login bug");
   });
 
   it("does not produce an unhandledRejection when rename rejects", async () => {
-    // The rename function rejects — but scheduleReadableThreadRename's
-    // catch block should absorb it. Since dispatch fails first in tests,
-    // we verify the same rejection-safety property.
     const rename = vi.fn(async () => {
       throw new Error("discord: missing permissions");
     });
@@ -61,13 +52,70 @@ describe("scheduleReadableThreadRename", () => {
     };
     process.on("unhandledRejection", handler);
     try {
-      scheduleReadableThreadRename("thread-1", "Fix the bug", rename);
+      scheduleReadableThreadRename(
+        "thread-1",
+        "Fix the bug",
+        defaultModel,
+        rename,
+        { log: () => {} },
+      );
       await flush();
     } finally {
       process.off("unhandledRejection", handler);
     }
     await new Promise((resolve) => setImmediate(resolve));
     expect(rejections).toHaveLength(0);
+  });
+
+  it("does not use Flue dispatch", async () => {
+    const rename = vi.fn(async () => {});
+    scheduleReadableThreadRename(
+      "thread-1",
+      "Fix the login bug",
+      defaultModel,
+      rename,
+    );
+    await flush();
+    // No Flue runtime functions are called; the rename is performed host-side.
+    expect(rename).toHaveBeenCalledWith("thread-1", "Fix the login bug");
+  });
+
+  it("logs rename failures via an injected logger", async () => {
+    const logs: {
+      level: string;
+      message: string;
+      meta?: Record<string, unknown> | undefined;
+    }[] = [];
+    const logger = {
+      log: (
+        level: string,
+        message: string,
+        meta?: Record<string, unknown>,
+      ) => {
+        logs.push({ level, message, meta });
+      },
+    };
+    const rename = vi.fn(async () => {
+      throw new Error("discord: missing permissions");
+    });
+    scheduleReadableThreadRename(
+      "thread-1",
+      "Fix the bug",
+      defaultModel,
+      rename,
+      logger,
+    );
+    await flush();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(rename).toHaveBeenCalled();
+    expect(
+      logs.some(
+        (log) =>
+          log.message === "host-thread-namer-rename-failed" &&
+          log.meta?.summary === "discord: missing permissions",
+      ),
+    ).toBe(true);
   });
 });
 

@@ -1,10 +1,13 @@
-import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { TaskOrchestrator } from "../../src/task/orchestrator.js";
 import {
-  TaskOrchestrator,
-  type BootstrapTurn,
-  type DispatchTurn,
-} from "../../src/task/orchestrator.js";
+  FakeAgentTurn,
+  FakeMachineEnvironment,
+  type AgentTurn,
+  type AgentTurnInput,
+  type MachineEnvironment,
+} from "../../src/agentturn/index.js";
+import { FakeMcpRegistry } from "./fake-mcp-registry.js";
 import type { AppConfig } from "../../src/config.js";
 import type {
   SetupEnvironment,
@@ -30,9 +33,17 @@ export const config: AppConfig = {
   MAX_CONCURRENT_TASKS: 1,
   AGENT_MAX_TOOL_FAILURES: 10,
   AGENT_MAX_VALIDATION_FAILURES: 3,
-  AGENT_SUBMISSION_MAX_ATTEMPTS: 2,
   PORT: 3583,
   WORKSPACE_TTL_DAYS: 14,
+  MAX_ACTIVE_VMS: 2,
+  RESERVED_SYSTEM_MEMORY_MB: 4096,
+  MIN_FREE_DISK_MB: 2048,
+  AGENTOS_SIDECAR_BIN: undefined,
+  AGENTOS_SANDBOX_ENABLE: false,
+  RUNTIME_LOG_LEVEL: "info",
+  TURN_TIMEOUT_MS: 3600000,
+  TURN_HEARTBEAT_TIMEOUT_MS: 120000,
+  SETUP_INSTALL_TIMEOUT_MS: 1800000,
   ANTHROPIC_API_KEY: "anthropic-key",
   anthropicModels: ["claude-sonnet-4-5"],
   openaiModels: [],
@@ -78,12 +89,42 @@ export class InMemoryStore {
   private followups: StoredFollowup[] = [];
   private seq = 0;
   private breakTransition = false;
+  private readonly reserved = new Set<string>();
 
   constructor(private readonly maxConcurrent: number) {}
 
   /** Simulate a concurrent cancel committing between read and transition. */
   breakNextTransition(): void {
     this.breakTransition = true;
+  }
+
+  /** Release a reserved claim without committing the turn. */
+  releaseReservation(taskId: string): void {
+    this.reserved.delete(taskId);
+  }
+
+  /** Commit a reserved claim: move the task to running and consume the followup. */
+  async commitTurn(claimed: ClaimedTurn): Promise<TaskRecord | undefined> {
+    const task = this.tasks.get(claimed.task.id);
+    if (!task) return undefined;
+    if (!["queued", "waiting"].includes(task.status)) return undefined;
+
+    if (claimed.source === "followup") {
+      const idx = this.followups.findIndex(
+        (f) =>
+          f.taskId === claimed.task.id &&
+          f.discordMessageId === claimed.initiatorMessageId,
+      );
+      if (idx === -1) return undefined;
+      this.followups.splice(idx, 1);
+    }
+
+    task.status = "running";
+    if (claimed.source === "initial") {
+      task.initialTurnStarted = true;
+    }
+    this.reserved.delete(task.id);
+    return clone(task);
   }
 
   snapshot(taskId: string): TaskRecord {
@@ -114,7 +155,7 @@ export class InMemoryStore {
 
   async getByInstanceId(instanceId: string): Promise<TaskRecord | undefined> {
     return clone(
-      [...this.tasks.values()].find((t) => t.flueInstanceId === instanceId),
+      [...this.tasks.values()].find((t) => t.agentInstanceId === instanceId),
     );
   }
 
@@ -132,7 +173,7 @@ export class InMemoryStore {
       id: task.id,
       discordMessageId: task.discordMessageId,
       discordThreadId: task.discordThreadId,
-      flueInstanceId: task.flueInstanceId,
+      agentInstanceId: task.agentInstanceId,
       workspacePath: task.workspacePath,
       repo: task.repo,
       branch: task.branch,
@@ -152,14 +193,14 @@ export class InMemoryStore {
   async attachAndPromote(
     taskId: string,
     threadId: string,
-    flueInstanceId: string,
+    agentInstanceId: string,
     statusMessageId: string,
     headerMessageId?: string,
   ): Promise<TaskRecord | undefined> {
     const task = this.tasks.get(taskId);
     if (!task || task.status !== "draft") return undefined;
     task.discordThreadId = threadId;
-    task.flueInstanceId = flueInstanceId;
+    task.agentInstanceId = agentInstanceId;
     task.progressMessageIds = [statusMessageId];
     if (headerMessageId) task.headerMessageId = headerMessageId;
     task.status = "queued";
@@ -208,16 +249,19 @@ export class InMemoryStore {
   }
 
   async claimNextTurn(preferTaskId?: string): Promise<ClaimedTurn | undefined> {
-    const active = [...this.tasks.values()].filter(
-      (t) => t.status === "running",
-    ).length;
+    const active =
+      [...this.tasks.values()].filter((t) => t.status === "running").length +
+      this.reserved.size;
     if (active >= this.maxConcurrent) return undefined;
 
-    return (
+    const claimed =
       this.claimFollowup(preferTaskId) ??
       this.claimInitial(preferTaskId) ??
-      this.claimFollowup(undefined)
-    );
+      this.claimFollowup(undefined);
+    if (claimed) {
+      this.reserved.add(claimed.task.id);
+    }
+    return claimed;
   }
 
   async queueSnapshot(
@@ -260,6 +304,7 @@ export class InMemoryStore {
       return undefined;
     }
     task.status = "cancelled";
+    this.reserved.delete(taskId);
     this.followups = this.followups.filter((f) => f.taskId !== taskId);
     return clone(task);
   }
@@ -271,6 +316,7 @@ export class InMemoryStore {
       task.status = "waiting";
       resumed.push(clone(task));
     }
+    this.reserved.clear();
     return resumed;
   }
 
@@ -302,12 +348,11 @@ export class InMemoryStore {
       .filter(
         (t) =>
           t.status === "queued" &&
+          !this.reserved.has(t.id) &&
           (preferTaskId === undefined || t.id === preferTaskId),
       )
       .sort(byCreatedThenId)[0];
     if (!candidate) return undefined;
-    candidate.status = "running";
-    candidate.initialTurnStarted = true;
     return {
       task: clone(candidate),
       instruction: candidate.instruction,
@@ -322,17 +367,15 @@ export class InMemoryStore {
         const task = this.tasks.get(f.taskId);
         return (
           task?.status === "waiting" &&
+          !this.reserved.has(task.id) &&
           task.initialTurnStarted &&
           (preferTaskId === undefined || task.id === preferTaskId)
         );
       })
       .sort((a, b) => a.seq - b.seq)[0];
     if (!followup) return undefined;
-    this.followups = this.followups.filter((f) => f.seq !== followup.seq);
-    const task = this.tasks.get(followup.taskId)!;
-    task.status = "running";
     return {
-      task: clone(task),
+      task: clone(this.tasks.get(followup.taskId)!),
       instruction: followup.instruction,
       source: "followup",
       initiatorMessageId: followup.discordMessageId,
@@ -383,6 +426,7 @@ export interface RecordingThread extends ThreadRef {
   pins: string[];
   edits: { messageId: string; content: string }[];
   sendTypingCalls: number;
+  setNameCalls: string[];
 }
 
 export interface SubmitResult {
@@ -395,14 +439,20 @@ export interface SubmitResult {
 }
 
 export interface WorldOverrides {
-  dispatch?: DispatchTurn;
-  bootstrap?: BootstrapTurn;
+  machineEnvironment?: MachineEnvironment;
+  setupStore?: SetupStore;
+  agentTurn?: AgentTurn;
 }
 
 export class World {
   readonly store: InMemoryStore;
   readonly orchestrator: TaskOrchestrator;
+  readonly fakeAgentTurn: FakeAgentTurn;
+  readonly fakeMachineEnvironment: FakeMachineEnvironment;
+  readonly fakeMcpRegistry: FakeMcpRegistry;
   readonly dispatched: string[] = [];
+  readonly threadRenames: { threadId: string; name: string }[] = [];
+  readonly threads = new Map<string, RecordingThread>();
   private counter = 0;
 
   constructor(
@@ -411,23 +461,34 @@ export class World {
     overrides: WorldOverrides = {},
   ) {
     this.store = new InMemoryStore(maxConcurrent);
+    this.fakeMcpRegistry = new FakeMcpRegistry();
+    this.fakeAgentTurn = new FakeAgentTurn({
+      maxConcurrency: maxConcurrent,
+      // The orchestrator posts its own restart notices; avoid duplicating them.
+      enableRestartNotifications: false,
+      onPrompt: (input) => {
+        this.dispatched.push(input.instanceId);
+      },
+      mcpRegistry: this.fakeMcpRegistry,
+    });
+    this.fakeMachineEnvironment = new FakeMachineEnvironment();
     this.orchestrator = new TaskOrchestrator(
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
-      fakeSetupStore,
-      overrides.dispatch ??
-        (async (instanceId: string) => {
-          this.dispatched.push(instanceId);
-        }),
-      overrides.bootstrap ??
-        (async (task) => {
-          const path = join(TEST_WORKSPACE_ROOT, task.id);
-          await mkdir(path, { recursive: true });
-          return path;
-        }),
-      async () => {},
+      overrides.setupStore ?? fakeSetupStore,
+      overrides.agentTurn ?? this.fakeAgentTurn,
+      overrides.machineEnvironment ?? this.fakeMachineEnvironment,
+      this.fakeMcpRegistry,
       typingIntervalMs,
     );
+    this.orchestrator.setThreadRenamer(async (threadId, name) => {
+      this.threadRenames.push({ threadId, name });
+      await this.threads.get(threadId)?.setName(name);
+    });
+  }
+
+  blockNextPrompt(): { release: () => void } {
+    return this.fakeAgentTurn.blockNextPrompt();
   }
 
   threadIdFor(messageId: string): string {
@@ -451,6 +512,7 @@ export class World {
       pins,
       edits,
       sendTypingCalls: 0,
+      setNameCalls: [],
       send: async (content) => {
         if (failure.headerSend && content.includes("**Threadcord task**")) {
           throw new Error("discord: header send 500");
@@ -471,7 +533,9 @@ export class World {
         if (failure.typingFail) throw new Error("discord: sendTyping 403");
         thread.sendTypingCalls += 1;
       },
-      setName: async () => {},
+      setName: async (name) => {
+        thread.setNameCalls.push(name);
+      },
     };
 
     const message: RecordingControlMessage = {
@@ -493,6 +557,7 @@ export class World {
       createThread: async () => {
         if (failure.createThread) throw new Error("discord: thread create 500");
         threadsCreated += 1;
+        this.threads.set(threadId, thread);
         return thread;
       },
     });

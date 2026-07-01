@@ -29,7 +29,7 @@ export interface TaskRecord extends Omit<TaskRequest, "model"> {
   id: string;
   discordMessageId: string;
   discordThreadId: string;
-  flueInstanceId: string;
+  agentInstanceId: string;
   workspacePath: string;
   model: string;
   status: TaskStatus;
@@ -47,7 +47,7 @@ export interface NewTaskRecord extends TaskRequest {
   id: string;
   discordMessageId: string;
   discordThreadId: string;
-  flueInstanceId: string;
+  agentInstanceId: string;
   workspacePath: string;
   setupProfileRevision: number;
 }

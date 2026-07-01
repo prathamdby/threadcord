@@ -1,8 +1,12 @@
 import { mkdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
-import { dispatch } from "@flue/runtime";
 import type { AppConfig } from "../config.js";
-import setupAgent from "../agents/setup.js";
+import {
+  type AgentTurn,
+  type AgentTurnInput,
+  type TurnEvent,
+} from "../agentturn/index.js";
 import { execa } from "../task/execa.js";
 import {
   githubHttpsCloneUrl,
@@ -12,6 +16,7 @@ import { ensureWorkspaceDirs } from "../task/workspace-env.js";
 import { summarizeError } from "../util/redact.js";
 import { renderSetupProfile } from "./renderer.js";
 import { parseSetupProfileKey } from "./profile.js";
+import { composePrompt } from "../agents/prompts/compose.js";
 import type { SetupStore } from "./store.js";
 import type { ThreadRef } from "../types.js";
 
@@ -23,12 +28,18 @@ export class SetupOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
   private readonly setupThreads = new Map<string, ThreadRef>();
   private readonly setupTypingTimers = new Map<string, NodeJS.Timeout>();
+  private readonly unsubscribeAgentTurn: () => void;
 
   constructor(
     private readonly config: AppConfig,
     private readonly store: SetupStore,
+    private readonly agentTurn: AgentTurn,
     private readonly typingIntervalMs: number = SETUP_TYPING_INTERVAL_MS,
-  ) {}
+  ) {
+    this.unsubscribeAgentTurn = this.agentTurn.onEvent((event) =>
+      this.handleAgentTurnEvent(event),
+    );
+  }
 
   setMilestonePublisher(
     postMessage: (threadId: string, content: string) => Promise<void>,
@@ -63,6 +74,7 @@ export class SetupOrchestrator {
     profileId: string;
     repo: string;
     branch: string;
+    model: string;
     workspacePath: string;
   }> {
     const key = parseSetupProfileKey(input.repo, input.branch);
@@ -96,6 +108,7 @@ export class SetupOrchestrator {
         profileId: profile.id,
         repo: key.value.repo,
         branch: key.value.branch,
+        model,
         workspacePath,
       };
     } catch (error) {
@@ -109,18 +122,29 @@ export class SetupOrchestrator {
     runId: string;
     repo: string;
     branch: string;
+    model: string;
     workspacePath: string;
   }): Promise<void> {
+    const instruction = composePrompt({
+      role: "setup",
+      ctx: { repo: input.repo, branch: input.branch },
+    });
+    const agentTurnInput: AgentTurnInput = {
+      instanceId: `setup:${input.runId}`,
+      role: "setup",
+      instruction,
+      model: input.model,
+      workspacePath: input.workspacePath,
+      repo: input.repo,
+      baseBranch: input.branch,
+      setupProfileRevision: 0, // setup runs are not pinned to a profile revision
+      idempotencyKey: `setup:${input.runId}:${randomUUID()}`,
+    };
     try {
-      await dispatch(setupAgent, {
-        id: `setup:${input.runId}`,
-        input: {
-          kind: "threadcord.setup",
-          repo: input.repo,
-          branch: input.branch,
-          workspacePath: input.workspacePath,
-        },
-      });
+      const result = await this.agentTurn.prompt(agentTurnInput);
+      if (!result.accepted) {
+        throw new Error(result.reason);
+      }
     } catch (error) {
       await rm(input.workspacePath, { recursive: true, force: true });
       const summary = summarizeError(error);
@@ -195,6 +219,18 @@ export class SetupOrchestrator {
       await rm(run.workspacePath, { recursive: true, force: true });
     }
     return true;
+  }
+
+  private async handleAgentTurnEvent(event: TurnEvent): Promise<void> {
+    if (event.type !== "terminal") return;
+    if (event.outcome === "failed" || event.outcome === "aborted") {
+      await this.handleAgentFailure(
+        event.instanceId,
+        event.summary ?? "Setup agent turn failed",
+      );
+      return;
+    }
+    await this.handleAgentEnd(event.instanceId);
   }
 
   private async notifyRunFinished(

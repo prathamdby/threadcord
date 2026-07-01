@@ -34,6 +34,10 @@ describe("setup profile validation", () => {
       checks: { test: "npm test" },
       requiredEnv: ["DATABASE_URL"],
       requiredServices: ["postgres"],
+      requiredPackages: ["jq"],
+      armCaveats: [
+        "native sqlite3 extension prebuilt binaries are not available for arm64",
+      ],
     });
 
     expect(result).toEqual({
@@ -44,8 +48,53 @@ describe("setup profile validation", () => {
         checks: { test: "npm test" },
         requiredEnv: ["DATABASE_URL"],
         requiredServices: ["postgres"],
+        requiredPackages: ["jq"],
+        armCaveats: [
+          "native sqlite3 extension prebuilt binaries are not available for arm64",
+        ],
       },
     });
+  });
+
+  it("accepts environment JSON without requiredPackages or armCaveats fields", () => {
+    const result = validateSetupEnvironment({
+      install: "npm ci",
+      requiredEnv: ["DATABASE_URL"],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        install: "npm ci",
+        requiredEnv: ["DATABASE_URL"],
+      },
+    });
+    expect(result.ok && "requiredPackages" in result.value).toBe(false);
+    expect(result.ok && "armCaveats" in result.value).toBe(false);
+  });
+
+  it("omits optional requiredPackages and armCaveats when empty", () => {
+    const result = validateSetupEnvironment({
+      install: "npm ci",
+      requiredPackages: [],
+      armCaveats: [],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { install: "npm ci" },
+    });
+    expect(result.ok && "requiredPackages" in result.value).toBe(false);
+    expect(result.ok && "armCaveats" in result.value).toBe(false);
+  });
+
+  it("rejects secret-looking requiredPackages entries", () => {
+    expect(
+      validateSetupEnvironment({
+        install: "npm ci",
+        requiredPackages: ["ghp_aaaaaaaaaaaaaaaaaaaa"],
+      }),
+    ).toMatchObject({ ok: false });
   });
 
   it("rejects skills that do not parse", () => {
@@ -112,5 +161,26 @@ describe("setup profile validation", () => {
         memoryMarkdown: "Node app. Run npm ci first.",
       }),
     ).toMatchObject({ ok: true });
+  });
+
+  it("accepts optional requiresNativeExecution flag", () => {
+    const result = validateSetupEnvironment({
+      install: "npm ci",
+      requiresNativeExecution: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: expect.objectContaining({
+        requiresNativeExecution: true,
+      }),
+    });
+  });
+
+  it("rejects non-boolean requiresNativeExecution values", () => {
+    const result = validateSetupEnvironment({
+      install: "npm ci",
+      requiresNativeExecution: "yes",
+    });
+    expect(result).toMatchObject({ ok: false });
   });
 });

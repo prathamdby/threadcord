@@ -11,35 +11,6 @@ const baseEnv = {
 };
 
 describe("loadConfig", () => {
-  it("treats empty THREADCORD_HTTP_BEARER as unset outside production", () => {
-    const config = loadConfig({
-      ...baseEnv,
-      THREADCORD_HTTP_BEARER: "",
-    });
-
-    expect(config.THREADCORD_HTTP_BEARER).toBeUndefined();
-  });
-
-  it("requires THREADCORD_HTTP_BEARER when NODE_ENV is production", () => {
-    expect(() =>
-      loadConfig({
-        ...baseEnv,
-        NODE_ENV: "production",
-        THREADCORD_HTTP_BEARER: "",
-      }),
-    ).toThrow(/THREADCORD_HTTP_BEARER/);
-  });
-
-  it("accepts THREADCORD_HTTP_BEARER in production", () => {
-    const config = loadConfig({
-      ...baseEnv,
-      NODE_ENV: "production",
-      THREADCORD_HTTP_BEARER: "secret",
-    });
-
-    expect(config.THREADCORD_HTTP_BEARER).toBe("secret");
-  });
-
   it("derives allowedModels from built-in anthropic config", () => {
     const config = loadConfig(baseEnv);
 
@@ -197,5 +168,56 @@ describe("loadConfig", () => {
         GITHUB_TOKEN: "github",
       }),
     ).toThrow(/At least one provider model must be configured/);
+  });
+
+  it("defaults AgentOS config vars", () => {
+    const config = loadConfig(baseEnv);
+    expect(config.MAX_ACTIVE_VMS).toBe(2);
+    expect(config.RESERVED_SYSTEM_MEMORY_MB).toBe(4096);
+    expect(config.MIN_FREE_DISK_MB).toBe(2048);
+    expect(config.AGENTOS_SANDBOX_ENABLE).toBe(false);
+    expect(config.RUNTIME_LOG_LEVEL).toBe("info");
+    expect(config.TURN_TIMEOUT_MS).toBe(3600000);
+    expect(config.TURN_HEARTBEAT_TIMEOUT_MS).toBe(120000);
+    expect(config.SETUP_INSTALL_TIMEOUT_MS).toBe(1800000);
+    expect(config.AGENTOS_SIDECAR_BIN).toBeUndefined();
+  });
+
+  it("accepts custom AgentOS config vars", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      MAX_ACTIVE_VMS: "4",
+      RESERVED_SYSTEM_MEMORY_MB: "8192",
+      MIN_FREE_DISK_MB: "4096",
+      AGENTOS_SIDECAR_BIN: "/opt/agentos-sidecar",
+      AGENTOS_SANDBOX_ENABLE: "true",
+      RUNTIME_LOG_LEVEL: "debug",
+      TURN_TIMEOUT_MS: "7200000",
+      TURN_HEARTBEAT_TIMEOUT_MS: "300000",
+      SETUP_INSTALL_TIMEOUT_MS: "3600000",
+    });
+    expect(config.MAX_ACTIVE_VMS).toBe(4);
+    expect(config.RESERVED_SYSTEM_MEMORY_MB).toBe(8192);
+    expect(config.MIN_FREE_DISK_MB).toBe(4096);
+    expect(config.AGENTOS_SIDECAR_BIN).toBe("/opt/agentos-sidecar");
+    expect(config.AGENTOS_SANDBOX_ENABLE).toBe(true);
+    expect(config.RUNTIME_LOG_LEVEL).toBe("debug");
+    expect(config.TURN_TIMEOUT_MS).toBe(7200000);
+    expect(config.TURN_HEARTBEAT_TIMEOUT_MS).toBe(300000);
+    expect(config.SETUP_INSTALL_TIMEOUT_MS).toBe(3600000);
+  });
+
+  it("rejects custom provider APIs not supported by Pi", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv,
+        PROVIDERS: "unsupported",
+        PROVIDER_UNSUPPORTED_BASE_URL: "http://localhost:11434/v1",
+        PROVIDER_UNSUPPORTED_API: "unsupported-api",
+        PROVIDER_UNSUPPORTED_MODELS: "model-1",
+      }),
+    ).toThrow(
+      /PROVIDER_UNSUPPORTED_API must be one of openai-completions, openai-responses, anthropic-messages/,
+    );
   });
 });

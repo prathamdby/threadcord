@@ -148,11 +148,22 @@ function renderEnvironment(environment: SetupEnvironment): string {
     ...(checkLines.length > 0 ? checkLines : ["- none"]),
     `Required env: ${environment.requiredEnv.join(", ") || "none"}`,
     `Required services: ${environment.requiredServices.join(", ") || "none"}`,
+    `Required packages: ${
+      environment.requiredPackages && environment.requiredPackages.length > 0
+        ? environment.requiredPackages.join("; ")
+        : "none"
+    }`,
+    `ARM caveats: ${
+      environment.armCaveats && environment.armCaveats.length > 0
+        ? environment.armCaveats.join("; ")
+        : "none"
+    }`,
     `Skills: ${
       environment.skills && environment.skills.length > 0
         ? environment.skills.join("; ")
         : "(none)"
     }`,
+    `Requires native execution: ${environment.requiresNativeExecution ? "yes (sandbox fallback required)" : "no"}`,
   ].join("\n");
 }
 

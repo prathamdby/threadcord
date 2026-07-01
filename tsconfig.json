@@ -11,5 +11,5 @@
     "types": ["node", "vitest/globals"],
     "outDir": "dist-types"
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "flue.config.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

@@ -9,7 +9,7 @@ import {
 import type { AppConfig } from "../config.js";
 import { registerDiscordCommands } from "./commands.js";
 import { handleMcpInteraction } from "../mcp/interactions.js";
-import { getMcpPool } from "../flue/mcp.js";
+import type { McpRegistry } from "../mcp/registry.js";
 import type { McpStore } from "../mcp/store.js";
 import { handleSetupInteraction } from "../setup/interactions.js";
 import type { SetupOrchestrator } from "../setup/orchestrator.js";
@@ -19,14 +19,7 @@ import type { TaskOrchestrator } from "../task/orchestrator.js";
 import { clampDiscordContent } from "./limits.js";
 import type { ThreadMessage } from "../types.js";
 
-export function startDiscordGateway(
-  token: string,
-  config: AppConfig,
-  orchestrator: TaskOrchestrator,
-  setupStore: SetupStore,
-  setupOrchestrator: SetupOrchestrator,
-  mcpStore: McpStore,
-): Client {
+export function createDiscordClient(token: string, _config: AppConfig): Client {
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -43,6 +36,19 @@ export function startDiscordGateway(
     });
   });
 
+  void client.login(token);
+  return client;
+}
+
+export function attachDiscordGateway(
+  client: Client,
+  config: AppConfig,
+  orchestrator: TaskOrchestrator,
+  setupStore: SetupStore,
+  setupOrchestrator: SetupOrchestrator,
+  mcpStore: McpStore,
+  mcpRegistry: McpRegistry,
+): void {
   client.on(Events.MessageCreate, (message) => {
     void routeMessage(message, orchestrator);
   });
@@ -55,10 +61,30 @@ export function startDiscordGateway(
       setupStore,
       setupOrchestrator,
       mcpStore,
+      mcpRegistry,
     );
   });
+}
 
-  void client.login(token);
+export function startDiscordGateway(
+  token: string,
+  config: AppConfig,
+  orchestrator: TaskOrchestrator,
+  setupStore: SetupStore,
+  setupOrchestrator: SetupOrchestrator,
+  mcpStore: McpStore,
+  mcpRegistry: McpRegistry,
+): Client {
+  const client = createDiscordClient(token, config);
+  attachDiscordGateway(
+    client,
+    config,
+    orchestrator,
+    setupStore,
+    setupOrchestrator,
+    mcpStore,
+    mcpRegistry,
+  );
   return client;
 }
 
@@ -69,12 +95,13 @@ async function routeInteraction(
   setupStore: SetupStore,
   setupOrchestrator: SetupOrchestrator,
   mcpStore: McpStore,
+  mcpRegistry: McpRegistry,
 ): Promise<void> {
   if (
     await handleMcpInteraction({
       interaction,
       store: mcpStore,
-      pool: getMcpPool(),
+      registry: mcpRegistry,
     })
   ) {
     return;

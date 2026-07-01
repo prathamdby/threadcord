@@ -135,13 +135,17 @@ A SetupEnvironment JSON object:
 - start: optional, a smoke-probable command (omit when there is no long-running server).
 - checks: name -> bash one-liner (names match /^[a-zA-Z][a-zA-Z0-9_-]*$/); include build/test/lint/typecheck when they exist.
 - requiredEnv: UPPER_SNAKE names only.
-- requiredServices: service names (e.g. postgres).`;
+- requiredServices: host:port service names (e.g. localhost:5432 for postgres).
+- requiredPackages: OS package names required by the install or checks (e.g. jq, libssl-dev). Omit if none.
+- armCaveats: notes about ARM64/AArch64 limitations, unsupported native deps, or architecture issues. Omit if none.
+- requiresNativeExecution: optional boolean, default false. Set true only when the repo needs a real Linux environment that AgentOS cannot faithfully emulate (e.g. Docker-in-Docker, native kernel modules, architecture-specific binary tools). When true, the operator must opt in to AGENTOS_SANDBOX_ENABLE for the self-hosted fallback.`;
 
 export const SETUP_SAVE_CONTRACT = `CONTRACT
 - Actually run install in the checkout; it must exit 0.
 - Run every check you propose. Save only the ones that pass — a single failing check rejects the whole save.
-- If a useful check needs missing secrets or services, record the names in requiredEnv / requiredServices / memory and drop the check rather than saving it broken.
+- If a useful check needs missing secrets, services, or OS packages, record the names in requiredEnv / requiredServices / requiredPackages / memory and drop the check rather than saving it broken.
 - start must be smoke-probable; the save tool rejects a start that exits non-zero immediately.
+- Record ARM64 caveats in armCaveats when a dependency or tool is known to be unsupported or behaves differently on AArch64.
 - Monorepo: target the root workspace and document subpackages in memory.
 - No real install step: use the smallest viable bootstrap (e.g. \`echo ok\`) and explain why in memory.`;
 

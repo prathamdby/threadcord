@@ -26,6 +26,7 @@ const TOOL_EMOJI: Record<string, string> = {
   glob: "🔎",
   web_search: "🔍",
   create_github_pull_request: "🔧",
+  "create-github-pull-request": "🔧",
 };
 
 const PRIMARY_ARG: Record<string, string> = {
@@ -44,6 +45,7 @@ const PRIMARY_ARG: Record<string, string> = {
   glob: "pattern",
   web_search: "query",
   create_github_pull_request: "title",
+  "create-github-pull-request": "title",
 };
 
 const TERMINAL_TOOLS = new Set(["bash", "terminal"]);

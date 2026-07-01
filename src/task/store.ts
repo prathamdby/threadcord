@@ -10,10 +10,68 @@ import { TASK_STATUSES } from "../types.js";
 const SCHEDULER_LOCK_KEY = 8675309;
 
 export class TaskStore {
+  private readonly reserved = new Set<string>();
+
   constructor(
     private readonly pool: Pool,
     private readonly maxConcurrentTasks: number,
   ) {}
+
+  /** Release a reserved claim without committing the turn. */
+  releaseReservation(taskId: string): void {
+    this.reserved.delete(taskId);
+  }
+
+  async commitTurn(claimed: ClaimedTurn): Promise<TaskRecord | undefined> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      await client.query(`SELECT id FROM tasks WHERE id = $1 FOR UPDATE`, [
+        claimed.task.id,
+      ]);
+
+      if (claimed.source === "followup") {
+        const deleted = await client.query(
+          `
+            DELETE FROM task_followups
+            WHERE task_id = $1 AND discord_message_id = $2
+            RETURNING id
+          `,
+          [claimed.task.id, claimed.initiatorMessageId],
+        );
+        if (deleted.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return undefined;
+        }
+      }
+
+      const result = await client.query(
+        `
+          UPDATE tasks
+          SET status = 'running',
+              initial_turn_started = true,
+              updated_at = now()
+          WHERE id = $1 AND status = ANY($2::text[])
+          RETURNING *
+        `,
+        [claimed.task.id, ["queued", "waiting"]],
+      );
+      if (!result.rows[0]) {
+        await client.query("ROLLBACK");
+        return undefined;
+      }
+
+      await client.query("COMMIT");
+      this.reserved.delete(claimed.task.id);
+      return rowToTask(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 
   async migrate(): Promise<void> {
     await this.pool.query(`
@@ -21,7 +79,7 @@ export class TaskStore {
         id TEXT PRIMARY KEY,
         discord_message_id TEXT NOT NULL UNIQUE,
         discord_thread_id TEXT NOT NULL UNIQUE,
-        flue_instance_id TEXT NOT NULL UNIQUE,
+        agent_instance_id TEXT NOT NULL UNIQUE,
         workspace_path TEXT NOT NULL,
         repo TEXT NOT NULL,
         branch TEXT NOT NULL,
@@ -55,9 +113,27 @@ export class TaskStore {
       ADD COLUMN IF NOT EXISTS header_message_id TEXT
     `);
     await this.pool.query(`
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS agent_instance_id TEXT UNIQUE
+    `);
+    await this.pool.query(`
       UPDATE tasks
       SET progress_message_ids = ARRAY[status_message_id]
       WHERE status_message_id IS NOT NULL AND progress_message_ids IS NULL
+    `);
+    const columnExists = await this.pool.query(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'tasks' AND column_name = 'flue_instance_id'
+    `);
+    if (columnExists.rows.length > 0) {
+      await this.pool.query(`
+        UPDATE tasks
+        SET agent_instance_id = flue_instance_id
+        WHERE agent_instance_id IS NULL AND flue_instance_id IS NOT NULL
+      `);
+    }
+    await this.pool.query(`
+      ALTER TABLE tasks ALTER COLUMN agent_instance_id SET NOT NULL
     `);
     await this.pool.query(`
       ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check
@@ -86,6 +162,9 @@ export class TaskStore {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await this.pool.query(`
+      ALTER TABLE tasks DROP COLUMN IF EXISTS flue_instance_id
+    `);
   }
 
   async createDraft(
@@ -94,7 +173,7 @@ export class TaskStore {
     const insert = await this.pool.query(
       `
         INSERT INTO tasks (
-          id, discord_message_id, discord_thread_id, flue_instance_id, workspace_path,
+          id, discord_message_id, discord_thread_id, agent_instance_id, workspace_path,
           repo, branch, model, instruction, push_override, status, setup_profile_revision
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11)
@@ -105,7 +184,7 @@ export class TaskStore {
         task.id,
         task.discordMessageId,
         task.discordThreadId,
-        task.flueInstanceId,
+        task.agentInstanceId,
         task.workspacePath,
         task.repo,
         task.branch,
@@ -127,7 +206,7 @@ export class TaskStore {
   async attachAndPromote(
     taskId: string,
     threadId: string,
-    flueInstanceId: string,
+    agentInstanceId: string,
     statusMessageId: string,
     headerMessageId?: string,
   ): Promise<TaskRecord | undefined> {
@@ -135,7 +214,7 @@ export class TaskStore {
       `
         UPDATE tasks
         SET discord_thread_id = $2,
-            flue_instance_id = $3,
+            agent_instance_id = $3,
             progress_message_ids = ARRAY[$4],
             header_message_id = $5,
             status = 'queued',
@@ -146,7 +225,7 @@ export class TaskStore {
       [
         taskId,
         threadId,
-        flueInstanceId,
+        agentInstanceId,
         statusMessageId,
         headerMessageId ?? null,
       ],
@@ -240,7 +319,7 @@ export class TaskStore {
 
   async getByInstanceId(instanceId: string): Promise<TaskRecord | undefined> {
     const result = await this.pool.query(
-      "SELECT * FROM tasks WHERE flue_instance_id = $1",
+      "SELECT * FROM tasks WHERE agent_instance_id = $1",
       [instanceId],
     );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
@@ -251,7 +330,7 @@ export class TaskStore {
     fallbackModel: string,
   ): Promise<string> {
     const result = await this.pool.query(
-      "SELECT model FROM tasks WHERE flue_instance_id = $1",
+      "SELECT model FROM tasks WHERE agent_instance_id = $1",
       [instanceId],
     );
     const model = result.rows[0]?.model;
@@ -268,28 +347,46 @@ export class TaskStore {
         SCHEDULER_LOCK_KEY,
       ]);
 
+      const reservedIds = [...this.reserved];
       const running = await client.query(
         "SELECT COUNT(*)::int AS count FROM tasks WHERE status = 'running'",
       );
-      if (Number(singleRow(running.rows).count) >= this.maxConcurrentTasks) {
+      const active =
+        Number(singleRow(running.rows).count) + reservedIds.length;
+      if (active >= this.maxConcurrentTasks) {
         await client.query("ROLLBACK");
         return undefined;
       }
 
-      const claimed = await this.claimFollowupTurn(client, preferTaskId);
+      const claimed = await this.claimFollowupTurn(
+        client,
+        preferTaskId,
+        reservedIds,
+      );
       if (claimed) {
+        this.reserved.add(claimed.task.id);
         await client.query("COMMIT");
         return claimed;
       }
 
-      const initial = await this.claimInitialTurn(client, preferTaskId);
+      const initial = await this.claimInitialTurn(
+        client,
+        preferTaskId,
+        reservedIds,
+      );
       if (initial) {
+        this.reserved.add(initial.task.id);
         await client.query("COMMIT");
         return initial;
       }
 
-      const globalFollowup = await this.claimFollowupTurn(client);
+      const globalFollowup = await this.claimFollowupTurn(
+        client,
+        undefined,
+        reservedIds,
+      );
       if (globalFollowup) {
+        this.reserved.add(globalFollowup.task.id);
         await client.query("COMMIT");
         return globalFollowup;
       }
@@ -364,6 +461,7 @@ export class TaskStore {
         taskId,
       ]);
       await client.query("COMMIT");
+      this.reserved.delete(taskId);
       return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
     } catch (error) {
       await client.query("ROLLBACK");
@@ -382,6 +480,7 @@ export class TaskStore {
         RETURNING *
       `,
     );
+    this.reserved.clear();
     return result.rows.map(rowToTask);
   }
 
@@ -436,25 +535,24 @@ export class TaskStore {
 
   private async claimInitialTurn(
     client: PoolClient,
-    preferTaskId?: string,
+    preferTaskId: string | undefined,
+    reservedIds: string[],
   ): Promise<ClaimedTurn | undefined> {
     const result = await client.query(
       `
-        UPDATE tasks
-        SET status = 'running',
-            initial_turn_started = true,
-            updated_at = now()
+        SELECT *
+        FROM tasks
         WHERE id = (
           SELECT id FROM tasks
           WHERE status = 'queued'
+            AND id <> ALL($2::text[])
             AND ($1::text IS NULL OR id = $1)
           ORDER BY created_at, id
           FOR UPDATE SKIP LOCKED
           LIMIT 1
         )
-        RETURNING *
       `,
-      [preferTaskId ?? null],
+      [preferTaskId ?? null, reservedIds],
     );
     const row = result.rows[0];
     if (!row) return undefined;
@@ -469,37 +567,28 @@ export class TaskStore {
 
   private async claimFollowupTurn(
     client: PoolClient,
-    preferTaskId?: string,
+    preferTaskId: string | undefined,
+    reservedIds: string[],
   ): Promise<ClaimedTurn | undefined> {
     const result = await client.query(
       `
         WITH candidate AS (
-          SELECT f.id AS followup_id, f.instruction, t.id AS task_id
+          SELECT f.id AS followup_id, f.instruction, f.discord_message_id, t.id AS task_id
           FROM task_followups f
           JOIN tasks t ON t.id = f.task_id
           WHERE t.status = 'waiting'
             AND t.initial_turn_started = true
+            AND t.id <> ALL($2::text[])
             AND ($1::text IS NULL OR t.id = $1)
           ORDER BY f.created_at, f.id
           FOR UPDATE OF f, t SKIP LOCKED
           LIMIT 1
-        ),
-        deleted AS (
-          DELETE FROM task_followups
-          WHERE id = (SELECT followup_id FROM candidate)
-          RETURNING instruction, discord_message_id
-        ),
-        updated AS (
-          UPDATE tasks
-          SET status = 'running', updated_at = now()
-          WHERE id = (SELECT task_id FROM candidate)
-          RETURNING *
         )
-        SELECT updated.*, deleted.instruction AS run_instruction, deleted.discord_message_id AS run_initiator_message_id
-        FROM updated
-        JOIN deleted ON true
+        SELECT t.*, c.instruction AS run_instruction, c.discord_message_id AS run_initiator_message_id
+        FROM candidate c
+        JOIN tasks t ON t.id = c.task_id
       `,
-      [preferTaskId ?? null],
+      [preferTaskId ?? null, reservedIds],
     );
     const row = result.rows[0];
     if (!row || typeof row.run_instruction !== "string") return undefined;
@@ -551,7 +640,7 @@ function rowToTask(row: QueryResultRow): TaskRecord {
     id: String(row.id),
     discordMessageId: String(row.discord_message_id),
     discordThreadId: String(row.discord_thread_id),
-    flueInstanceId: String(row.flue_instance_id),
+    agentInstanceId: String(row.agent_instance_id),
     workspacePath: String(row.workspace_path),
     repo: String(row.repo),
     branch: String(row.branch),

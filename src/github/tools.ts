@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
-import { defineTool } from "@flue/runtime";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
-import * as v from "valibot";
 
 export interface GitIdentity {
   name: string;
@@ -57,43 +55,4 @@ export function gitIdentityEnv(identity: GitIdentity): Record<string, string> {
     GIT_COMMITTER_NAME: identity.name,
     GIT_COMMITTER_EMAIL: identity.email,
   };
-}
-
-export function createGitHubTools(token: string) {
-  const octokit = new Octokit({
-    auth: token,
-    userAgent: "threadcord/0.1.0",
-  });
-
-  return [
-    defineTool({
-      name: "create_github_pull_request",
-      description:
-        "Open a GitHub pull request. Call only after the branch was already-pushed successfully. Required: owner (GitHub org/user), repo (repo name only, no slash), title (plain English derived from the branch diff, not commit messages, <=72 chars), head (the pushed branch name; usually threadcord/<type>/<name>), base (the task base branch). Optional body (Markdown; group changes by area, link to relevant issues, do not paste GITHUB_TOKEN or env values). Returns JSON with the PR number, URL, and state. Do not call twice for the same head/base; if a PR already exists, post its URL via post_thread_message instead.",
-      parameters: v.object({
-        owner: v.pipe(v.string(), v.minLength(1)),
-        repo: v.pipe(v.string(), v.minLength(1)),
-        title: v.pipe(v.string(), v.minLength(1)),
-        head: v.pipe(v.string(), v.minLength(1)),
-        base: v.pipe(v.string(), v.minLength(1)),
-        body: v.optional(v.string()),
-      }),
-      async execute(input) {
-        const payload = {
-          owner: input.owner,
-          repo: input.repo,
-          title: input.title,
-          head: input.head,
-          base: input.base,
-          ...(input.body ? { body: input.body } : {}),
-        };
-        const response = await octokit.rest.pulls.create(payload);
-        return JSON.stringify({
-          number: response.data.number,
-          url: response.data.html_url,
-          state: response.data.state,
-        });
-      },
-    }),
-  ];
 }

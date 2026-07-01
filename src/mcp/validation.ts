@@ -1,7 +1,12 @@
-import type { McpTransport } from "@flue/runtime";
-import type { McpServerConfig } from "../flue/mcp.js";
-
 const VALID_TRANSPORTS: readonly string[] = ["streamable-http", "sse"];
+export type McpTransport = (typeof VALID_TRANSPORTS)[number];
+
+export interface McpServerConfig {
+  id: string;
+  url: string;
+  transport?: McpTransport;
+  headers?: Record<string, string>;
+}
 
 export type ValidateAddResult =
   | {

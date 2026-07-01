@@ -4,6 +4,10 @@ import {
   setPendingUserTurnMessage,
   takePendingUserTurnMessages,
 } from "../src/discord/user-turn-message.js";
+import {
+  FakeAgentTurn,
+  FakeMachineEnvironment,
+} from "../src/agentturn/index.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import {
   config,
@@ -54,7 +58,7 @@ describe("inbound-message reactions", () => {
     const result = await world.submitRaw("m-end");
     const task = result.task!;
 
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
@@ -74,12 +78,12 @@ describe("inbound-message reactions", () => {
     const result = await world.submitRaw("m-cancel-pending");
     const task = result.task!;
 
-    setPendingUserTurnMessage(task.flueInstanceId, "Should not post.");
+    setPendingUserTurnMessage(task.agentInstanceId, "Should not post.");
     await world.store.cancelTask(task.id);
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
 
-    expect(takePendingUserTurnMessages(task.flueInstanceId)).toEqual([]);
+    expect(takePendingUserTurnMessages(task.agentInstanceId)).toEqual([]);
   });
 
   it("posts queued user messages without the turn-completed notice", async () => {
@@ -91,10 +95,10 @@ describe("inbound-message reactions", () => {
     const result = await world.submitRaw("m-user-msg");
     const task = result.task!;
 
-    queuePendingUserTurnMessages(task.flueInstanceId, [
+    queuePendingUserTurnMessages(task.agentInstanceId, [
       "Shipped the fix and opened a PR.",
     ]);
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
 
     expect(posts).not.toContain(
@@ -111,7 +115,7 @@ describe("inbound-message reactions", () => {
     const task = result.task!;
 
     await world.orchestrator.handleAgentFailure(
-      task.flueInstanceId,
+      task.agentInstanceId,
       "Stream ended without finish_reason",
     );
     await flush();
@@ -124,7 +128,7 @@ describe("inbound-message reactions", () => {
     const world = new World();
     const init = await world.submitRaw("m-followup-init");
     const task = init.task!;
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
     expect(world.store.snapshot(task.id).status).toBe("waiting");
 
@@ -132,7 +136,7 @@ describe("inbound-message reactions", () => {
     expect(world.store.snapshot(task.id).status).toBe("running");
     expect(followup.message.reactionLog).toEqual([`react:${EYES}`]);
 
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
@@ -157,15 +161,19 @@ describe("persistent typing indicator", () => {
     const store = new InMemoryStore(1);
     const dispatched: string[] = [];
     const typingThreadIds: string[] = [];
+    const agentTurn = new FakeAgentTurn({
+      maxConcurrency: 1,
+      enableRestartNotifications: false,
+      onPrompt: (input) => {
+        dispatched.push(input.instanceId);
+      },
+    });
     const orchestrator = new TaskOrchestrator(
       config,
       store as never,
       fakeSetupStore,
-      async (instanceId) => {
-        dispatched.push(instanceId);
-      },
-      async () => "/workspaces/task-restart/web",
-      async () => {},
+      agentTurn,
+      new FakeMachineEnvironment(),
     );
     orchestrator.setTypingPublisher(async (threadId) => {
       typingThreadIds.push(threadId);
@@ -174,7 +182,7 @@ describe("persistent typing indicator", () => {
       id: "task-restart",
       discordMessageId: "init-1",
       discordThreadId: "thread-restart",
-      flueInstanceId: "discord:thread:thread-restart",
+      agentInstanceId: "discord:thread:thread-restart",
       workspacePath: "/workspaces/task-restart",
       repo: "acme/web",
       branch: "main",
@@ -209,7 +217,7 @@ describe("persistent typing indicator", () => {
     const result = await world.submitRaw("m-typing-stop");
     const task = result.task!;
 
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
     const after = result.thread.sendTypingCalls;
 
@@ -223,7 +231,7 @@ describe("persistent typing indicator", () => {
     const task = result.task!;
 
     await world.orchestrator.handleAgentFailure(
-      task.flueInstanceId,
+      task.agentInstanceId,
       "Stream ended without finish_reason",
     );
     await flush();
@@ -241,7 +249,7 @@ describe("persistent typing indicator", () => {
     await delay(25);
     expect(result.thread.sendTypingCalls).toBeGreaterThanOrEqual(2);
 
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
   });
 });
@@ -260,7 +268,7 @@ describe("non-fatal reaction and typing errors", () => {
     expect(task.status).toBe("running");
 
     await expect(
-      world.orchestrator.handleAgentEnd(task.flueInstanceId),
+      world.orchestrator.handleAgentEnd(task.agentInstanceId),
     ).resolves.toBeUndefined();
     await flush();
 
@@ -286,7 +294,7 @@ describe("non-fatal reaction and typing errors", () => {
     expect(result.thread.sendTypingCalls).toBe(0);
 
     await expect(
-      world.orchestrator.handleAgentEnd(task.flueInstanceId),
+      world.orchestrator.handleAgentEnd(task.agentInstanceId),
     ).resolves.toBeUndefined();
     await flush();
     expect(world.store.snapshot(task.id).status).toBe("waiting");
@@ -295,16 +303,8 @@ describe("non-fatal reaction and typing errors", () => {
 
 describe("cancel during an in-flight turn", () => {
   it("aborts the turn without dispatching or crashing when cancelled during setup", async () => {
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const world = new World(1, 9000, {
-      bootstrap: async (task) => {
-        await gate;
-        return `/tmp/race-${task.id}`;
-      },
-    });
+    const world = new World(1, 9000);
+    const gate = world.fakeMachineEnvironment.blockNextPrepare();
     const posts: string[] = [];
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
       posts.push(content);
@@ -312,33 +312,26 @@ describe("cancel during an in-flight turn", () => {
     const result = await world.submitRaw("m-race-setup");
     const task = result.task!;
 
-    expect(task.status).toBe("running");
-    expect(world.dispatched).not.toContain(task.flueInstanceId);
+    // The task is reserved but not yet running while prepare is blocked.
+    expect(task.status).toBe("queued");
+    expect(world.dispatched).not.toContain(task.agentInstanceId);
 
     await world.sendThreadMessage(task.id, "cancel-setup", "cancel");
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
     expect(result.message.reactionLog).toEqual([]);
 
-    release();
+    gate.release();
     await flush();
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
-    expect(world.dispatched).not.toContain(task.flueInstanceId);
+    expect(world.dispatched).not.toContain(task.agentInstanceId);
     expect(posts.some((p) => p.startsWith("Failed:"))).toBe(false);
   });
 
   it("does not crash or post a spurious failure when cancelled after dispatch", async () => {
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const world = new World(1, 9000, {
-      dispatch: async (instanceId) => {
-        await gate;
-        world.dispatched.push(instanceId);
-      },
-    });
+    const world = new World(1, 9000);
+    const gate = world.blockNextPrompt();
     const posts: string[] = [];
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
       posts.push(content);
@@ -346,17 +339,18 @@ describe("cancel during an in-flight turn", () => {
     const result = await world.submitRaw("m-race-dispatch");
     const task = result.task!;
 
-    expect(task.status).toBe("running");
+    // The task is reserved but not yet running while the prompt is blocked.
+    expect(task.status).toBe("queued");
 
     await world.sendThreadMessage(task.id, "cancel-dispatch", "cancel");
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
 
-    release();
+    gate.release();
     await flush();
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
-    expect(world.dispatched).toContain(task.flueInstanceId);
+    expect(world.dispatched).toContain(task.agentInstanceId);
     expect(posts.some((p) => p.startsWith("Failed:"))).toBe(false);
   });
 });
@@ -378,7 +372,7 @@ describe("reaction cleanup on terminal commands", () => {
     const world = new World();
     const init = await world.submitRaw("m-cancel-queued-init");
     const task = init.task!;
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
 
     const running = await world.submitFollowup(task.id, "m-cancel-queued-f1");
@@ -418,16 +412,8 @@ describe("reaction cleanup on terminal commands", () => {
 
 describe("guard against dispatching a cancelled task", () => {
   it("aborts runTurn when the task is cancelled during bootstrap", async () => {
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const world = new World(1, 9000, {
-      bootstrap: async (task) => {
-        await gate;
-        return `/tmp/cancel-during-bootstrap-${task.id}`;
-      },
-    });
+    const world = new World(1, 9000);
+    const gate = world.fakeMachineEnvironment.blockNextPrepare();
     const posts: string[] = [];
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
       posts.push(content);
@@ -435,19 +421,20 @@ describe("guard against dispatching a cancelled task", () => {
 
     const result = await world.submitRaw("m-cancel-bootstrap");
     const task = result.task!;
-    expect(task.status).toBe("running");
+    // The task is reserved but not yet running while prepare is blocked.
+    expect(task.status).toBe("queued");
 
     // Simulate a concurrent cancel that does not go through the orchestrator
     // (so clearInFlight is not called); the in-flight entry remains set.
     await world.store.cancelTask(task.id);
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
 
-    release();
+    gate.release();
     await flush();
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
-    expect(world.dispatched).not.toContain(task.flueInstanceId);
+    expect(world.dispatched).not.toContain(task.agentInstanceId);
     expect(posts.some((p) => p.startsWith("Agent turn accepted."))).toBe(false);
     expect(posts.some((p) => p.startsWith("Turn completed."))).toBe(false);
   });
@@ -470,7 +457,7 @@ describe("handleAgentEnd transition guard", () => {
     // running->waiting transition inside handleAgentEnd.
     world.store.breakNextTransition();
 
-    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await world.orchestrator.handleAgentEnd(task.agentInstanceId);
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("cancelled");

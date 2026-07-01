@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { dispatch } from "@flue/runtime";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
 import { formatTaskInstructionForDiscord } from "../discord/task-instruction-message.js";
 import { renderTaskHeader } from "../discord/task-header.js";
@@ -10,20 +9,26 @@ import {
 } from "../discord/user-turn-message.js";
 import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
-import codingAgent from "../agents/coding.js";
+import {
+  createDefaultMachineEnvironment,
+  type AgentTurn,
+  type AgentTurnInput,
+  type MachineEnvironment,
+  type TurnEvent,
+} from "../agentturn/index.js";
+import type { Logger as RenameLogger } from "../agentturn/host-thread-namer.js";
+import {
+  createNoopMcpRegistry,
+  type McpRegistry,
+  McpRegistryConfigProvider,
+} from "../mcp/registry.js";
 import {
   isPendingThreadId,
   pendingThreadId,
-  toFlueInstanceId,
+  toAgentInstanceId,
 } from "../ids.js";
-import {
-  bootstrapWorkspace,
-  runSetupInstall,
-  runSetupSkillsInstall,
-} from "./bootstrap.js";
 import { discoverInstalledSkills } from "../setup/skills.js";
 import { workspacePaths } from "./workspace-env.js";
-import type { BootstrapMode } from "./bootstrap.js";
 import type { PendingTaskCreate } from "./create-flow.js";
 import { validateTaskPolicy } from "./policy.js";
 import type { TaskStore } from "./store.js";
@@ -41,7 +46,6 @@ import {
 import { threadName } from "./thread-name.js";
 import type {
   ClaimedTurn,
-  DispatchAgentInput,
   TaskRecord,
   TaskRequest,
   TaskStatus,
@@ -70,30 +74,10 @@ interface ReactionTarget {
 }
 
 interface InFlightTurn {
+  source: "initial" | "followup";
   initiator?: ReactionTarget | undefined;
   typingTimer?: NodeJS.Timeout | undefined;
 }
-
-/** Sends one dispatched agent turn. Injectable so tests can fake the runtime. */
-export type DispatchTurn = (
-  instanceId: string,
-  input: DispatchAgentInput,
-) => Promise<void>;
-
-/** Prepares a turn workspace checkout. Injectable so tests can skip git. */
-export type BootstrapTurn = (
-  task: TaskRecord,
-  githubToken: string,
-  mode: BootstrapMode,
-) => Promise<string>;
-
-/** Runs setup install on the initial turn. Injectable so tests can skip shell. */
-export type RunSetupInstallTurn = (
-  workspaceRoot: string,
-  checkoutDir: string,
-  installCommand: string,
-  githubToken: string,
-) => Promise<void>;
 
 export type EditHeaderMessage = (
   threadId: string,
@@ -102,10 +86,6 @@ export type EditHeaderMessage = (
 ) => Promise<void>;
 
 export type SendThreadTyping = (threadId: string) => Promise<void>;
-
-const defaultDispatchTurn: DispatchTurn = async (instanceId, input) => {
-  await dispatch(codingAgent, { id: instanceId, input });
-};
 
 const TERMINAL_STATUSES = new Set<TaskStatus>([
   "completed",
@@ -118,20 +98,34 @@ export class TaskOrchestrator {
   private editHeaderMessage?: EditHeaderMessage;
   private sendThreadTyping?: SendThreadTyping;
   private renameDiscordThread?: RenameDiscordThread;
+  private threadRenameLogger?: RenameLogger;
   private readonly taskThreads = new Map<string, ThreadRef>();
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
   private readonly pendingInitiatorIds = new Map<string, Set<string>>();
   private readonly inFlightTurns = new Map<string, InFlightTurn>();
+  private readonly unsubscribeAgentTurn: () => void;
+  private readonly machineEnvironment: MachineEnvironment;
+  private readonly mcpRegistry: McpRegistry;
+  private readonly mcpConfigProvider: McpRegistryConfigProvider;
 
   constructor(
     private readonly config: AppConfig,
     private readonly store: TaskStore,
     private readonly setupStore: SetupStore,
-    private readonly dispatchTurn: DispatchTurn = defaultDispatchTurn,
-    private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
-    private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
+    private readonly agentTurn: AgentTurn,
+    machineEnvironment?: MachineEnvironment,
+    mcpRegistry?: McpRegistry,
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
-  ) {}
+  ) {
+    this.mcpRegistry = mcpRegistry ?? createNoopMcpRegistry();
+    this.mcpConfigProvider = new McpRegistryConfigProvider(this.mcpRegistry);
+    this.machineEnvironment =
+      machineEnvironment ??
+      createDefaultMachineEnvironment(config, this.mcpConfigProvider);
+    this.unsubscribeAgentTurn = this.agentTurn.onEvent((event) =>
+      this.handleAgentTurnEvent(event),
+    );
+  }
 
   setMilestonePublisher(
     postMessage: (threadId: string, content: string) => Promise<void>,
@@ -151,9 +145,14 @@ export class TaskOrchestrator {
     this.renameDiscordThread = renameDiscordThread;
   }
 
+  setThreadRenameLogger(logger: RenameLogger): void {
+    this.threadRenameLogger = logger;
+  }
+
   async resumeAfterRestart(
     notifyThread: (threadId: string, content: string) => Promise<void>,
   ): Promise<void> {
+    await this.agentTurn.resumeAfterRestart(notifyThread);
     const released = await this.store.releaseRunningAfterRestart();
     for (const task of released) {
       await this.refreshHeader(task.id);
@@ -216,7 +215,7 @@ export class TaskOrchestrator {
       id: taskId,
       discordMessageId: input.initiatorMessageId,
       discordThreadId: pendingThreadId(taskId),
-      flueInstanceId: pendingThreadId(taskId),
+      agentInstanceId: pendingThreadId(taskId),
       workspacePath: join(this.config.WORKSPACE_ROOT, taskId),
       setupProfileRevision: setupProfile.revision,
       ...taskRequest,
@@ -268,7 +267,7 @@ export class TaskOrchestrator {
     const attached = await this.store.attachAndPromote(
       task.id,
       thread.id,
-      toFlueInstanceId(thread.id),
+      toAgentInstanceId(thread.id),
       statusMessageId,
       headerMessageId,
     );
@@ -276,7 +275,7 @@ export class TaskOrchestrator {
       return { ok: false, reason: "Could not attach task to thread." };
     }
 
-    this.taskThreads.set(attached.flueInstanceId, thread);
+    this.taskThreads.set(attached.agentInstanceId, thread);
     this.recordSlashInitiator(attached.id, input.initiatorMessageId);
 
     const claimed = await this.store.claimNextTurn(attached.id);
@@ -311,6 +310,7 @@ export class TaskOrchestrator {
         task,
         {
           store: this.store,
+          agentTurn: this.agentTurn,
           clearInFlight: (id) => this.clearInFlight(id),
           flipReaction: (initiator, emoji) =>
             this.flipReaction(initiator, emoji),
@@ -348,7 +348,7 @@ export class TaskOrchestrator {
       await message.reply("Task marked complete.");
       await this.refreshHeader(task.id);
       await this.disposeInitiators(task.id, CHECK);
-      this.taskThreads.delete(task.flueInstanceId);
+      this.taskThreads.delete(task.agentInstanceId);
       return;
     }
     if (TERMINAL_STATUSES.has(task.status)) {
@@ -397,6 +397,15 @@ export class TaskOrchestrator {
       }
       const turn = this.clearInFlight(instanceId);
       await this.flipReaction(turn?.initiator, CHECK);
+      if (this.renameDiscordThread && turn?.source === "initial") {
+        scheduleReadableThreadRename(
+          task.discordThreadId,
+          task.instruction,
+          this.config.defaultModel,
+          this.renameDiscordThread,
+          this.threadRenameLogger,
+        );
+      }
       await this.scheduleAfterTurn(task.id);
       return;
     }
@@ -441,6 +450,18 @@ export class TaskOrchestrator {
     await this.fillConcurrencySlots();
   }
 
+  private async handleAgentTurnEvent(event: TurnEvent): Promise<void> {
+    if (event.type !== "terminal") return;
+    if (event.outcome === "failed" || event.outcome === "aborted") {
+      await this.handleAgentFailure(
+        event.instanceId,
+        event.summary ?? "Agent turn failed",
+      );
+      return;
+    }
+    await this.handleAgentEnd(event.instanceId);
+  }
+
   private async scheduleAfterTurn(taskId: string): Promise<void> {
     const claimed = await this.store.claimNextTurn(taskId);
     if (claimed) {
@@ -460,21 +481,17 @@ export class TaskOrchestrator {
 
   private async runTurn(claimed: ClaimedTurn): Promise<void> {
     const { task, instruction, source } = claimed;
+    const instanceId = task.agentInstanceId;
     const initiator = this.initiatorMessages.get(claimed.initiatorMessageId);
     if (initiator) {
       this.initiatorMessages.delete(claimed.initiatorMessageId);
       this.pendingInitiatorIds.get(task.id)?.delete(claimed.initiatorMessageId);
     }
-    this.inFlightTurns.set(task.flueInstanceId, { initiator });
-    await this.refreshHeader(
-      task.id,
-      source === "initial" ? "initial" : "follow-up",
-    );
+    this.inFlightTurns.set(instanceId, { source, initiator });
     try {
-      const checkoutPath = await this.bootstrap(
-        task,
-        this.config.GITHUB_TOKEN,
-        source === "initial" ? "initial" : "continue",
+      await this.refreshHeader(
+        task.id,
+        source === "initial" ? "initial" : "follow-up",
       );
       const setupProfile = await this.setupStore.getReadyProfile(
         task.repo,
@@ -485,68 +502,103 @@ export class TaskOrchestrator {
           `Missing ready setup profile for ${task.repo} on ${task.branch}`,
         );
       }
-      if (source === "initial") {
-        await this.runSetupInstallTurn(
-          task.workspacePath,
-          checkoutPath,
-          setupProfile.environment.install,
-          this.config.GITHUB_TOKEN,
-        );
-        const skillLinks = setupProfile.environment.skills ?? [];
-        if (skillLinks.length > 0) {
-          await runSetupSkillsInstall(
-            task.workspacePath,
-            checkoutPath,
-            skillLinks,
-            this.config.GITHUB_TOKEN,
-          );
+
+      this.mcpConfigProvider.setWorkspacePath(task.workspacePath);
+
+      const prepareResult = await this.machineEnvironment.prepare({
+        instanceId,
+        role: "coding",
+        task,
+        source,
+        setupProfile,
+        model: task.model,
+      });
+
+      if (!prepareResult.ready) {
+        if (prepareResult.issue) {
+          await this.machineEnvironment.reportIssue(prepareResult.issue);
         }
+        await this.post(
+          task.discordThreadId,
+          `Environment issue: ${prepareResult.reason}`,
+        );
+        this.store.releaseReservation(task.id);
+        this.clearInFlight(instanceId);
+        return;
       }
-      // A concurrent cancel transitions the task out of running during setup;
-      // re-check the store (source of truth) before dispatching, since the
-      // in-flight entry may have been re-created here after cancel cleared it.
-      const current = await this.store.getByInstanceId(task.flueInstanceId);
-      if (!current || current.status !== "running") {
-        this.clearInFlight(task.flueInstanceId);
+
+      // A concurrent cancel may have changed the task status while we were
+      // preparing the environment. Re-check the store (source of truth) before
+      // asking AgentTurn to admit the turn.
+      const current = await this.store.getByInstanceId(instanceId);
+      if (!current || (current.status !== "queued" && current.status !== "waiting")) {
+        this.store.releaseReservation(task.id);
+        this.clearInFlight(instanceId);
         return;
       }
       const fullPrompt = buildPrompt(
         task,
-        checkoutPath,
+        prepareResult.checkoutPath,
         setupProfile.revision,
         setupProfile.environment,
         setupProfile.memoryMarkdown,
         instruction,
-        task.workspacePath,
+        prepareResult.workspacePath,
       );
-      const input: DispatchAgentInput = {
-        kind: "threadcord.turn",
-        workspacePath: checkoutPath,
+      const input: AgentTurnInput = {
+        instanceId,
+        role: "coding",
+        instruction: fullPrompt,
         model: task.model,
+        workspacePath: prepareResult.workspacePath,
         repo: task.repo,
         baseBranch: task.branch,
-        instruction: fullPrompt,
+        setupProfileRevision: task.setupProfileRevision,
+        idempotencyKey:
+          source === "initial"
+            ? task.discordMessageId
+            : claimed.initiatorMessageId,
       };
-      if (source === "initial" && this.renameDiscordThread) {
-        scheduleReadableThreadRename(
+      const promptResult = await this.agentTurn.prompt(input);
+      if (!promptResult.accepted) {
+        await this.post(
           task.discordThreadId,
-          instruction,
-          this.renameDiscordThread,
+          `Turn not started: ${promptResult.reason}`,
         );
+        this.store.releaseReservation(task.id);
+        this.clearInFlight(instanceId);
+        return;
       }
-      await this.dispatchTurn(task.flueInstanceId, input);
-      const inFlight = this.inFlightTurns.get(task.flueInstanceId);
+
+      const committed = await this.store.commitTurn(claimed);
+      if (!committed) {
+        await this.agentTurn.cancel(instanceId);
+        this.store.releaseReservation(task.id);
+        this.clearInFlight(instanceId);
+        await this.fillConcurrencySlots();
+        return;
+      }
+
+      const inFlight = this.inFlightTurns.get(instanceId);
       if (inFlight) {
-        inFlight.typingTimer = this.startTypingLoop(task);
+        inFlight.typingTimer = this.startTypingLoop(committed);
       }
+      await this.refreshHeader(
+        task.id,
+        source === "initial" ? "initial" : "follow-up",
+      );
       await this.post(task.discordThreadId, "Agent turn accepted.");
     } catch (error) {
       const summary = summarizeError(error);
-      takePendingUserTurnMessages(task.flueInstanceId);
+      takePendingUserTurnMessages(instanceId);
       console.error(
         `[threadcord] task ${task.id} turn failure details:`,
         summary,
       );
+      // Release any reserved claim before failing the task. All pre-commit
+      // exception paths (missing setup profile, prepare throws, prompt throws,
+      // etc.) land here and must not leak concurrency capacity.
+      this.store.releaseReservation(task.id);
       await this.store.transition(
         task.id,
         ["queued", "waiting", "running"],
@@ -555,10 +607,10 @@ export class TaskOrchestrator {
       );
       await this.refreshHeader(task.id);
       await this.post(task.discordThreadId, failureDiscordMessage(summary));
-      const turn = this.clearInFlight(task.flueInstanceId);
+      const turn = this.clearInFlight(instanceId);
       await this.flipReaction(turn?.initiator, CROSS);
       await this.disposeInitiators(task.id, CROSS);
-      this.taskThreads.delete(task.flueInstanceId);
+      this.taskThreads.delete(instanceId);
       await this.fillConcurrencySlots();
     }
   }
@@ -592,10 +644,10 @@ export class TaskOrchestrator {
   }
 
   private startTypingLoop(task: TaskRecord): NodeJS.Timeout | undefined {
-    const hasThread = this.taskThreads.has(task.flueInstanceId);
+    const hasThread = this.taskThreads.has(task.agentInstanceId);
     if (!hasThread && !this.sendThreadTyping) return undefined;
     const ping = (): void => {
-      const thread = this.taskThreads.get(task.flueInstanceId);
+      const thread = this.taskThreads.get(task.agentInstanceId);
       if (thread) {
         void thread.sendTyping().catch(() => {});
         return;
@@ -670,7 +722,7 @@ export class TaskOrchestrator {
     const projected: TaskRecord = {
       ...task,
       discordThreadId: thread.id,
-      flueInstanceId: toFlueInstanceId(thread.id),
+      agentInstanceId: toAgentInstanceId(thread.id),
       status: "queued",
     };
     try {
@@ -708,7 +760,7 @@ export class TaskOrchestrator {
         queue,
         runningTurn,
       });
-      const thread = this.taskThreads.get(task.flueInstanceId);
+      const thread = this.taskThreads.get(task.agentInstanceId);
       if (this.editHeaderMessage) {
         await this.editHeaderMessage(
           task.discordThreadId,
