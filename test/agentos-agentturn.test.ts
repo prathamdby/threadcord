@@ -7,7 +7,11 @@ import { AgentOsAgentTurn, createAgentOsCredentialsProvider } from "../src/agent
 import type { AgentOsCreateOptions } from "../src/agentturn/agentos.js";
 import type { AgentOsAcpEvent } from "../src/agentturn/agentos-event-mapper.js";
 import type { AgentTurnInput, TurnEvent } from "../src/agentturn/types.js";
-import type { AppConfig, CustomProviderConfig } from "../src/config.js";
+import type { AppConfig } from "../src/config.js";
+import {
+  loadProviderRegistry,
+  type ProviderRegistry,
+} from "../src/providers/index.js";
 
 const baseInput: AgentTurnInput = {
   instanceId: "discord:thread:thread-1",
@@ -82,22 +86,35 @@ function waitForTerminal(
   });
 }
 
-const opencodeGoProvider: CustomProviderConfig = {
-  id: "opencode-go",
-  baseUrl: "https://opencode.ai/zen/go/v1",
-  api: "openai-completions",
-  apiKey: "opencode-secret",
-  models: ["deepseek-v4-flash"],
-};
+function opencodeGoRegistryWithoutTransport(): ProviderRegistry {
+  return loadProviderRegistry({
+    providersCsv: "opencode-go",
+    env: {
+      PROVIDER_OPENCODE_GO_MODELS: "deepseek-v4-flash",
+      PROVIDER_OPENCODE_GO_API_KEY: "opencode-secret",
+    },
+  });
+}
+
+function proxiedAnthropicRegistry(): ProviderRegistry {
+  return loadProviderRegistry({
+    anthropicApiKey: "anthropic",
+    anthropicModels: "claude-sonnet-4-5",
+    providersCsv: "anthropic",
+    env: {
+      PROVIDER_ANTHROPIC_BASE_URL: "https://proxy/v1",
+    },
+  });
+}
 
 function createHarness({
   includeBindingsHost = true,
-  customProviders = [opencodeGoProvider],
+  providerRegistry = opencodeGoRegistryWithoutTransport(),
   workspacePath,
   getCredentials,
 }: {
   includeBindingsHost?: boolean;
-  customProviders?: CustomProviderConfig[];
+  providerRegistry?: ProviderRegistry;
   workspacePath?: string;
   getCredentials?: (model: string) => Record<string, string>;
 } = {}) {
@@ -105,7 +122,7 @@ function createHarness({
   const factoryCalls: AgentOsCreateOptions[] = [];
   const deps: import("../src/agentturn/agentos.js").AgentOsAgentTurnDependencies =
     {
-      customProviders: [...customProviders],
+      providerRegistry,
       ...(getCredentials ? { getCredentials } : {}),
       agentOsFactory: {
         create: async (options) => {
@@ -153,7 +170,7 @@ function createHarness({
 async function createHarnessWithWorkspace(
   options: {
     includeBindingsHost?: boolean;
-    customProviders?: CustomProviderConfig[];
+    providerRegistry?: ProviderRegistry;
     workspacePath?: string;
     getCredentials?: (model: string) => Record<string, string>;
   } = {},
@@ -271,16 +288,13 @@ describe("AgentOsAgentTurn setup role", () => {
   });
 
   it("materializes project Pi settings for built-in providers before prompting", async () => {
+    const registry = opencodeGoRegistryWithoutTransport();
     const { agentTurn, fakeAgentOs, workspacePath } =
       await createHarnessWithWorkspace({
+        providerRegistry: registry,
         getCredentials: createAgentOsCredentialsProvider({
-          ANTHROPIC_API_KEY: undefined,
-          OPENAI_API_KEY: undefined,
-          customProviders: [opencodeGoProvider],
-        } as Pick<
-          AppConfig,
-          "ANTHROPIC_API_KEY" | "OPENAI_API_KEY" | "customProviders"
-        > as AppConfig),
+          providerRegistry: registry,
+        } as Pick<AppConfig, "providerRegistry"> as AppConfig),
       });
     const input = {
       ...baseInput,
@@ -310,6 +324,41 @@ describe("AgentOsAgentTurn setup role", () => {
     expect(fakeAgentOs.setSessionModelCalls).toEqual([
       { sessionId: "session-1", model: "opencode-go/deepseek-v4-flash" },
     ]);
+  });
+
+  it("materializes proxied anthropic models.json and PI_CODING_AGENT_DIR", async () => {
+    const registry = proxiedAnthropicRegistry();
+    const { agentTurn, fakeAgentOs, workspacePath } =
+      await createHarnessWithWorkspace({
+        providerRegistry: registry,
+        getCredentials: createAgentOsCredentialsProvider({
+          providerRegistry: registry,
+        } as Pick<AppConfig, "providerRegistry"> as AppConfig),
+      });
+    const input = {
+      ...baseInput,
+      workspacePath,
+      model: "anthropic/claude-sonnet-4-5",
+    };
+
+    const result = await agentTurn.prompt(input);
+    await waitForTerminal(agentTurn, input.instanceId);
+
+    expect(result.accepted).toBe(true);
+
+    const sessionOpts = fakeAgentOs.createSessionCalls[0]!.opts as {
+      env?: Record<string, string>;
+    };
+    expect(sessionOpts.env?.PI_CODING_AGENT_DIR).toBe("/workspace/.pi/agent");
+    expect(sessionOpts.env?.ANTHROPIC_API_KEY).toBe("anthropic");
+
+    const models = JSON.parse(
+      await readFile(
+        join(workspacePath, ".pi", "agent", "models.json"),
+        "utf8",
+      ),
+    );
+    expect(models.providers.anthropic.baseUrl).toBe("https://proxy/v1");
   });
 });
 

@@ -9,12 +9,12 @@ export {
   AgentOsAgentTurn,
   createAgentOsAgentTurn,
   createAgentOsCredentialsProvider,
-  guestApiKeyEnvVarForProvider,
   type AgentOsAgentTurnDependencies,
   type AgentOsCreateOptions,
   type AgentOsFactory,
   type Logger,
 } from "./agentos.js";
+export { apiKeyEnvVarForProvider as guestApiKeyEnvVarForProvider } from "../providers/index.js";
 export {
   DurableAgentTurn,
   createDurableAgentTurn,

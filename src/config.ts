@@ -4,6 +4,11 @@ import {
   DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
 } from "./discord/agent-guardrails.js";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
+import {
+  deriveAllowedModels,
+  loadProviderRegistry,
+  type ProviderRegistry,
+} from "./providers/index.js";
 
 const optionalNonEmptyString = z.preprocess(
   (value) =>
@@ -62,19 +67,8 @@ const EnvSchema = z
     NODE_ENV: z.string().optional(),
   });
 
-export interface CustomProviderConfig {
-  id: string;
-  baseUrl: string;
-  api: string;
-  apiKey?: string;
-  headers?: Record<string, string>;
-  models: string[];
-}
-
 export type AppConfig = z.infer<typeof EnvSchema> & {
-  anthropicModels: string[];
-  openaiModels: string[];
-  customProviders: CustomProviderConfig[];
+  providerRegistry: ProviderRegistry;
   allowedModels: string[];
   defaultModel: string;
 };
@@ -104,184 +98,29 @@ export function getRuntimeConfig(): AppConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = EnvSchema.parse(env);
-  const anthropicModels = splitCsv(parsed.ANTHROPIC_MODELS);
-  const openaiModels = splitCsv(parsed.OPENAI_MODELS);
-  const customProviders = parseCustomProviders(env, parsed.PROVIDERS);
-  const allowedModels = deriveAllowedModels({
-    anthropicModels,
-    openaiModels,
-    customProviders,
-    anthropicApiKey: parsed.ANTHROPIC_API_KEY,
-    openaiApiKey: parsed.OPENAI_API_KEY,
+  const providerRegistry = loadProviderRegistry({
+    ...(parsed.ANTHROPIC_API_KEY !== undefined
+      ? { anthropicApiKey: parsed.ANTHROPIC_API_KEY }
+      : {}),
+    ...(parsed.ANTHROPIC_MODELS !== undefined
+      ? { anthropicModels: parsed.ANTHROPIC_MODELS }
+      : {}),
+    ...(parsed.OPENAI_API_KEY !== undefined
+      ? { openaiApiKey: parsed.OPENAI_API_KEY }
+      : {}),
+    ...(parsed.OPENAI_MODELS !== undefined
+      ? { openaiModels: parsed.OPENAI_MODELS }
+      : {}),
+    ...(parsed.PROVIDERS !== undefined ? { providersCsv: parsed.PROVIDERS } : {}),
+    env,
   });
+  const allowedModels = deriveAllowedModels(providerRegistry);
 
   const config: AppConfig = {
     ...parsed,
-    anthropicModels,
-    openaiModels,
-    customProviders,
+    providerRegistry,
     allowedModels,
     defaultModel: allowedModels[0]!,
   };
   return config;
-}
-
-interface AllowedModelsInput {
-  anthropicModels: string[];
-  openaiModels: string[];
-  customProviders: CustomProviderConfig[];
-  anthropicApiKey: string | undefined;
-  openaiApiKey: string | undefined;
-}
-
-export function deriveAllowedModels(input: AllowedModelsInput): string[] {
-  const models: string[] = [];
-
-  if (input.anthropicModels.length > 0 && !input.anthropicApiKey) {
-    throw new Error(
-      "ANTHROPIC_API_KEY is required when ANTHROPIC_MODELS is set",
-    );
-  }
-
-  if (input.openaiModels.length > 0 && !input.openaiApiKey) {
-    throw new Error("OPENAI_API_KEY is required when OPENAI_MODELS is set");
-  }
-
-  if (input.anthropicApiKey) {
-    if (input.anthropicModels.length === 0) {
-      throw new Error(
-        "ANTHROPIC_MODELS is required when ANTHROPIC_API_KEY is set",
-      );
-    }
-    for (const modelId of input.anthropicModels) {
-      models.push(`anthropic/${modelId}`);
-    }
-  }
-
-  if (input.openaiApiKey) {
-    if (input.openaiModels.length === 0) {
-      throw new Error("OPENAI_MODELS is required when OPENAI_API_KEY is set");
-    }
-    for (const modelId of input.openaiModels) {
-      models.push(`openai/${modelId}`);
-    }
-  }
-
-  for (const provider of input.customProviders) {
-    for (const modelId of provider.models) {
-      models.push(`${provider.id}/${modelId}`);
-    }
-  }
-
-  const allowedModels = [...new Set(models)];
-  if (allowedModels.length === 0) {
-    throw new Error("At least one provider model must be configured");
-  }
-  return allowedModels;
-}
-
-export function providerEnvPrefix(id: string): string {
-  return `PROVIDER_${id.replace(/-/g, "_").toUpperCase()}`;
-}
-
-export function parseCustomProviders(
-  env: NodeJS.ProcessEnv,
-  providersCsv?: string,
-): CustomProviderConfig[] {
-  const ids = [...new Set(splitCsv(providersCsv))];
-  return ids.map((id) => parseCustomProvider(env, id));
-}
-
-function parseCustomProvider(
-  env: NodeJS.ProcessEnv,
-  id: string,
-): CustomProviderConfig {
-  if (!/^[a-z0-9-]+$/.test(id)) {
-    throw new Error(`Invalid provider id "${id}"`);
-  }
-
-  const prefix = providerEnvPrefix(id);
-  const baseUrl = requiredEnv(env, `${prefix}_BASE_URL`, id);
-  const api = requiredEnv(env, `${prefix}_API`, id);
-  const supportedApis = [
-    "openai-completions",
-    "openai-responses",
-    "anthropic-messages",
-  ];
-  if (!supportedApis.includes(api)) {
-    throw new Error(
-      `${prefix}_API must be one of ${supportedApis.join(", ")} for Pi agent software; got "${api}"`,
-    );
-  }
-  const models = splitCsv(requiredEnv(env, `${prefix}_MODELS`, id));
-  if (models.length === 0) {
-    throw new Error(`${prefix}_MODELS must not be empty`);
-  }
-
-  const apiKey = optionalEnv(env[`${prefix}_API_KEY`]);
-  const headers = parseHeadersEnv(env[`${prefix}_HEADERS`], `${prefix}_HEADERS`);
-  return {
-    id,
-    baseUrl,
-    api,
-    models,
-    ...(apiKey ? { apiKey } : {}),
-    ...(headers ? { headers } : {}),
-  };
-}
-
-function parseHeadersEnv(
-  value: string | undefined,
-  key: string,
-): Record<string, string> | undefined {
-  const trimmed = optionalEnv(value);
-  if (!trimmed) return undefined;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    throw new Error(`${key} must be valid JSON`);
-  }
-
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`${key} must be a JSON object of string header values`);
-  }
-
-  const headers: Record<string, string> = Object.create(null);
-  for (const [headerName, headerValue] of Object.entries(
-    parsed as Record<string, unknown>,
-  )) {
-    if (typeof headerValue !== "string") {
-      throw new Error(`${key} must be a JSON object of string header values`);
-    }
-    headers[headerName] = headerValue;
-  }
-  return Object.keys(headers).length > 0 ? headers : undefined;
-}
-
-function requiredEnv(
-  env: NodeJS.ProcessEnv,
-  key: string,
-  providerId: string,
-): string {
-  const value = optionalEnv(env[key]);
-  if (!value) {
-    throw new Error(`${key} is required for provider "${providerId}"`);
-  }
-  return value;
-}
-
-function optionalEnv(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function splitCsv(value?: string): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
 }

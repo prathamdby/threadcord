@@ -212,7 +212,7 @@ export async function createApp(
         },
         nodeModulesPath: resolve(process.cwd(), "node_modules"),
         getCredentials: createAgentOsCredentialsProvider(config),
-        customProviders: config.customProviders,
+        providerRegistry: config.providerRegistry,
         onSessionEvent: (event) => {
           void durableSessionEventForwarder.forward(event);
         },

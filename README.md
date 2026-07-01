@@ -110,7 +110,7 @@ PROVIDER_OLLAMA_MODELS=llama3.1:8b
 
 Common `api` values: `openai-completions`, `openai-responses`, `anthropic-messages`. The AgentOS Pi software uses these protocol shapes to talk to the provider endpoint.
 
-To route a built-in provider through a proxy, list its ID in `PROVIDERS` and set `PROVIDER_<ID>_BASE_URL` (for example `PROVIDERS=anthropic` with `PROVIDER_ANTHROPIC_BASE_URL=...`). Threadcord layers the configured transport on the provider.
+To route a built-in provider through a proxy, list its ID in `PROVIDERS` and set `PROVIDER_<ID>_BASE_URL` (for example `PROVIDERS=anthropic` with `PROVIDER_ANTHROPIC_BASE_URL=...`). Threadcord writes a transport override to `<workspace>/.pi/agent/models.json` and sets `PI_CODING_AGENT_DIR=/workspace/.pi/agent` on the agentOS session so Pi merges the proxy endpoint with its built-in provider catalog. API keys stay in session env only — never on disk.
 
 Use `PROVIDER_<ID>_HEADERS` for providers that require custom request headers. The value must be a JSON object with string values:
 
@@ -125,6 +125,15 @@ PROVIDER_AGENT_ROUTER_HEADERS={"User-Agent":"Threadcord"}
 Inside Docker Compose, `localhost` in a provider URL points at the container, not your host. Use `host.docker.internal`, a Compose service name, or host networking.
 
 Allowed models are derived at startup from these provider blocks. When a Discord task omits `model:`, the first configured model is used.
+
+### Pi session files
+
+Before each agent turn, Threadcord materializes Pi-native config on disk:
+
+- `<checkout>/.pi/settings.json` — default provider/model for the task (always written)
+- `<workspace>/.pi/agent/models.json` — transport overrides or custom providers (written when needed)
+
+Secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, custom provider keys) are injected into the agentOS session env at runtime, not written into these files.
 
 ## Creating tasks
 

@@ -9,6 +9,7 @@ import {
 } from "../../src/agentturn/index.js";
 import { FakeMcpRegistry } from "./fake-mcp-registry.js";
 import type { AppConfig } from "../../src/config.js";
+import { loadProviderRegistry } from "../../src/providers/index.js";
 import type {
   SetupEnvironment,
   SetupProfile,
@@ -45,9 +46,11 @@ export const config: AppConfig = {
   TURN_HEARTBEAT_TIMEOUT_MS: 120000,
   SETUP_INSTALL_TIMEOUT_MS: 1800000,
   ANTHROPIC_API_KEY: "anthropic-key",
-  anthropicModels: ["claude-sonnet-4-5"],
-  openaiModels: [],
-  customProviders: [],
+  ANTHROPIC_MODELS: "claude-sonnet-4-5",
+  providerRegistry: loadProviderRegistry({
+    anthropicApiKey: "anthropic-key",
+    anthropicModels: "claude-sonnet-4-5",
+  }),
   allowedModels: ["anthropic/claude-sonnet-4-5"],
   defaultModel: "anthropic/claude-sonnet-4-5",
 };

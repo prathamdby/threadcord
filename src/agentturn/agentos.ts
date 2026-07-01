@@ -10,8 +10,12 @@ import {
 import pi from "@agentos-software/pi";
 import type { AgentOsSessionEvent } from "../discord/session-event-bridge.js";
 import { redact } from "../util/redact.js";
-import type { AppConfig, CustomProviderConfig } from "../config.js";
-import { materializePiAgentConfig } from "./pi-agent-config.js";
+import type { AppConfig } from "../config.js";
+import type { ProviderRegistry } from "../providers/index.js";
+import {
+  createPiSessionCredentialsResolver,
+  materializePiSessionConfig,
+} from "../providers/index.js";
 import { createCodingToolKit, createSetupToolKit } from "../bindings/toolkits.js";
 import { createBindingsHost } from "../bindings/host.js";
 import type { BindingsHostDependencies } from "../bindings/host.js";
@@ -49,8 +53,8 @@ export interface AgentOsAgentTurnDependencies {
   nodeModulesPath?: string;
   /** Returns model credentials for the guest session env. */
   getCredentials?: (model: string) => Record<string, string>;
-  /** Custom provider transport config used to materialize Pi models.json. */
-  customProviders?: CustomProviderConfig[];
+  /** Provider registry used to materialize Pi models.json and session credentials. */
+  providerRegistry?: ProviderRegistry;
   /** Forward mapped AgentOS session events to the Discord bridge / ConversationLog. */
   onSessionEvent?: (event: AgentOsSessionEvent) => void;
   /** Override the AgentOS sidecar binary path. */
@@ -380,17 +384,19 @@ export class AgentOsAgentTurn implements AgentTurn {
     input: AgentTurnInput,
     mcpServers: AcpMcpServerConfig[],
   ): Promise<string> {
-    const piAgentDir = await materializePiAgentConfig({
+    const materialized = await materializePiSessionConfig({
       workspacePath: input.workspacePath,
       repo: input.repo,
       model: input.model,
-      customProviders: this.deps.customProviders ?? [],
+      registry: this.deps.providerRegistry ?? { providers: [] },
     });
 
     const env: Record<string, string> = {
       ...(input.env ?? {}),
       ...(this.deps.getCredentials?.(input.model) ?? {}),
-      ...(piAgentDir ? { PI_CODING_AGENT_DIR: piAgentDir } : {}),
+      ...(materialized.agentDir
+        ? { PI_CODING_AGENT_DIR: materialized.agentDir }
+        : {}),
     };
 
     const { sessionId } = await agentOs.createSession("pi", {
@@ -521,65 +527,8 @@ export function createAgentOsAgentTurn(
   return new AgentOsAgentTurn(deps);
 }
 
-/** Pi guest env var for a provider's API key (matches @mariozechner/pi-ai env-api-keys). */
-const PI_GUEST_API_KEY_ENV: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  "azure-openai-responses": "AZURE_OPENAI_API_KEY",
-  google: "GEMINI_API_KEY",
-  groq: "GROQ_API_KEY",
-  cerebras: "CEREBRAS_API_KEY",
-  xai: "XAI_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-  "vercel-ai-gateway": "AI_GATEWAY_API_KEY",
-  zai: "ZAI_API_KEY",
-  mistral: "MISTRAL_API_KEY",
-  minimax: "MINIMAX_API_KEY",
-  "minimax-cn": "MINIMAX_CN_API_KEY",
-  huggingface: "HF_TOKEN",
-  opencode: "OPENCODE_API_KEY",
-  "opencode-go": "OPENCODE_API_KEY",
-  "kimi-coding": "KIMI_API_KEY",
-};
-
-export function guestApiKeyEnvVarForProvider(providerId: string): string {
-  return (
-    PI_GUEST_API_KEY_ENV[providerId] ??
-    `${providerId.replace(/-/g, "_").toUpperCase()}_API_KEY`
-  );
-}
-
-/**
- * Build a credentials provider from application config. The model string is
- * expected to be in the form `<provider>/<model-id>`; the provider prefix is
- * mapped to the corresponding Pi guest API key env var.
- */
 export function createAgentOsCredentialsProvider(
-  config: AppConfig,
+  config: Pick<AppConfig, "providerRegistry">,
 ): (model: string) => Record<string, string> {
-  return (model: string) => {
-    const provider = model.split("/")[0];
-    switch (provider) {
-      case "anthropic": {
-        return config.ANTHROPIC_API_KEY
-          ? { ANTHROPIC_API_KEY: config.ANTHROPIC_API_KEY }
-          : {};
-      }
-      case "openai": {
-        return config.OPENAI_API_KEY
-          ? { OPENAI_API_KEY: config.OPENAI_API_KEY }
-          : {};
-      }
-      default: {
-        for (const custom of config.customProviders) {
-          if (custom.id === provider && custom.apiKey) {
-            return {
-              [guestApiKeyEnvVarForProvider(custom.id)]: custom.apiKey,
-            };
-          }
-        }
-        return {};
-      }
-    }
-  };
+  return createPiSessionCredentialsResolver(config.providerRegistry);
 }

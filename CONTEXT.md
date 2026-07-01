@@ -133,3 +133,16 @@ Task ──► AgentSession (one per task/setup run)
 A Task creates one AgentSession. Each turn within that session is one AgentTurn call,
 durable through TurnRunner, hosted by MachineEnvironment, and logged by ConversationLog.
 The Agent Session survives restarts and is rebuilt from the ConversationLog transcript.
+
+## Provider configuration
+
+Threadcord normalizes all model provider env (`ANTHROPIC_*`, `OPENAI_*`, `PROVIDERS` /
+`PROVIDER_*`) into a single **ProviderRegistry** (`src/providers/`). Before each Pi
+session, **materializePiSessionConfig** writes:
+
+- `<checkout>/.pi/settings.json` for the task's default model
+- `<workspace>/.pi/agent/models.json` when transport overrides or custom providers require it
+
+Session API keys are resolved via **resolvePiSessionCredentials** using Pi's canonical env
+var names (e.g. `OPENCODE_API_KEY` for `opencode-go`). Legacy `.pi-agent/` paths are
+not used.

@@ -4,7 +4,6 @@ import { loadConfig, resolveTaskRequest } from "../src/config.js";
 const baseEnv = {
   DATABASE_URL: "postgres://example",
   DISCORD_BOT_TOKEN: "discord",
-
   GITHUB_TOKEN: "github",
   ANTHROPIC_API_KEY: "anthropic",
   ANTHROPIC_MODELS: "claude-sonnet-4-5",
@@ -16,8 +15,7 @@ describe("loadConfig", () => {
 
     expect(config.allowedModels).toEqual(["anthropic/claude-sonnet-4-5"]);
     expect(config.defaultModel).toBe("anthropic/claude-sonnet-4-5");
-    expect(config.anthropicModels).toEqual(["claude-sonnet-4-5"]);
-    expect(config.customProviders).toEqual([]);
+    expect(config.providerRegistry.providers[0]?.id).toBe("anthropic");
   });
 
   it("uses the first derived model as defaultModel", () => {
@@ -55,15 +53,15 @@ describe("loadConfig", () => {
       PROVIDER_OLLAMA_MODELS: "llama3.1:8b",
     });
 
-    expect(config.customProviders).toEqual([
-      {
-        id: "ollama",
+    expect(config.providerRegistry.providers[1]).toMatchObject({
+      id: "ollama",
+      models: ["llama3.1:8b"],
+      transport: {
         baseUrl: "http://localhost:11434/v1",
         api: "openai-completions",
         headers: { "User-Agent": "Threadcord" },
-        models: ["llama3.1:8b"],
       },
-    ]);
+    });
     expect(config.allowedModels).toEqual([
       "anthropic/claude-sonnet-4-5",
       "ollama/llama3.1:8b",
@@ -121,7 +119,6 @@ describe("loadConfig", () => {
       PROVIDERS: "",
     });
 
-    expect(config.customProviders).toEqual([]);
     expect(config.allowedModels).toEqual(["anthropic/claude-sonnet-4-5"]);
   });
 
@@ -164,7 +161,6 @@ describe("loadConfig", () => {
       loadConfig({
         DATABASE_URL: "postgres://example",
         DISCORD_BOT_TOKEN: "discord",
-
         GITHUB_TOKEN: "github",
       }),
     ).toThrow(/At least one provider model must be configured/);
