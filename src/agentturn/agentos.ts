@@ -382,6 +382,7 @@ export class AgentOsAgentTurn implements AgentTurn {
   ): Promise<string> {
     const piAgentDir = await materializePiAgentConfig({
       workspacePath: input.workspacePath,
+      repo: input.repo,
       model: input.model,
       customProviders: this.deps.customProviders ?? [],
     });
@@ -389,7 +390,7 @@ export class AgentOsAgentTurn implements AgentTurn {
     const env: Record<string, string> = {
       ...(input.env ?? {}),
       ...(this.deps.getCredentials?.(input.model) ?? {}),
-      PI_CODING_AGENT_DIR: piAgentDir,
+      ...(piAgentDir ? { PI_CODING_AGENT_DIR: piAgentDir } : {}),
     };
 
     const { sessionId } = await agentOs.createSession("pi", {

@@ -3,11 +3,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { AgentOs } from "@rivet-dev/agentos-core";
-import { AgentOsAgentTurn } from "../src/agentturn/agentos.js";
+import { AgentOsAgentTurn, createAgentOsCredentialsProvider } from "../src/agentturn/agentos.js";
 import type { AgentOsCreateOptions } from "../src/agentturn/agentos.js";
 import type { AgentOsAcpEvent } from "../src/agentturn/agentos-event-mapper.js";
 import type { AgentTurnInput, TurnEvent } from "../src/agentturn/types.js";
-import type { CustomProviderConfig } from "../src/config.js";
+import type { AppConfig, CustomProviderConfig } from "../src/config.js";
 
 const baseInput: AgentTurnInput = {
   instanceId: "discord:thread:thread-1",
@@ -94,16 +94,19 @@ function createHarness({
   includeBindingsHost = true,
   customProviders = [opencodeGoProvider],
   workspacePath,
+  getCredentials,
 }: {
   includeBindingsHost?: boolean;
   customProviders?: CustomProviderConfig[];
   workspacePath?: string;
+  getCredentials?: (model: string) => Record<string, string>;
 } = {}) {
   const fakeAgentOs = new FakeAgentOs();
   const factoryCalls: AgentOsCreateOptions[] = [];
   const deps: import("../src/agentturn/agentos.js").AgentOsAgentTurnDependencies =
     {
       customProviders: [...customProviders],
+      ...(getCredentials ? { getCredentials } : {}),
       agentOsFactory: {
         create: async (options) => {
           factoryCalls.push(options);
@@ -152,6 +155,7 @@ async function createHarnessWithWorkspace(
     includeBindingsHost?: boolean;
     customProviders?: CustomProviderConfig[];
     workspacePath?: string;
+    getCredentials?: (model: string) => Record<string, string>;
   } = {},
 ) {
   const workspacePath =
@@ -266,9 +270,18 @@ describe("AgentOsAgentTurn setup role", () => {
     expect(options.toolKits![0]!.name).toBe("threadcord-coding");
   });
 
-  it("materializes Pi agent config and passes PI_CODING_AGENT_DIR before prompting", async () => {
+  it("materializes project Pi settings for built-in providers before prompting", async () => {
     const { agentTurn, fakeAgentOs, workspacePath } =
-      await createHarnessWithWorkspace();
+      await createHarnessWithWorkspace({
+        getCredentials: createAgentOsCredentialsProvider({
+          ANTHROPIC_API_KEY: undefined,
+          OPENAI_API_KEY: undefined,
+          customProviders: [opencodeGoProvider],
+        } as Pick<
+          AppConfig,
+          "ANTHROPIC_API_KEY" | "OPENAI_API_KEY" | "customProviders"
+        > as AppConfig),
+      });
     const input = {
       ...baseInput,
       workspacePath,
@@ -283,11 +296,11 @@ describe("AgentOsAgentTurn setup role", () => {
     const sessionOpts = fakeAgentOs.createSessionCalls[0]!.opts as {
       env?: Record<string, string>;
     };
-    expect(sessionOpts.env?.PI_CODING_AGENT_DIR).toBe("/workspace/.pi-agent");
-    expect(sessionOpts.env?.OPENCODE_API_KEY).toBeUndefined();
+    expect(sessionOpts.env?.PI_CODING_AGENT_DIR).toBeUndefined();
+    expect(sessionOpts.env?.OPENCODE_API_KEY).toBe("opencode-secret");
 
     const settings = JSON.parse(
-      await readFile(join(workspacePath, ".pi-agent", "settings.json"), "utf8"),
+      await readFile(join(workspacePath, "web", ".pi", "settings.json"), "utf8"),
     );
     expect(settings).toEqual({
       defaultProvider: "opencode-go",

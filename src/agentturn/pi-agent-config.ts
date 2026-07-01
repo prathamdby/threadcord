@@ -1,13 +1,16 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { getProviders } from "@mariozechner/pi-ai";
 import type { CustomProviderConfig } from "../config.js";
 import { guestApiKeyEnvVarForProvider } from "./agentos.js";
 
 export const PI_AGENT_DIR_NAME = ".pi-agent";
+export const PI_PROJECT_DIR_NAME = ".pi";
 export const GUEST_PI_AGENT_DIR = "/workspace/.pi-agent";
 
 export interface MaterializePiAgentConfigInput {
   workspacePath: string;
+  repo: string;
   model: string;
   customProviders: CustomProviderConfig[];
 }
@@ -40,15 +43,32 @@ function providerConfigForModel(
   return provider;
 }
 
+function isBuiltInPiProvider(providerId: string): boolean {
+  return getProviders().includes(
+    providerId as ReturnType<typeof getProviders>[number],
+  );
+}
+
+function checkoutPathForWorkspace(
+  workspacePath: string,
+  repo: string,
+): string {
+  return join(workspacePath, basename(repo));
+}
+
 export async function materializePiAgentConfig(
   input: MaterializePiAgentConfigInput,
-): Promise<string> {
+): Promise<string | undefined> {
   const { provider, modelId } = parseModelRef(input.model);
-  const agentDir = join(input.workspacePath, PI_AGENT_DIR_NAME);
-  await mkdir(agentDir, { recursive: true });
+  const checkoutPath = checkoutPathForWorkspace(
+    input.workspacePath,
+    input.repo,
+  );
+  const projectPiDir = join(checkoutPath, PI_PROJECT_DIR_NAME);
+  await mkdir(projectPiDir, { recursive: true });
 
   await writeFile(
-    join(agentDir, "settings.json"),
+    join(projectPiDir, "settings.json"),
     `${JSON.stringify(
       {
         defaultProvider: provider,
@@ -64,29 +84,33 @@ export async function materializePiAgentConfig(
     modelId,
     input.customProviders,
   );
-  if (customProvider) {
-    const apiKeyEnv = guestApiKeyEnvVarForProvider(customProvider.id);
-    await writeFile(
-      join(agentDir, "models.json"),
-      `${JSON.stringify(
-        {
-          providers: {
-            [customProvider.id]: {
-              baseUrl: customProvider.baseUrl,
-              api: customProvider.api,
-              apiKey: apiKeyEnv,
-              ...(customProvider.headers
-                ? { headers: customProvider.headers }
-                : {}),
-              models: [{ id: modelId }],
-            },
+  if (!customProvider || isBuiltInPiProvider(customProvider.id)) {
+    return undefined;
+  }
+
+  const agentDir = join(input.workspacePath, PI_AGENT_DIR_NAME);
+  await mkdir(agentDir, { recursive: true });
+  const apiKeyEnv = guestApiKeyEnvVarForProvider(customProvider.id);
+  await writeFile(
+    join(agentDir, "models.json"),
+    `${JSON.stringify(
+      {
+        providers: {
+          [customProvider.id]: {
+            baseUrl: customProvider.baseUrl,
+            api: customProvider.api,
+            apiKey: apiKeyEnv,
+            ...(customProvider.headers
+              ? { headers: customProvider.headers }
+              : {}),
+            models: [{ id: modelId }],
           },
         },
-        null,
-        2,
-      )}\n`,
-    );
-  }
+      },
+      null,
+      2,
+    )}\n`,
+  );
 
   return GUEST_PI_AGENT_DIR;
 }
