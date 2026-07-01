@@ -8,13 +8,14 @@ export function anthropicPiConfig(
     env?: NodeJS.ProcessEnv;
   } = {},
 ): PiHostConfig {
+  const { defaultModel, modelsJsonRaw, env } = overrides;
   return loadPiConfig({
-    defaultModel: overrides.defaultModel ?? "anthropic/claude-sonnet-4-5",
+    defaultModel: defaultModel ?? "anthropic/claude-sonnet-4-5",
+    modelsJsonRaw,
     env: {
       ANTHROPIC_API_KEY: "anthropic",
-      ...overrides.env,
+      ...env,
     },
-    ...overrides,
   });
 }
 
@@ -25,13 +26,14 @@ export function opencodeGoPiConfig(
     env?: NodeJS.ProcessEnv;
   } = {},
 ): PiHostConfig {
+  const { defaultModel, modelsJsonRaw, env } = overrides;
   return loadPiConfig({
-    defaultModel: overrides.defaultModel ?? "opencode-go/deepseek-v4-flash",
+    defaultModel: defaultModel ?? "opencode-go/deepseek-v4-flash",
+    modelsJsonRaw,
     env: {
       OPENCODE_API_KEY: "opencode-secret",
-      ...overrides.env,
+      ...env,
     },
-    ...overrides,
   });
 }
 

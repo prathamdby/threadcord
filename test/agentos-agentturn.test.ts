@@ -1,7 +1,7 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AgentOs } from "@rivet-dev/agentos-core";
 import { AgentOsAgentTurn, createAgentOsCredentialsProvider } from "../src/agentturn/agentos.js";
 import type { AgentOsCreateOptions } from "../src/agentturn/agentos.js";
@@ -268,7 +268,7 @@ describe("AgentOsAgentTurn setup role", () => {
   });
 
   it("materializes project Pi settings for built-in providers before prompting", async () => {
-    process.env.OPENCODE_API_KEY = "opencode-secret";
+    vi.stubEnv("OPENCODE_API_KEY", "opencode-secret");
     const piConfig = opencodeGoPiConfig();
     const { agentTurn, fakeAgentOs, workspacePath } =
       await createHarnessWithWorkspace({
@@ -305,7 +305,7 @@ describe("AgentOsAgentTurn setup role", () => {
   });
 
   it("materializes proxied anthropic models.json and PI_CODING_AGENT_DIR", async () => {
-    process.env.ANTHROPIC_API_KEY = "anthropic";
+    vi.stubEnv("ANTHROPIC_API_KEY", "anthropic");
     const piConfig = proxiedAnthropicPiConfig();
     const { agentTurn, fakeAgentOs, workspacePath } =
       await createHarnessWithWorkspace({

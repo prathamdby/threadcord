@@ -21,7 +21,6 @@ export {
 } from "./discovery.js";
 
 export {
-  loadModelsJsonSource,
   loadModelsJsonSourceAsync,
   loadModelsJsonSourceSync,
   optionalEnv,
@@ -44,5 +43,3 @@ export {
   PI_AGENT_DIR_NAME,
   PI_PROJECT_DIR_NAME,
 } from "./session-config.js";
-
-export { apiKeyEnvVarForProvider as guestApiKeyEnvVarForProvider } from "./session-env.js";

@@ -24,6 +24,13 @@ export function validateModelsJsonShape(value: unknown): PiModelsJson {
   if (!providers || typeof providers !== "object" || Array.isArray(providers)) {
     throw new Error("PI_MODELS_JSON must include a providers object");
   }
+  for (const [providerId, entry] of Object.entries(providers)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(
+        `PI_MODELS_JSON providers.${providerId} must be an object`,
+      );
+    }
+  }
   return value as PiModelsJson;
 }
 
@@ -36,12 +43,6 @@ export function parseApiKeyEnvRef(apiKeyField: string): string {
     return trimmed.slice(1).trim();
   }
   return trimmed;
-}
-
-export async function loadModelsJsonSource(
-  raw: string,
-): Promise<PiModelsJson> {
-  return loadModelsJsonSourceSync(raw);
 }
 
 export function loadModelsJsonSourceSync(raw: string): PiModelsJson {

@@ -24,4 +24,10 @@ describe("validateModelsJsonShape", () => {
   it("requires a providers object", () => {
     expect(() => validateModelsJsonShape({})).toThrow(/providers object/);
   });
+
+  it("requires each provider entry to be an object", () => {
+    expect(() =>
+      validateModelsJsonShape({ providers: { anthropic: "not-an-object" } }),
+    ).toThrow(/providers\.anthropic must be an object/);
+  });
 });
