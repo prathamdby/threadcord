@@ -1,5 +1,6 @@
 import { getProviders } from "@mariozechner/pi-ai";
 import {
+  mergeHeaderRecords,
   optionalEnv,
   parseCustomProviderIds,
   parseProviderBlock,
@@ -28,18 +29,18 @@ function mergeProviderDefinitions(
 ): PiProviderDefinition {
   const models =
     incoming.models.length > 0
-      ? [...new Set(incoming.models)]
+      ? [...new Set([...existing.models, ...incoming.models])]
       : existing.models;
 
   const transport: PiProviderDefinition["transport"] = {
     ...existing.transport,
     ...incoming.transport,
   };
-  const mergedHeaders = {
-    ...existing.transport?.headers,
-    ...incoming.transport?.headers,
-  };
-  if (Object.keys(mergedHeaders).length > 0) {
+  const mergedHeaders = mergeHeaderRecords(
+    existing.transport?.headers,
+    incoming.transport?.headers,
+  );
+  if (mergedHeaders) {
     transport.headers = mergedHeaders;
   }
 
@@ -67,15 +68,16 @@ function addSugarProvider(
     models: string[];
   },
 ): void {
+  const envPrefix = input.id.toUpperCase();
   if (input.models.length > 0 && !input.apiKey) {
     throw new Error(
-      `${input.id === "anthropic" ? "ANTHROPIC" : "OPENAI"}_API_KEY is required when ${input.id === "anthropic" ? "ANTHROPIC" : "OPENAI"}_MODELS is set`,
+      `${envPrefix}_API_KEY is required when ${envPrefix}_MODELS is set`,
     );
   }
 
   if (input.apiKey && input.models.length === 0) {
     throw new Error(
-      `${input.id === "anthropic" ? "ANTHROPIC" : "OPENAI"}_MODELS is required when ${input.id === "anthropic" ? "ANTHROPIC" : "OPENAI"}_API_KEY is set`,
+      `${envPrefix}_MODELS is required when ${envPrefix}_API_KEY is set`,
     );
   }
 

@@ -24,16 +24,17 @@ export function optionalEnv(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function requiredEnv(
-  env: NodeJS.ProcessEnv,
-  key: string,
-  providerId: string,
-): string {
-  const value = optionalEnv(env[key]);
-  if (!value) {
-    throw new Error(`${key} is required for provider "${providerId}"`);
+export function mergeHeaderRecords(
+  ...sources: (Record<string, string> | undefined)[]
+): Record<string, string> | undefined {
+  const merged: Record<string, string> = Object.create(null);
+  for (const source of sources) {
+    if (!source) continue;
+    for (const [key, value] of Object.entries(source)) {
+      merged[key] = value;
+    }
   }
-  return value;
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 export function parseHeadersEnv(

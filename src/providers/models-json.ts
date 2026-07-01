@@ -37,9 +37,6 @@ function buildProviderEntry(
   if (!isBuiltInPiProvider(provider.id)) {
     entry.apiKey = apiKeyEnvVarForProvider(provider.id);
     entry.models = provider.models.map((id) => ({ id }));
-    if (!entry.api && transport?.api) {
-      entry.api = transport.api;
-    }
   }
 
   return entry;

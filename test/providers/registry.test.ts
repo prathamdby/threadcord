@@ -53,6 +53,39 @@ describe("loadProviderRegistry", () => {
     });
   });
 
+  it("unions sugar and PROVIDERS model lists for the same provider", () => {
+    const registry = loadProviderRegistry({
+      anthropicApiKey: "anthropic-key",
+      anthropicModels: "claude-sonnet-4-5",
+      providersCsv: "anthropic",
+      env: {
+        PROVIDER_ANTHROPIC_MODELS: "claude-opus-4-1",
+      },
+    });
+
+    expect(registry.providers[0]?.models).toEqual([
+      "claude-sonnet-4-5",
+      "claude-opus-4-1",
+    ]);
+  });
+
+  it("preserves null-prototype headers when sugar merges with PROVIDERS transport", () => {
+    const registry = loadProviderRegistry({
+      anthropicApiKey: "anthropic-key",
+      anthropicModels: "claude-sonnet-4-5",
+      providersCsv: "anthropic",
+      env: {
+        PROVIDER_ANTHROPIC_BASE_URL: "https://gateway.example.com/anthropic",
+        PROVIDER_ANTHROPIC_HEADERS:
+          '{"User-Agent":"Threadcord","__proto__":"ignored"}',
+      },
+    });
+
+    const headers = registry.providers[0]?.transport?.headers;
+    expect(Object.getPrototypeOf(headers)).toBeNull();
+    expect(headers?.["User-Agent"]).toBe("Threadcord");
+  });
+
   it("merges PROVIDERS anthropic transport with anthropic sugar models", () => {
     const registry = loadProviderRegistry({
       anthropicApiKey: "anthropic-key",
