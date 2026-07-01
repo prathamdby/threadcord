@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import type { MiddlewareHandler } from "hono";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import type { AppConfig } from "./config.js";
@@ -269,13 +268,6 @@ export async function createApp(): Promise<{
     );
   });
 
-  const bearer = config.THREADCORD_HTTP_BEARER;
-  if (bearer) {
-    app.use("/agents/*", bearerAuth(bearer));
-    app.use("/workflows/*", bearerAuth(bearer));
-    app.use("/runs/*", bearerAuth(bearer));
-  }
-
   return {
     app,
     config,
@@ -327,14 +319,6 @@ async function healthcheckAgentOs(): Promise<{
       error: error instanceof Error ? error.message : String(error),
     };
   }
-}
-
-function bearerAuth(token: string): MiddlewareHandler {
-  return async (c, next) => {
-    if (c.req.header("authorization") !== `Bearer ${token}`)
-      return c.text("Unauthorized", 401);
-    await next();
-  };
 }
 
 function createGitExecutor(): GitExecutor {
