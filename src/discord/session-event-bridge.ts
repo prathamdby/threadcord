@@ -9,14 +9,15 @@ import {
   DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
   resolveAgentMaxToolFailures,
   resolveAgentMaxValidationFailures,
-} from "../flue/agent-guardrails.js";
+} from "./agent-guardrails.js";
 import {
   clearToolFailureGuard,
   markToolGuardFailureDelivered,
   maybeAbortOnToolFailures,
   noteAgentTurnBoundary,
   shouldSkipObserveFailureDelivery,
-} from "../flue/tool-failure-guard.js";
+  type ToolResultEvent,
+} from "./tool-failure-guard.js";
 import { posix } from "node:path";
 import { isThreadcordInstance } from "../ids.js";
 import { getRuntimeConfig } from "../config.js";
@@ -336,27 +337,28 @@ export class SessionEventBridgeImpl implements SessionEventBridge {
     maxFailures: { maxFailures: number; maxValidationFailures: number },
   ): Promise<string | undefined> {
     if (event.type === "tool_result" && event.isError) {
+      const toolEvent: ToolResultEvent = {
+        type: "tool",
+        toolName: event.toolName,
+        isError: true,
+        result: event.result,
+      };
       return maybeAbortOnToolFailures(
-        {
-          type: "tool",
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          isError: true,
-          result: event.result,
-        } as Parameters<typeof maybeAbortOnToolFailures>[0],
+        toolEvent,
         instanceId,
         maxFailures.maxFailures,
         maxFailures.maxValidationFailures,
       );
     }
     if (event.type === "permission_failure") {
+      const toolEvent: ToolResultEvent = {
+        type: "tool",
+        toolName: "permission",
+        isError: true,
+        result: event.summary,
+      };
       return maybeAbortOnToolFailures(
-        {
-          type: "tool",
-          toolName: "permission",
-          isError: true,
-          result: event.summary,
-        } as Parameters<typeof maybeAbortOnToolFailures>[0],
+        toolEvent,
         instanceId,
         maxFailures.maxFailures,
         maxFailures.maxValidationFailures,

@@ -24,8 +24,8 @@ function defaultThreadRenameLogger(): Logger {
 
 /**
  * Schedules a readable thread rename in the background using a lightweight,
- * host-side AgentTurn session with role "thread-namer". No Flue dispatch is
- * used. The rename is best-effort: failures are logged and the task continues.
+ * host-side AgentTurn session with role "thread-namer". The rename is
+ * best-effort: failures are logged and the task continues.
  *
  * All failure paths (timeout, empty/whitespace instruction, rename rejection)
  * are caught and logged. No unhandled promise rejection can escape.

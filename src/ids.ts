@@ -1,6 +1,6 @@
 export const DISCORD_THREAD_INSTANCE_PREFIX = "discord:thread:" as const;
 
-export function toFlueInstanceId(threadId: string): string {
+export function toAgentInstanceId(threadId: string): string {
   return `${DISCORD_THREAD_INSTANCE_PREFIX}${threadId}`;
 }
 

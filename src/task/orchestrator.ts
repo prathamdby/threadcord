@@ -10,7 +10,6 @@ import {
 import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
 import {
-  createFlueAgentTurn,
   createDefaultMachineEnvironment,
   type AgentTurn,
   type AgentTurnInput,
@@ -26,7 +25,7 @@ import {
 import {
   isPendingThreadId,
   pendingThreadId,
-  toFlueInstanceId,
+  toAgentInstanceId,
 } from "../ids.js";
 import { discoverInstalledSkills } from "../setup/skills.js";
 import { workspacePaths } from "./workspace-env.js";
@@ -113,7 +112,7 @@ export class TaskOrchestrator {
     private readonly config: AppConfig,
     private readonly store: TaskStore,
     private readonly setupStore: SetupStore,
-    private readonly agentTurn: AgentTurn = createFlueAgentTurn(),
+    private readonly agentTurn: AgentTurn,
     machineEnvironment?: MachineEnvironment,
     mcpRegistry?: McpRegistry,
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
@@ -216,7 +215,7 @@ export class TaskOrchestrator {
       id: taskId,
       discordMessageId: input.initiatorMessageId,
       discordThreadId: pendingThreadId(taskId),
-      flueInstanceId: pendingThreadId(taskId),
+      agentInstanceId: pendingThreadId(taskId),
       workspacePath: join(this.config.WORKSPACE_ROOT, taskId),
       setupProfileRevision: setupProfile.revision,
       ...taskRequest,
@@ -268,7 +267,7 @@ export class TaskOrchestrator {
     const attached = await this.store.attachAndPromote(
       task.id,
       thread.id,
-      toFlueInstanceId(thread.id),
+      toAgentInstanceId(thread.id),
       statusMessageId,
       headerMessageId,
     );
@@ -276,7 +275,7 @@ export class TaskOrchestrator {
       return { ok: false, reason: "Could not attach task to thread." };
     }
 
-    this.taskThreads.set(attached.flueInstanceId, thread);
+    this.taskThreads.set(attached.agentInstanceId, thread);
     this.recordSlashInitiator(attached.id, input.initiatorMessageId);
 
     const claimed = await this.store.claimNextTurn(attached.id);
@@ -349,7 +348,7 @@ export class TaskOrchestrator {
       await message.reply("Task marked complete.");
       await this.refreshHeader(task.id);
       await this.disposeInitiators(task.id, CHECK);
-      this.taskThreads.delete(task.flueInstanceId);
+      this.taskThreads.delete(task.agentInstanceId);
       return;
     }
     if (TERMINAL_STATUSES.has(task.status)) {
@@ -482,7 +481,7 @@ export class TaskOrchestrator {
 
   private async runTurn(claimed: ClaimedTurn): Promise<void> {
     const { task, instruction, source } = claimed;
-    const instanceId = task.flueInstanceId;
+    const instanceId = task.agentInstanceId;
     const initiator = this.initiatorMessages.get(claimed.initiatorMessageId);
     if (initiator) {
       this.initiatorMessages.delete(claimed.initiatorMessageId);
@@ -645,10 +644,10 @@ export class TaskOrchestrator {
   }
 
   private startTypingLoop(task: TaskRecord): NodeJS.Timeout | undefined {
-    const hasThread = this.taskThreads.has(task.flueInstanceId);
+    const hasThread = this.taskThreads.has(task.agentInstanceId);
     if (!hasThread && !this.sendThreadTyping) return undefined;
     const ping = (): void => {
-      const thread = this.taskThreads.get(task.flueInstanceId);
+      const thread = this.taskThreads.get(task.agentInstanceId);
       if (thread) {
         void thread.sendTyping().catch(() => {});
         return;
@@ -723,7 +722,7 @@ export class TaskOrchestrator {
     const projected: TaskRecord = {
       ...task,
       discordThreadId: thread.id,
-      flueInstanceId: toFlueInstanceId(thread.id),
+      agentInstanceId: toAgentInstanceId(thread.id),
       status: "queued",
     };
     try {
@@ -761,7 +760,7 @@ export class TaskOrchestrator {
         queue,
         runningTurn,
       });
-      const thread = this.taskThreads.get(task.flueInstanceId);
+      const thread = this.taskThreads.get(task.agentInstanceId);
       if (this.editHeaderMessage) {
         await this.editHeaderMessage(
           task.discordThreadId,

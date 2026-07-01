@@ -1,7 +1,7 @@
 /**
- * Extract text from a Flue content-array result shape.
+ * Extract text from a content-array result shape.
  *
- * Flue tool errors can return results as `{ content: [{ type: "text", text: "..." }] }`.
+ * Tool errors can return results as `{ content: [{ type: "text", text: "..." }] }`.
  * This helper pulls the text out of that structure.
  */
 export function extractContentArrayText(content: unknown): string | undefined {

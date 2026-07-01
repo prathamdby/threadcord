@@ -1,10 +1,8 @@
 /**
  * AgentTurn is the top-level facade and primary seam the orchestrators depend on.
  *
- * It exposes a small interface over a deep implementation that will eventually
- * compose TurnRunner, MachineEnvironment, and ConversationLog. During the
- * Flue-to-AgentOS transition, a FlueAgentTurn adapter satisfies this interface
- * using the existing Flue dispatch/observe plumbing.
+ * It exposes a small interface over a deep implementation that composes
+ * TurnRunner, MachineEnvironment, and ConversationLog.
  */
 
 export type AgentTurnRole = "coding" | "setup" | "thread-namer";
@@ -68,15 +66,12 @@ export interface AgentTurn {
 
   /**
    * Subscribe to turn lifecycle events. Returns an unsubscribe function.
-   * In the transitional Flue adapter this is a no-op stub; the observe-bridge
-   * still handles Flue events globally until the SessionEventBridge slice.
    */
   onEvent(handler: (event: TurnEvent) => void): () => void;
 
   /**
    * Reconcile any agent-side state after a process restart. The orchestrator
-   * calls this before its own store-level reconciliation. In the transitional
-   * Flue adapter this is a no-op stub.
+   * calls this before its own store-level reconciliation.
    */
   resumeAfterRestart(
     notify: (threadId: string, content: string) => Promise<void>,

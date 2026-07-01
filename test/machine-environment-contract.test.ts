@@ -28,7 +28,7 @@ const baseTask: TaskRecord = {
   id: "task-1",
   discordMessageId: "msg-1",
   discordThreadId: "thread-1",
-  flueInstanceId: "discord:thread:thread-1",
+  agentInstanceId: "discord:thread:thread-1",
   workspacePath: "/workspaces/task-1",
   repo: "acme/web",
   branch: "main",
@@ -73,7 +73,7 @@ function makeInput(
     environment: { ...baseProfile.environment, ...overrides.setupProfile?.environment },
   };
   return {
-    instanceId: task.flueInstanceId,
+    instanceId: task.agentInstanceId,
     role: "coding" as const,
     task,
     source: overrides.source ?? "initial",
@@ -432,7 +432,7 @@ describe("MachineEnvironment contract", () => {
     const result = await env.prepare(makeInput());
     expect(result.ready).toBe(true);
 
-    await env.logResourceSample("end", baseTask.flueInstanceId);
+    await env.logResourceSample("end", baseTask.agentInstanceId);
 
     expect(env.resourceSamples).toHaveLength(2);
     expect(env.resourceSamples[0]?.tag).toBe("start");
@@ -588,7 +588,7 @@ describe("MachineEnvironment orchestrator seam", () => {
     const world = new World(1, 9000);
     const result = await world.submitRaw("m-initial");
     const task = result.task!;
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
     expect(world.store.snapshot(task.id).status).toBe("waiting");
 

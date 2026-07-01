@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { cacheConfig } from "../src/config.js";
-import { toFlueInstanceId } from "../src/ids.js";
+import { toAgentInstanceId } from "../src/ids.js";
 import {
   registerSessionEventBridge,
   type SessionEventBridge,
@@ -10,7 +10,7 @@ import { DurableConversationLog, type ConversationLog } from "../src/agentturn/c
 import { InMemoryConversationLogStore } from "./support/conversation-log-store.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
 import { config } from "./support/orchestrator-harness.js";
-import { resetToolFailureGuardsForTests } from "../src/flue/tool-failure-guard.js";
+import { resetToolFailureGuardsForTests } from "../src/discord/tool-failure-guard.js";
 
 beforeEach(() => {
   cacheConfig(config);
@@ -38,7 +38,7 @@ function recordingBridge(): {
     id: "task-1",
     discordMessageId: "msg-1",
     discordThreadId: "thread-1",
-    flueInstanceId: toFlueInstanceId("thread-1"),
+    agentInstanceId: toAgentInstanceId("thread-1"),
     workspacePath: "/workspaces/task-1",
     repo: "acme/web",
     branch: "main",
@@ -74,7 +74,7 @@ function recordingBridge(): {
   return { callbacks, edits, sends, onAgentEnd, onAgentFailure, bridge, log, store };
 }
 
-const instanceId = toFlueInstanceId("thread-1");
+const instanceId = toAgentInstanceId("thread-1");
 
 describe("SessionEventBridge", () => {
   it("maps a text delta to a progress line", async () => {
@@ -399,8 +399,8 @@ describe("SessionEventBridge", () => {
 
   it("serializes events per instance so renders do not interleave", async () => {
     vi.useFakeTimers();
-    const instanceA = toFlueInstanceId("thread-a");
-    const instanceB = toFlueInstanceId("thread-b");
+    const instanceA = toAgentInstanceId("thread-a");
+    const instanceB = toAgentInstanceId("thread-b");
     const { bridge, edits } = recordingBridge();
 
     // Ensure both instances are resolvable in the shared store.
@@ -409,7 +409,7 @@ describe("SessionEventBridge", () => {
       id: "task-a",
       discordMessageId: "msg-a",
       discordThreadId: "thread-a",
-      flueInstanceId: instanceA,
+      agentInstanceId: instanceA,
       workspacePath: "/workspaces/task-a",
       repo: "acme/web",
       branch: "main",
@@ -426,7 +426,7 @@ describe("SessionEventBridge", () => {
       id: "task-b",
       discordMessageId: "msg-b",
       discordThreadId: "thread-b",
-      flueInstanceId: instanceB,
+      agentInstanceId: instanceB,
       workspacePath: "/workspaces/task-b",
       repo: "acme/web",
       branch: "main",

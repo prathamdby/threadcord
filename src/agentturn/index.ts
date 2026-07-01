@@ -4,7 +4,6 @@ export * from "./conversation-log.js";
 export * from "./machine-environment.js";
 export * from "./persistence.js";
 export * from "./fallback.js";
-export { createFlueAgentTurn, FlueAgentTurn } from "./flue-adapter.js";
 export { FakeAgentTurn, type FakeAgentTurnOptions } from "./fake.js";
 export {
   AgentOsAgentTurn,

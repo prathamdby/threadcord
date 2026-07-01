@@ -75,7 +75,7 @@ export class TaskStore {
         id TEXT PRIMARY KEY,
         discord_message_id TEXT NOT NULL UNIQUE,
         discord_thread_id TEXT NOT NULL UNIQUE,
-        flue_instance_id TEXT NOT NULL UNIQUE,
+        agent_instance_id TEXT NOT NULL UNIQUE,
         workspace_path TEXT NOT NULL,
         repo TEXT NOT NULL,
         branch TEXT NOT NULL,
@@ -109,9 +109,21 @@ export class TaskStore {
       ADD COLUMN IF NOT EXISTS header_message_id TEXT
     `);
     await this.pool.query(`
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS agent_instance_id TEXT UNIQUE
+    `);
+    await this.pool.query(`
       UPDATE tasks
       SET progress_message_ids = ARRAY[status_message_id]
       WHERE status_message_id IS NOT NULL AND progress_message_ids IS NULL
+    `);
+    await this.pool.query(`
+      UPDATE tasks
+      SET agent_instance_id = flue_instance_id
+      WHERE agent_instance_id IS NULL AND flue_instance_id IS NOT NULL
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks ALTER COLUMN agent_instance_id SET NOT NULL
     `);
     await this.pool.query(`
       ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check
@@ -140,6 +152,9 @@ export class TaskStore {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await this.pool.query(`
+      ALTER TABLE tasks DROP COLUMN IF EXISTS flue_instance_id
+    `);
   }
 
   async createDraft(
@@ -148,7 +163,7 @@ export class TaskStore {
     const insert = await this.pool.query(
       `
         INSERT INTO tasks (
-          id, discord_message_id, discord_thread_id, flue_instance_id, workspace_path,
+          id, discord_message_id, discord_thread_id, agent_instance_id, workspace_path,
           repo, branch, model, instruction, push_override, status, setup_profile_revision
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11)
@@ -159,7 +174,7 @@ export class TaskStore {
         task.id,
         task.discordMessageId,
         task.discordThreadId,
-        task.flueInstanceId,
+        task.agentInstanceId,
         task.workspacePath,
         task.repo,
         task.branch,
@@ -181,7 +196,7 @@ export class TaskStore {
   async attachAndPromote(
     taskId: string,
     threadId: string,
-    flueInstanceId: string,
+    agentInstanceId: string,
     statusMessageId: string,
     headerMessageId?: string,
   ): Promise<TaskRecord | undefined> {
@@ -189,7 +204,7 @@ export class TaskStore {
       `
         UPDATE tasks
         SET discord_thread_id = $2,
-            flue_instance_id = $3,
+            agent_instance_id = $3,
             progress_message_ids = ARRAY[$4],
             header_message_id = $5,
             status = 'queued',
@@ -200,7 +215,7 @@ export class TaskStore {
       [
         taskId,
         threadId,
-        flueInstanceId,
+        agentInstanceId,
         statusMessageId,
         headerMessageId ?? null,
       ],
@@ -294,7 +309,7 @@ export class TaskStore {
 
   async getByInstanceId(instanceId: string): Promise<TaskRecord | undefined> {
     const result = await this.pool.query(
-      "SELECT * FROM tasks WHERE flue_instance_id = $1",
+      "SELECT * FROM tasks WHERE agent_instance_id = $1",
       [instanceId],
     );
     return result.rows[0] ? rowToTask(result.rows[0]) : undefined;
@@ -305,7 +320,7 @@ export class TaskStore {
     fallbackModel: string,
   ): Promise<string> {
     const result = await this.pool.query(
-      "SELECT model FROM tasks WHERE flue_instance_id = $1",
+      "SELECT model FROM tasks WHERE agent_instance_id = $1",
       [instanceId],
     );
     const model = result.rows[0]?.model;
@@ -615,7 +630,7 @@ function rowToTask(row: QueryResultRow): TaskRecord {
     id: String(row.id),
     discordMessageId: String(row.discord_message_id),
     discordThreadId: String(row.discord_thread_id),
-    flueInstanceId: String(row.flue_instance_id),
+    agentInstanceId: String(row.agent_instance_id),
     workspacePath: String(row.workspace_path),
     repo: String(row.repo),
     branch: String(row.branch),

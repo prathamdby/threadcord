@@ -1,6 +1,6 @@
 import type { SetupRun } from "./profile.js";
 
-/** Fields needed to stream Flue observe events into a Discord setup thread. */
+/** Fields needed to stream AgentOS session events into a Discord setup thread. */
 export interface SetupProgressSession {
   id: string;
   discordThreadId: string;

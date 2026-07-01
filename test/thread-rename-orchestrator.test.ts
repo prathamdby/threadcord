@@ -11,7 +11,7 @@ describe("thread rename through orchestrator", () => {
 
     expect(thread.id).toBe(world.threadIdFor("m-rename"));
 
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
@@ -27,7 +27,7 @@ describe("thread rename through orchestrator", () => {
     const initial = await world.submitRaw("m-followup-rename");
     const task = initial.task!;
 
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
     expect(world.threadRenames).toHaveLength(1);
 
@@ -37,7 +37,7 @@ describe("thread rename through orchestrator", () => {
       "fix the tests",
     );
     expect(followup.replies[0]).toMatch(/Queued follow-up/);
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
 
     expect(world.threadRenames).toHaveLength(1);
@@ -54,7 +54,7 @@ describe("thread rename through orchestrator", () => {
       throw new Error("discord: missing permissions");
     });
 
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
@@ -84,7 +84,7 @@ describe("thread rename through orchestrator", () => {
     await flush();
     expect(world.threadRenames).toHaveLength(0);
 
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
     expect(world.threadRenames).toHaveLength(1);
     expect(world.threadRenames).toContainEqual({
@@ -112,7 +112,7 @@ describe("thread rename through orchestrator", () => {
     const result = await world.submitRaw("m-rename-log");
     const task = result.task!;
 
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");

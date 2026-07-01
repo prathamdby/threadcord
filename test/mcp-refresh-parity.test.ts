@@ -63,7 +63,7 @@ describe("MCP refresh parity", () => {
 
     const result = await world.submitRaw("m-followup-add");
     const task = result.task!;
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
     expect(world.store.snapshot(task.id).status).toBe("waiting");
 
@@ -98,7 +98,7 @@ describe("MCP refresh parity", () => {
 
     const result = await world.submitRaw("m-followup-remove");
     const task = result.task!;
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
 
     await world.fakeMcpRegistry.removeServer("removed");

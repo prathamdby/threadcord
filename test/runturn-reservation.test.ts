@@ -56,7 +56,7 @@ describe("runTurn reservation leak", () => {
     // The leaked reservation would prevent the second task from running.
     const second = await world.submitRaw("m-prepare-throw-2");
     expect(second.task!.status).toBe("running");
-    expect(world.dispatched).toContain(second.task!.flueInstanceId);
+    expect(world.dispatched).toContain(second.task!.agentInstanceId);
   });
 
   it("releases the reservation when the setup profile is missing at turn time", async () => {
@@ -70,7 +70,7 @@ describe("runTurn reservation leak", () => {
       id: taskId,
       discordMessageId: "msg-missing-init",
       discordThreadId: threadId,
-      flueInstanceId: `discord:thread:${threadId}`,
+      agentInstanceId: `discord:thread:${threadId}`,
       workspacePath: `/workspaces/${taskId}`,
       repo: "orphan/repo",
       branch: "main",
@@ -89,7 +89,7 @@ describe("runTurn reservation leak", () => {
     // A second task with a valid profile can claim the freed slot.
     const second = await world.submitRaw("m-missing-profile-2");
     expect(second.task!.status).toBe("running");
-    expect(world.dispatched).toContain(second.task!.flueInstanceId);
+    expect(world.dispatched).toContain(second.task!.agentInstanceId);
   });
 
   it("releases the reservation when AgentTurn.prompt throws", async () => {
@@ -101,6 +101,6 @@ describe("runTurn reservation leak", () => {
     // The leaked reservation would prevent the second task from running.
     const second = await world.submitRaw("m-prompt-throw-2");
     expect(second.task!.status).toBe("running");
-    expect(world.dispatched).toContain(second.task!.flueInstanceId);
+    expect(world.dispatched).toContain(second.task!.agentInstanceId);
   });
 });

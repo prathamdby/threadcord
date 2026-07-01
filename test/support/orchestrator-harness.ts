@@ -33,7 +33,6 @@ export const config: AppConfig = {
   MAX_CONCURRENT_TASKS: 1,
   AGENT_MAX_TOOL_FAILURES: 10,
   AGENT_MAX_VALIDATION_FAILURES: 3,
-  AGENT_SUBMISSION_MAX_ATTEMPTS: 2,
   PORT: 3583,
   WORKSPACE_TTL_DAYS: 14,
   MAX_ACTIVE_VMS: 2,
@@ -156,7 +155,7 @@ export class InMemoryStore {
 
   async getByInstanceId(instanceId: string): Promise<TaskRecord | undefined> {
     return clone(
-      [...this.tasks.values()].find((t) => t.flueInstanceId === instanceId),
+      [...this.tasks.values()].find((t) => t.agentInstanceId === instanceId),
     );
   }
 
@@ -174,7 +173,7 @@ export class InMemoryStore {
       id: task.id,
       discordMessageId: task.discordMessageId,
       discordThreadId: task.discordThreadId,
-      flueInstanceId: task.flueInstanceId,
+      agentInstanceId: task.agentInstanceId,
       workspacePath: task.workspacePath,
       repo: task.repo,
       branch: task.branch,
@@ -194,14 +193,14 @@ export class InMemoryStore {
   async attachAndPromote(
     taskId: string,
     threadId: string,
-    flueInstanceId: string,
+    agentInstanceId: string,
     statusMessageId: string,
     headerMessageId?: string,
   ): Promise<TaskRecord | undefined> {
     const task = this.tasks.get(taskId);
     if (!task || task.status !== "draft") return undefined;
     task.discordThreadId = threadId;
-    task.flueInstanceId = flueInstanceId;
+    task.agentInstanceId = agentInstanceId;
     task.progressMessageIds = [statusMessageId];
     if (headerMessageId) task.headerMessageId = headerMessageId;
     task.status = "queued";

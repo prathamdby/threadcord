@@ -2,7 +2,6 @@ import { mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { AppConfig } from "../config.js";
 import {
-  createFlueAgentTurn,
   type AgentTurn,
   type AgentTurnInput,
   type TurnEvent,
@@ -33,7 +32,7 @@ export class SetupOrchestrator {
   constructor(
     private readonly config: AppConfig,
     private readonly store: SetupStore,
-    private readonly agentTurn: AgentTurn = createFlueAgentTurn(),
+    private readonly agentTurn: AgentTurn,
     private readonly typingIntervalMs: number = SETUP_TYPING_INTERVAL_MS,
   ) {
     this.unsubscribeAgentTurn = this.agentTurn.onEvent((event) =>

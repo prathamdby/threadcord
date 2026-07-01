@@ -3,13 +3,13 @@ import {
   isThreadcordInstance,
   parseDiscordThreadId,
   pendingThreadId,
-  toFlueInstanceId,
+  toAgentInstanceId,
 } from "../src/ids.js";
 
 describe("threadcord instance ids", () => {
   it("round-trips discord thread ids", () => {
     const threadId = "1234567890";
-    const instanceId = toFlueInstanceId(threadId);
+    const instanceId = toAgentInstanceId(threadId);
 
     expect(isThreadcordInstance(instanceId)).toBe(true);
     expect(parseDiscordThreadId(instanceId)).toBe(threadId);

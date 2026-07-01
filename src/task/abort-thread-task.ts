@@ -38,19 +38,19 @@ export async function stopTaskWork(
     return { cancelled: false, alreadyTerminal: true };
   }
 
-  clearPendingUserTurnMessage(task.flueInstanceId);
+  clearPendingUserTurnMessage(task.agentInstanceId);
   if (options.abortInFlight) {
     try {
-      await deps.agentTurn.cancel(task.flueInstanceId);
+      await deps.agentTurn.cancel(task.agentInstanceId);
     } catch (error) {
       console.error("[threadcord] failed to cancel agent turn", error);
     }
   }
 
-  const turn = deps.clearInFlight(task.flueInstanceId);
+  const turn = deps.clearInFlight(task.agentInstanceId);
   await deps.flipReaction(turn?.initiator, "❌");
   await deps.disposeInitiators(task.id, "❌");
-  deps.deleteTaskThread(task.flueInstanceId);
+  deps.deleteTaskThread(task.agentInstanceId);
   await deps.fillConcurrencySlots();
 
   return { cancelled: true, alreadyTerminal: false };

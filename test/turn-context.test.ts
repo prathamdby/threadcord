@@ -10,7 +10,7 @@ const task: TaskRecord = {
   id: "task-1",
   discordMessageId: "msg-1",
   discordThreadId: "thread-1",
-  flueInstanceId: "discord:thread:thread-1",
+  agentInstanceId: "discord:thread:thread-1",
   workspacePath: "/workspaces/task-1",
   repo: "acme/web",
   branch: "main",

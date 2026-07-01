@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { prepareSessionEntry } from "@flue/runtime/adapter";
 import type { Pool, PoolClient, QueryResult } from "pg";
-import { createFluePostgres, createPostgresRunner } from "../src/db.js";
+import { createPostgresRunner } from "../src/db.js";
 
 type QueryHandler = (
   text: string,
@@ -62,7 +61,7 @@ function emptyResult(): QueryResult<Record<string, unknown>> {
   return { rows: [], rowCount: 0, command: "", oid: 0, fields: [] };
 }
 
-describe("createFluePostgres transaction query serialization", () => {
+describe("createPostgresRunner transaction query serialization", () => {
   it("serializes concurrent tx.query calls", async () => {
     let inFlight = 0;
     const { pool, client } = createTrackingPool(async () => {
@@ -81,52 +80,6 @@ describe("createFluePostgres transaction query serialization", () => {
         tx.query("SELECT 3"),
       ]);
     });
-
-    expect(client.maxActive).toBe(1);
-  });
-
-  it("serializes concurrent reads during session load", async () => {
-    const sessionBody = {
-      version: 7,
-      affinityKey: "affinity-1",
-      leafId: null,
-      childSessions: [],
-      metadata: {},
-      createdAt: "2026-06-03T00:00:00.000Z",
-      updatedAt: "2026-06-03T00:00:00.000Z",
-    };
-    const entryRows = ["entry-a", "entry-b"].map((entryId) => ({
-      entry_id: entryId,
-      data: JSON.stringify(
-        prepareSessionEntry({
-          type: "message",
-          id: entryId,
-          parentId: null,
-          timestamp: "2026-06-03T00:00:00.000Z",
-          message: { role: "user", content: "hello", timestamp: 0 },
-        }).value,
-      ),
-    }));
-
-    const { pool, client } = createTrackingPool(async (text) => {
-      if (text.includes("FROM flue_sessions")) {
-        return {
-          ...emptyResult(),
-          rows: [{ data: JSON.stringify(sessionBody) }],
-        };
-      }
-      if (text.includes("FROM flue_session_entries")) {
-        return { ...emptyResult(), rows: entryRows };
-      }
-      if (text.includes("FROM flue_image_chunks")) {
-        return emptyResult();
-      }
-      return emptyResult();
-    });
-
-    const adapter = createFluePostgres(pool);
-    const { executionStore } = await adapter.connect();
-    await executionStore.sessions.load("session-1");
 
     expect(client.maxActive).toBe(1);
   });

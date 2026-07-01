@@ -3,11 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { McpServerConnection, ToolDefinition } from "@flue/runtime";
 import {
   DefaultMcpRegistry,
   McpRegistryConfigProvider,
-  type McpPoolLike,
   type McpRegistry,
 } from "../src/mcp/registry.js";
 import type { McpServerInput, McpServerRow, McpStore } from "../src/mcp/store.js";
@@ -52,52 +50,15 @@ class FakeMcpStore {
   }
 }
 
-class FakeMcpPool implements McpPoolLike {
-  readonly servers = new Map<string, McpServerConnection>();
-  failConnect = new Set<string>();
-  closed = false;
-
-  async ready(): Promise<void> {}
-
-  async tools(): Promise<ToolDefinition[]> {
-    return [...this.servers.values()].flatMap((s) => s.tools);
-  }
-
-  async addServer(config: { id: string; url: string; transport?: string; headers?: Record<string, string> }): Promise<McpServerConnection> {
-    if (this.failConnect.has(config.id)) {
-      throw new Error(`MCP connect failed for ${config.id}`);
-    }
-    if (this.servers.has(config.id)) {
-      throw new Error(`MCP server "${config.id}" is already connected.`);
-    }
-    const connection: McpServerConnection = {
-      name: config.id,
-      tools: [] as ToolDefinition[],
-      close: async () => {},
-    };
-    this.servers.set(config.id, connection);
-    return connection;
-  }
-
-  async removeServer(id: string): Promise<boolean> {
-    return this.servers.delete(id);
-  }
-
-  async close(): Promise<void> {
-    this.servers.clear();
-    this.closed = true;
-  }
-}
-
 function makeRegistry(): {
   registry: McpRegistry;
   store: FakeMcpStore;
-  pool: FakeMcpPool;
 } {
   const rawStore = new FakeMcpStore();
-  const pool = new FakeMcpPool();
-  const registry = new DefaultMcpRegistry({ store: rawStore as unknown as McpStore, pool });
-  return { registry, store: rawStore, pool };
+  const registry = new DefaultMcpRegistry({
+    store: rawStore as unknown as McpStore,
+  });
+  return { registry, store: rawStore };
 }
 
 function tempWorkspace(): string {
@@ -199,16 +160,16 @@ describe("McpRegistry materializeConfig", () => {
 });
 
 describe("McpRegistry lifecycle", () => {
-  it("closes the previous pool on warm", async () => {
-    const { registry, pool } = makeRegistry();
+  it("reports zero tools when AgentOS manages the connection pool", async () => {
+    const { registry } = makeRegistry();
 
-    await registry.warm();
+    const tools = await registry.tools();
 
-    expect(pool.closed).toBe(true);
+    expect(tools).toEqual([]);
   });
 
-  it("addServer connects to the server before persisting", async () => {
-    const { registry, store, pool } = makeRegistry();
+  it("addServer persists the server and reports zero tool count", async () => {
+    const { registry, store } = makeRegistry();
 
     const result = await registry.addServer({
       id: "server-a",
@@ -217,51 +178,28 @@ describe("McpRegistry lifecycle", () => {
     });
 
     expect(result.toolCount).toBe(0);
-    expect(pool.servers.has("server-a")).toBe(true);
     expect(store.servers.has("server-a")).toBe(true);
   });
 
-  it("addServer rolls back the pool connection when persistence fails", async () => {
-    const { registry, store, pool } = makeRegistry();
+  it("addServer rolls back when persistence fails", async () => {
+    const { registry, store } = makeRegistry();
     store.failAdd = true;
 
     await expect(
       registry.addServer({ id: "server-a", url: "https://a.example.com" }),
     ).rejects.toThrow("DB add failed for server-a");
 
-    expect(pool.servers.has("server-a")).toBe(false);
+    expect(store.servers.has("server-a")).toBe(false);
   });
 
-  it("removeServer closes the pool connection and deletes the row", async () => {
-    const { registry, store, pool } = makeRegistry();
+  it("removeServer deletes the persisted row", async () => {
+    const { registry, store } = makeRegistry();
     await store.addServer({ id: "server-a", url: "https://a.example.com" });
-    await pool.addServer({ id: "server-a", url: "https://a.example.com" });
 
     const removed = await registry.removeServer("server-a");
 
     expect(removed).toBe(true);
-    expect(pool.servers.has("server-a")).toBe(false);
     expect(store.servers.has("server-a")).toBe(false);
-  });
-
-  it("removeServer restores the pool connection when DB deletion fails", async () => {
-    const { registry, store, pool } = makeRegistry();
-    await store.addServer({ id: "server-a", url: "https://a.example.com" });
-    await pool.addServer({ id: "server-a", url: "https://a.example.com" });
-    store.failRemove = true;
-
-    await expect(registry.removeServer("server-a")).rejects.toThrow("DB remove failed for server-a");
-
-    expect(pool.servers.has("server-a")).toBe(true);
-    expect(store.servers.has("server-a")).toBe(true);
-  });
-
-  it("returns empty tools when no pool is warmed", async () => {
-    const { registry } = makeRegistry();
-
-    const tools = await registry.tools();
-
-    expect(tools).toEqual([]);
   });
 });
 

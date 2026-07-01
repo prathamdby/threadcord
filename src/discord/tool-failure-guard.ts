@@ -1,6 +1,11 @@
-import type { FlueEvent } from "@flue/runtime";
-import { abortAgentWorkForInstance } from "./agent-work-abort.js";
 import { extractContentArrayText } from "../util/extract-text.js";
+
+export interface ToolResultEvent {
+  type: "tool";
+  toolName: string;
+  isError: boolean;
+  result: unknown;
+}
 
 interface InstanceToolGuardState {
   consecutiveFailures: number;
@@ -79,19 +84,18 @@ function extractResultText(result: unknown): string | undefined {
 
 /**
  * Records a tool result event. When consecutive failures reach the limit,
- * aborts in-flight Flue work and returns an operator-facing summary.
+ * returns an operator-facing summary so the caller can abort the turn.
  *
  * Validation/schema failures use a shorter threshold (`maxValidationFailures`)
  * to stop error spirals early, while ordinary tool errors use `maxFailures`.
  * A successful tool call resets both streaks.
  */
 export async function maybeAbortOnToolFailures(
-  event: FlueEvent,
+  event: ToolResultEvent,
   instanceId: string,
   maxFailures: number,
   maxValidationFailures: number = maxFailures,
 ): Promise<string | undefined> {
-  if (event.type !== "tool") return undefined;
 
   const state = stateFor(instanceId);
 
@@ -103,9 +107,7 @@ export async function maybeAbortOnToolFailures(
 
   if (state.tripped) return undefined;
 
-  const result =
-    "result" in event ? (event as { result: unknown }).result : undefined;
-  const isValidation = isValidationFailure(result);
+  const isValidation = isValidationFailure(event.result);
   if (isValidation) {
     state.consecutiveValidationFailures += 1;
   } else {
@@ -132,27 +134,16 @@ export async function maybeAbortOnToolFailures(
 async function tripGuard(
   instanceId: string,
   state: InstanceToolGuardState,
-  event: FlueEvent,
+  event: ToolResultEvent,
   kind: "validation" | "generic",
 ): Promise<string> {
   state.tripped = true;
-  const toolName =
-    "toolName" in event && typeof event.toolName === "string"
-      ? event.toolName
-      : "tool";
-  const result =
-    "result" in event ? (event as { result: unknown }).result : undefined;
-  const reason = formatToolFailureReason(result);
+  const toolName = event.toolName;
+  const reason = formatToolFailureReason(event.result);
   const threshold =
     kind === "validation"
       ? state.consecutiveValidationFailures
       : state.consecutiveFailures;
-
-  try {
-    await abortAgentWorkForInstance(instanceId);
-  } catch (error) {
-    console.error("[threadcord] tool failure guard abort failed", error);
-  }
 
   return `Stopped after ${threshold} consecutive ${kind === "validation" ? "validation " : ""}tool failures (last: ${toolName}${reason ? `: ${reason}` : ""}).`;
 }

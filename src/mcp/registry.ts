@@ -2,15 +2,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { McpServerConfig as AgentOsMcpServerConfig } from "@rivet-dev/agentos-core";
 export type { McpServerConfig as AgentOsMcpServerConfig } from "@rivet-dev/agentos-core";
-import type {
-  McpServerConnection,
-  McpTransport,
-  ToolDefinition,
-} from "@flue/runtime";
 import type { McpConfigProvider } from "../agentturn/machine-environment.js";
 import type { AgentTurnRole } from "../agentturn/types.js";
-import { McpPool, type McpServerConfig as FlueMcpServerConfig } from "../flue/mcp.js";
-import type { McpServerInput, McpServerRow, McpStore } from "./store.js";
+import type { McpServerInput, McpStore } from "./store.js";
 import { buildHeaders } from "./validation.js";
 
 export interface Logger {
@@ -24,14 +18,6 @@ export interface McpServerSnapshot {
   headers?: Record<string, string>;
 }
 
-export interface McpPoolLike {
-  ready(): Promise<void>;
-  tools(): Promise<ToolDefinition[]>;
-  addServer(config: FlueMcpServerConfig): Promise<McpServerConnection>;
-  removeServer(id: string): Promise<boolean>;
-  close(): Promise<void>;
-}
-
 export interface McpRegistry {
   /** Sanitized snapshot of registered servers (no raw token fields). */
   snapshot(): Promise<McpServerSnapshot[]>;
@@ -42,34 +28,35 @@ export interface McpRegistry {
     workspacePath: string,
     role?: AgentTurnRole,
   ): Promise<AgentOsMcpServerConfig[]>;
-  /** Load persisted servers into the live connection pool. */
+  /** Load persisted servers into the live connection pool (AgentOS manages its own pool). */
   warm(): Promise<void>;
-  /** Close the live connection pool. */
+  /** Close the live connection pool (AgentOS manages its own pool). */
   close(): Promise<void>;
-  /** Validate, connect, and persist a new server. */
-  addServer(
-    input: McpServerInput,
-  ): Promise<{ connection: McpServerConnection; toolCount: number }>;
-  /** Close the pool connection and delete the server row. */
+  /** Validate and persist a new server. */
+  addServer(input: McpServerInput): Promise<{ toolCount: number }>;
+  /** Delete the server row. */
   removeServer(id: string): Promise<boolean>;
-  /** Pooled MCP tools (Flue-shaped) for the transitional coding agent. */
+  /** Return the list of tools available from connected servers (empty for AgentOS-managed pools). */
   tools(): Promise<ToolDefinition[]>;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
 }
 
 export interface McpRegistryDependencies {
   store: McpStore;
-  pool?: McpPoolLike;
   logger?: Logger;
 }
 
 export class DefaultMcpRegistry implements McpRegistry {
   private readonly store: McpStore;
-  private pool: McpPoolLike | undefined;
   private readonly logger: Logger;
 
   constructor(deps: McpRegistryDependencies) {
     this.store = deps.store;
-    this.pool = deps.pool;
     this.logger = deps.logger ?? defaultLogger();
   }
 
@@ -116,78 +103,27 @@ export class DefaultMcpRegistry implements McpRegistry {
   }
 
   async warm(): Promise<void> {
-    const rows = await this.store.listServers();
-    const previous = this.pool;
-    await previous?.close();
-    this.pool = new McpPool(rows.map(rowToFlueConfig));
-    if (rows.length > 0) {
-      void this.pool.ready().catch((error) => {
-        this.logger.log("error", "mcp-registry-warmup-failed", { error });
-      });
-    }
+    // AgentOS handles MCP connection lifecycle directly.
+    // This method remains on the interface for compatibility but is a no-op.
+    this.logger.log("info", "mcp-registry-warm", { serverCount: (await this.store.listServers()).length });
   }
 
   async close(): Promise<void> {
-    const pool = this.pool;
-    this.pool = undefined;
-    await pool?.close();
+    // AgentOS manages its own MCP connection pool; nothing to close here.
   }
 
-  async addServer(
-    input: McpServerInput,
-  ): Promise<{ connection: McpServerConnection; toolCount: number }> {
-    const pool = this.getPool();
-    const connection = await pool.addServer(rowToFlueConfig(input));
-    const toolCount = connection.tools.length;
-    try {
-      await this.store.addServer(input);
-    } catch (error) {
-      try {
-        await pool.removeServer(input.id);
-      } catch (rollbackError) {
-        this.logger.log("warn", "mcp-registry-add-rollback-failed", {
-          id: input.id,
-          rollbackError,
-        });
-      }
-      throw error;
-    }
-    return { connection, toolCount };
+  async addServer(input: McpServerInput): Promise<{ toolCount: number }> {
+    await this.store.addServer(input);
+    // AgentOS discovers tools from the persisted .mcp.json at session creation time.
+    return { toolCount: 0 };
   }
 
   async removeServer(id: string): Promise<boolean> {
-    const row = await this.store.getServer(id);
-    const pool = this.getPool();
-    const removedFromPool = await pool.removeServer(id);
-    if (!row && !removedFromPool) return false;
-
-    try {
-      const removedFromDb = await this.store.removeServer(id);
-      return removedFromDb || removedFromPool;
-    } catch (error) {
-      if (row && removedFromPool) {
-        try {
-          await pool.addServer(rowToFlueConfig(row));
-        } catch (restoreError) {
-          this.logger.log("warn", "mcp-registry-remove-restore-failed", {
-            id,
-            restoreError,
-          });
-        }
-      }
-      throw error;
-    }
+    return this.store.removeServer(id);
   }
 
   async tools(): Promise<ToolDefinition[]> {
-    return this.pool?.tools() ?? [];
-  }
-
-  private getPool(): McpPoolLike {
-    if (!this.pool) {
-      this.pool = new McpPool();
-    }
-    return this.pool;
+    return [];
   }
 }
 
@@ -225,10 +161,6 @@ export function getGlobalMcpRegistry(): McpRegistry | undefined {
   return globalMcpRegistry;
 }
 
-export function getMcpTools(): Promise<ToolDefinition[]> {
-  return getGlobalMcpRegistry()?.tools() ?? Promise.resolve([]);
-}
-
 export class NoopMcpRegistry implements McpRegistry {
   async snapshot(): Promise<McpServerSnapshot[]> {
     return [];
@@ -253,9 +185,7 @@ export class NoopMcpRegistry implements McpRegistry {
   async warm(): Promise<void> {}
   async close(): Promise<void> {}
 
-  async addServer(
-    input: McpServerInput,
-  ): Promise<{ connection: McpServerConnection; toolCount: number }> {
+  async addServer(input: McpServerInput): Promise<{ toolCount: number }> {
     throw new Error(
       `Cannot add MCP server "${input.id}"; no McpRegistry configured`,
     );
@@ -274,16 +204,6 @@ export class NoopMcpRegistry implements McpRegistry {
 
 export function createNoopMcpRegistry(): McpRegistry {
   return new NoopMcpRegistry();
-}
-
-function rowToFlueConfig(row: McpServerRow | McpServerInput): FlueMcpServerConfig {
-  const headers = buildHeaders(row.headers, row.token);
-  return {
-    id: row.id,
-    url: row.url,
-    ...(row.transport ? { transport: row.transport as McpTransport } : {}),
-    ...(headers ? { headers } : {}),
-  };
 }
 
 function defaultLogger(): Logger {

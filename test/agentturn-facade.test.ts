@@ -377,7 +377,7 @@ describe("AgentTurn orchestrator seam", () => {
     expect(task.status).toBe("queued");
     expect(world.store.snapshot(task.id).status).toBe("queued");
     expect(posts).toContain("Turn not started: resource limit exceeded");
-    expect(world.dispatched).not.toContain(task.flueInstanceId);
+    expect(world.dispatched).not.toContain(task.agentInstanceId);
   });
 
   it("does not transition a task to running until AgentTurn accepts the prompt", async () => {
@@ -393,7 +393,7 @@ describe("AgentTurn orchestrator seam", () => {
     const result = await submitPromise;
 
     expect(result.task!.status).toBe("running");
-    expect(world.dispatched).toContain(result.task!.flueInstanceId);
+    expect(world.dispatched).toContain(result.task!.agentInstanceId);
   });
 
   it("rejects a follow-up prompt with a typed reason and leaves the task waiting", async () => {
@@ -404,7 +404,7 @@ describe("AgentTurn orchestrator seam", () => {
     });
     const result = await world.submitRaw("m-reject-followup");
     const task = result.task!;
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
     expect(world.store.snapshot(task.id).status).toBe("waiting");
 
@@ -424,25 +424,25 @@ describe("AgentTurn orchestrator seam", () => {
     const task = result.task!;
 
     // End the initial turn so the task is waiting for a follow-up.
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
     expect(world.store.snapshot(task.id).status).toBe("waiting");
 
     // A follow-up starts a new turn and holds the slot.
     await world.submitFollowup(task.id, "m-followup");
     expect(world.store.snapshot(task.id).status).toBe("running");
-    expect(world.dispatched).toContain(task.flueInstanceId);
+    expect(world.dispatched).toContain(task.agentInstanceId);
 
     // Queue a second task that cannot run while the slot is held.
     const queued = await world.submitRaw("m-queued");
     expect(queued.task!.status).toBe("queued");
 
     // A terminal event from the fake AgentTurn releases the slot.
-    world.fakeAgentTurn.complete(task.flueInstanceId);
+    world.fakeAgentTurn.complete(task.agentInstanceId);
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("waiting");
     expect(world.store.snapshot(queued.task!.id).status).toBe("running");
-    expect(world.dispatched).toContain(queued.task!.flueInstanceId);
+    expect(world.dispatched).toContain(queued.task!.agentInstanceId);
   });
 });

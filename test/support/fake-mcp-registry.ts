@@ -4,10 +4,15 @@ import type {
   McpRegistry,
   McpServerSnapshot,
 } from "../../src/mcp/registry.js";
-import type { McpServerConnection } from "@flue/runtime";
 import type { McpServerInput, McpServerRow } from "../../src/mcp/store.js";
 import type { AgentTurnRole } from "../../src/agentturn/types.js";
 import type { McpServerConfig as AgentOsMcpServerConfig } from "@rivet-dev/agentos-core";
+
+interface McpServerConnection {
+  name: string;
+  tools: { name: string; description?: string; inputSchema?: unknown }[];
+  close(): Promise<void>;
+}
 
 export class FakeMcpRegistry implements McpRegistry {
   readonly servers = new Map<string, McpServerRow>();

@@ -2,15 +2,15 @@
 
 # Threadcord
 
-**Self-hosted Discord control plane for Flue coding-agent sessions**
+**Self-hosted Discord control plane for AgentOS coding-agent sessions**
 
-`threadcord` · Node 22+ · Postgres · Flue · discord.js
+`threadcord` · Node 22+ · Postgres · AgentOS · discord.js
 
 </div>
 
-> `/task create` opens a public thread on your reply, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, tasks that were `running` are moved to `waiting` so follow-ups can continue.
+> `/task create` opens a public thread on your reply, clones the requested GitHub repo into `/workspaces`, and runs an AgentOS agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, tasks that were `running` are moved to `waiting` so follow-ups can continue.
 
-Threadcord is a Discord bot plus a small Hono server. Use `/task create` to supply repo, branch, model, and instruction. The bot opens a thread on the command reply, clones the repo, and dispatches work to a Flue coding agent. Thread messages handle follow-ups; thread commands handle cancel and done.
+Threadcord is a Discord bot plus a small Hono server. Use `/task create` to supply repo, branch, model, and instruction. The bot opens a thread on the command reply, clones the repo, and dispatches work to an AgentOS coding agent. Thread messages handle follow-ups; thread commands handle cancel and done.
 
 Configuration lives in [`.env.example`](.env.example). Zod validation is in [`src/config.ts`](src/config.ts).
 
@@ -78,7 +78,7 @@ npm run test
 npm run build
 ```
 
-`npm run dev` runs `flue dev --target node`. Flue generates the Node server (`dist/server.mjs` after build) and dispatch wiring. `npm start` runs the built server only.
+`npm run dev` runs the TypeScript server with `tsx watch`. `npm run build` compiles to `dist/` with `tsc`. `npm start` runs the built server only.
 
 ## Configure model providers
 
@@ -91,7 +91,7 @@ Models are allowed when their provider is configured in `.env`. Discord tasks us
 | anthropic | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODELS` | `model: anthropic/claude-sonnet-4-5` |
 | openai    | `OPENAI_API_KEY`, `OPENAI_MODELS`       | `model: openai/gpt-5-codex`          |
 
-Flue resolves these from its catalog. Set the API key and a comma-separated model list. No extra registration code is needed.
+Threadcord resolves these from the provider configuration. Set the API key and a comma-separated model list. No extra registration code is needed.
 
 ### Custom providers
 
@@ -109,9 +109,9 @@ PROVIDER_OLLAMA_API=openai-completions
 PROVIDER_OLLAMA_MODELS=llama3.1:8b
 ```
 
-Common `api` values: `openai-completions`, `openai-responses`, `anthropic-messages`. See the [Flue Provider API](https://github.com/withastro/flue/blob/main/apps/docs/src/content/docs/api/provider-api.md) for the full list.
+Common `api` values: `openai-completions`, `openai-responses`, `anthropic-messages`. The AgentOS Pi software uses these protocol shapes to talk to the provider endpoint.
 
-To route a catalog provider through a proxy, list its ID in `PROVIDERS` and set `PROVIDER_<ID>_BASE_URL` (for example `PROVIDERS=anthropic` with `PROVIDER_ANTHROPIC_BASE_URL=...`). Flue layers your transport on the catalog.
+To route a built-in provider through a proxy, list its ID in `PROVIDERS` and set `PROVIDER_<ID>_BASE_URL` (for example `PROVIDERS=anthropic` with `PROVIDER_ANTHROPIC_BASE_URL=...`). Threadcord layers the configured transport on the provider.
 
 Use `PROVIDER_<ID>_HEADERS` for providers that require custom request headers. The value must be a JSON object with string values:
 
@@ -249,17 +249,17 @@ flowchart TD
   gateway --> orchestrator["TaskOrchestrator"]
   orchestrator --> store["Postgres TaskStore"]
   orchestrator --> bootstrap["git clone and checkout"]
-  orchestrator --> flue["Flue coding agent"]
-  flue --> githubApi["GitHub API"]
-  flue --> observe["observe-bridge.ts"]
-  observe --> thread["Discord thread status"]
+  orchestrator --> agentturn["AgentTurn / AgentOS"]
+  agentturn --> githubApi["GitHub API"]
+  agentturn --> bridge["session-event-bridge.ts"]
+  bridge --> thread["Discord thread status"]
 ```
 
 1. [`gateway.ts`](src/discord/gateway.ts) routes channel messages to task creation and thread messages to follow-ups.
-2. [`orchestrator.ts`](src/task/orchestrator.ts) parses the message, creates the thread, bootstraps the workspace, calls `dispatch`.
+2. [`orchestrator.ts`](src/task/orchestrator.ts) parses the message, creates the thread, bootstraps the workspace, and calls `AgentTurn.prompt()`.
 3. [`store.ts`](src/task/store.ts) persists state and claims turns under a Postgres advisory lock.
-4. [`agents/coding.ts`](src/agents/coding.ts) runs the Flue agent with git/bash tools and the GitHub PR tool.
-5. [`observe-bridge.ts`](src/discord/observe-bridge.ts) edits the thread status message from Flue events.
+4. [`agentturn/`](src/agentturn/) runs the AgentOS Pi coding agent with host bindings for git, GitHub PR, Discord posting, and MCP tools.
+5. [`session-event-bridge.ts`](src/discord/session-event-bridge.ts) edits the thread status message from AgentOS session events.
 
 ## Data privacy
 

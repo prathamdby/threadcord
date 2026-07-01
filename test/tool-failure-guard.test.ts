@@ -1,44 +1,36 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import type { FlueEvent } from "@flue/runtime";
+import type { ToolResultEvent } from "../src/discord/tool-failure-guard.js";
 import {
   clearToolFailureGuard,
   markToolGuardFailureDelivered,
   maybeAbortOnToolFailures,
   resetToolFailureGuardsForTests,
   shouldSkipObserveFailureDelivery,
-} from "../src/flue/tool-failure-guard.js";
+} from "../src/discord/tool-failure-guard.js";
 
 function toolEvent(
   isError: boolean,
   instanceId = "discord:thread:1",
-): FlueEvent {
+): ToolResultEvent {
   return {
-    v: 1,
-    eventIndex: 1,
-    timestamp: "2026-06-26T00:00:00.000Z",
     type: "tool",
-    instanceId,
     toolName: "edit",
     isError,
     result: isError ? "oldText not found" : "ok",
-  } as FlueEvent;
+  };
 }
 
 function validationErrorEvent(
   toolName: string,
   instanceId = "discord:thread:1",
   message = "Validation failed: must have required properties",
-): FlueEvent {
+): ToolResultEvent {
   return {
-    v: 1,
-    eventIndex: 1,
-    timestamp: "2026-06-26T00:00:00.000Z",
     type: "tool",
-    instanceId,
     toolName,
     isError: true,
     result: message,
-  } as FlueEvent;
+  };
 }
 
 describe("tool failure guard", () => {
@@ -78,7 +70,7 @@ describe("tool failure guard", () => {
       {
         ...toolEvent(true, id),
         result: { content: [{ type: "text", text: "command not found" }] },
-      } as FlueEvent,
+      } as ToolResultEvent,
       id,
       10,
       3,
@@ -192,7 +184,7 @@ describe("tool failure guard — validation-specific threshold", () => {
 
   it("detects content-array validation errors", async () => {
     const id = "discord:thread:val-5";
-    const validationContentEvent: FlueEvent = {
+    const validationContentEvent: ToolResultEvent = {
       ...toolEvent(true, id),
       toolName: "bash",
       result: {
@@ -203,17 +195,17 @@ describe("tool failure guard — validation-specific threshold", () => {
           },
         ],
       },
-    } as FlueEvent;
+    } as ToolResultEvent;
 
     await maybeAbortOnToolFailures(validationContentEvent, id, 10, 3);
     await maybeAbortOnToolFailures(
-      { ...validationContentEvent } as FlueEvent,
+      { ...validationContentEvent } as ToolResultEvent,
       id,
       10,
       3,
     );
     const trip = await maybeAbortOnToolFailures(
-      { ...validationContentEvent } as FlueEvent,
+      { ...validationContentEvent } as ToolResultEvent,
       id,
       10,
       3,
@@ -223,16 +215,16 @@ describe("tool failure guard — validation-specific threshold", () => {
 
   it("detects invalid_type validation errors", async () => {
     const id = "discord:thread:val-6";
-    const event: FlueEvent = {
+    const event: ToolResultEvent = {
       ...toolEvent(true, id),
       toolName: "write",
       result: "invalid_type: Expected string, received number",
-    } as FlueEvent;
+    } as ToolResultEvent;
 
     await maybeAbortOnToolFailures(event, id, 10, 3);
-    await maybeAbortOnToolFailures({ ...event } as FlueEvent, id, 10, 3);
+    await maybeAbortOnToolFailures({ ...event } as ToolResultEvent, id, 10, 3);
     const trip = await maybeAbortOnToolFailures(
-      { ...event } as FlueEvent,
+      { ...event } as ToolResultEvent,
       id,
       10,
       3,
