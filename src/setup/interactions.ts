@@ -426,22 +426,52 @@ async function handleSetupModal(
     const repo = interaction.fields.getTextInputValue("repo").trim();
     const branch = interaction.fields.getTextInputValue("branch").trim();
     const skillsRaw = interaction.fields.getTextInputValue("skills");
-    const install = interaction.fields.getTextInputValue("install");
-    const checks = interaction.fields.getTextInputValue("checks");
     const key = parseSetupProfileKey(repo, branch);
     if (!key.ok) {
       await replyWithError(interaction, "validation", key.message);
       return;
     }
+    if (wizard.mode === "create") {
+      const pending = pendingFromRunModal({
+        mode: "create",
+        repo: key.value.repo,
+        branch: key.value.branch,
+        skillsRaw,
+      });
+      await interaction.deferReply();
+      try {
+        await finishSetupFromWizard(
+          interaction,
+          store,
+          orchestrator,
+          pending,
+          { mode: "create", skills: pending.skills },
+        );
+      } catch (error) {
+        try {
+          await interaction.editReply(
+            clampDiscordContent(`Setup failed: ${summarizeError(error)}`),
+          );
+        } catch (editError) {
+          console.error(
+            "[threadcord] setup wizard failure editReply failed",
+            editError,
+          );
+        }
+      }
+      return;
+    }
+    const install = interaction.fields.getTextInputValue("install");
+    const checks = interaction.fields.getTextInputValue("checks");
     const pending = pendingFromRunModal({
-      mode: wizard.mode,
+      mode: "update",
       repo: key.value.repo,
       branch: key.value.branch,
       skillsRaw,
       install,
       checksRaw: checks,
     });
-    if (!pending.install.trim()) {
+    if (!pending.install?.trim()) {
       await replyWithError(
         interaction,
         "validation",
@@ -450,16 +480,24 @@ async function handleSetupModal(
       return;
     }
     await interaction.deferReply();
-    const existingProfile =
-      wizard.mode === "update"
-        ? await store.getProfile(key.value.repo, key.value.branch)
-        : undefined;
+    const existingProfile = await store.getProfile(
+      key.value.repo,
+      key.value.branch,
+    );
+    if (!existingProfile) {
+      await replyWithError(
+        interaction,
+        "validation",
+        "Setup profile is missing. Run `/setup create` before updating.",
+      );
+      return;
+    }
     const envCheck = validateSetupEnvironment({
       install: pending.install,
-      start: existingProfile?.environment.start ?? pending.start,
-      checks: pending.checks,
-      requiredEnv: existingProfile?.environment.requiredEnv ?? [],
-      requiredServices: existingProfile?.environment.requiredServices ?? [],
+      start: existingProfile.environment.start ?? pending.start ?? "",
+      checks: pending.checks ?? {},
+      requiredEnv: existingProfile.environment.requiredEnv ?? [],
+      requiredServices: existingProfile.environment.requiredServices ?? [],
       ...(pending.skills.length > 0 ? { skills: pending.skills } : {}),
     });
     if (!envCheck.ok) {
@@ -472,7 +510,12 @@ async function handleSetupModal(
         store,
         orchestrator,
         pending,
-        envCheck.value,
+        {
+          mode: "update",
+          install: envCheck.value.install,
+          checks: envCheck.value.checks,
+          skills: envCheck.value.skills ?? [],
+        },
       );
     } catch (error) {
       try {
@@ -681,12 +724,21 @@ async function readAttachmentText(attachment: Attachment): Promise<string> {
   );
 }
 
+type SetupWizardPreRunPatch =
+  | { mode: "create"; skills: string[] }
+  | {
+      mode: "update";
+      install: string;
+      checks: Record<string, string>;
+      skills: string[];
+    };
+
 async function finishSetupFromWizard(
   interaction: ModalSubmitInteraction,
   store: SetupStore,
   orchestrator: SetupOrchestrator,
   pending: PendingSetupWizard,
-  environment: SetupEnvironment,
+  patch: SetupWizardPreRunPatch,
 ): Promise<void> {
   const actionLabel = pending.update ? "update" : "create";
   const started = await orchestrator.startSetup({
@@ -695,11 +747,17 @@ async function finishSetupFromWizard(
     update: pending.update,
     ...(pending.model ? { model: pending.model } : {}),
   });
-  await store.patchEnvironmentWhileRunning(started.profileId, {
-    install: environment.install,
-    checks: environment.checks,
-    skills: environment.skills ?? [],
-  });
+  if (patch.mode === "create") {
+    await store.patchEnvironmentWhileRunning(started.profileId, {
+      skills: patch.skills,
+    });
+  } else {
+    await store.patchEnvironmentWhileRunning(started.profileId, {
+      install: patch.install,
+      checks: patch.checks,
+      skills: patch.skills,
+    });
+  }
   const run = await store.getRun(started.runId);
   const model = run?.model ?? pending.model ?? "default";
   let threadOpened = false;
@@ -727,8 +785,8 @@ async function finishSetupFromWizard(
   }
   void orchestrator.dispatchSetupAgent(started);
   const skillsNote =
-    (environment.skills?.length ?? 0) > 0
-      ? `Skills (${environment.skills!.length} link(s)) install after install on profile save and on each task's first turn.`
+    patch.skills.length > 0
+      ? `Skills (${patch.skills.length} link(s)) install after install on profile save and on each task's first turn.`
       : undefined;
   const replyBody = clampDiscordContent(
     [

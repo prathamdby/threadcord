@@ -170,12 +170,12 @@ Setup environment JSON:
 }
 ```
 
-`install` is an operator-owned shell command. Threadcord runs it with `bash -c`
+`install` and `checks` are discovered and verified by the setup agent during first-time setup. Threadcord runs `install` with `bash -c`
 on the initial task turn, so setup profiles can use project-specific bootstrap
 commands and shell pipelines. Setup install uses the same non-login shell behavior
 as agent commands, so workspace-local npm globals remain on `PATH`.
 
-Promotion happens when the setup agent calls `save_threadcord_setup_profile`. That tool re-runs `install`, every stored `checks` command, and (when `start` is non-empty) a short smoke probe of `start` in the setup workspace. `checks` should be commands that passed in that workspace. If a useful command needs missing secrets or services, record the names in `requiredEnv`, `requiredServices`, and memory instead of saving a failing check unless you can make it pass during setup. `start` is optional; leave it empty if there is no long-running dev server to probe.
+Promotion happens when the setup agent calls `save_threadcord_setup_profile`. That tool re-runs `install`, every stored `checks` command, and (when `start` is non-empty) a short smoke probe of `start` in the setup workspace. `checks` should be commands that passed in that workspace. If a useful command needs missing secrets or services, record the names in `requiredEnv`, `requiredServices`, and memory instead of saving a failing check unless you can make it pass during setup. `start` is optional; leave it empty if there is no long-running dev server to probe. Use `/setup update` (or `/setup edit`) when you want to override install or checks before re-running setup.
 
 Threadcord scopes each setup and task workspace with its own `HOME`, npm global prefix, and cache directory. Commands such as `npm install -g <tool>` install into that workspace and put the workspace-local `bin` directory on `PATH`. Deleting the workspace deletes those globals.
 
@@ -183,8 +183,8 @@ Setup commands (Discord slash command `/setup` with subcommands; `status`, `view
 
 | Subcommand | Purpose                                                                                                                                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create`   | First-time setup when no profile exists, or when the profile is `failed`. Opens a modal (repo, branch, skills, install, checks — no model field), then spawns a public thread on the slash command with a live agent log (same style as coding tasks). |
-| `update`   | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). Same modal as `create`, then spawns a setup thread with live log.                                                   |
+| `create`   | First-time setup when no profile exists, or when the profile is `failed`. Opens a modal (repo, branch, skills — no model field), then spawns a public thread on the slash command with a live agent log (same style as coding tasks). The setup agent discovers and verifies `install` and `checks`. |
+| `update`   | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). Opens a modal (repo, branch, skills, install, checks — no model field) so you can edit the command recipe before re-running, then spawns a setup thread with live log. |
 | `status`   | Pick a profile, then show profile status, revision, and last run state (ephemeral). Re-run anytime for a fresh snapshot; while setup is running, open the setup thread from your `create`/`update` command for the live agent log. |
 | `view`     | Pick a profile, then view the active profile environment and memory (ephemeral).                                                                                                                              |
 | `edit`     | Pick a profile, then open a private draft editor with buttons and modals.                                                                                                                                     |
