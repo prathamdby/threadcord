@@ -15,13 +15,7 @@ export function buildMcpCommandJson(): ReturnType<
     .addSubcommand((subcommand) =>
       subcommand
         .setName("remove")
-        .setDescription("Remove an MCP server by id.")
-        .addStringOption((option) =>
-          option
-            .setName("id")
-            .setDescription("Server id to remove")
-            .setRequired(true),
-        ),
+        .setDescription("Remove an MCP server."),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("list").setDescription("List configured MCP servers."),

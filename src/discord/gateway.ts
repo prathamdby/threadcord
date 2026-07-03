@@ -16,8 +16,14 @@ import type { SetupOrchestrator } from "../setup/orchestrator.js";
 import type { SetupStore } from "../setup/store.js";
 import { handleTaskInteraction } from "../task/interactions.js";
 import type { TaskOrchestrator } from "../task/orchestrator.js";
+import type { TaskThreadMessage } from "../task/orchestrator.js";
 import { clampDiscordContent } from "./limits.js";
-import type { ThreadMessage } from "../types.js";
+import {
+  parseCustomId,
+  replyWithError,
+  type UiNamespace,
+} from "./ui/index.js";
+import { summarizeError } from "../util/redact.js";
 
 export function startDiscordGateway(
   token: string,
@@ -62,7 +68,7 @@ export function startDiscordGateway(
   return client;
 }
 
-async function routeInteraction(
+export async function routeInteraction(
   interaction: Interaction,
   config: AppConfig,
   taskOrchestrator: TaskOrchestrator,
@@ -70,30 +76,94 @@ async function routeInteraction(
   setupOrchestrator: SetupOrchestrator,
   mcpStore: McpStore,
 ): Promise<void> {
-  if (
-    await handleMcpInteraction({
-      interaction,
-      store: mcpStore,
-      pool: getMcpPool(),
-    })
-  ) {
+  const target = resolveInteractionTarget(interaction);
+  if (!target) {
+    console.warn(
+      `[threadcord] unhandled interaction type=${interaction.type}`,
+    );
     return;
   }
-  if (
-    await handleTaskInteraction({
-      interaction,
-      orchestrator: taskOrchestrator,
-      setupStore,
-      config,
-    })
-  ) {
+  if (target === "unknown") {
+    console.warn(
+      `[threadcord] unknown interaction route customId=${getCustomId(interaction) ?? "n/a"} command=${getCommandName(interaction) ?? "n/a"}`,
+    );
+    if (interaction.isRepliable()) {
+      await replyWithError(interaction, "internal");
+    }
     return;
   }
-  await handleSetupInteraction({
-    interaction,
-    store: setupStore,
-    orchestrator: setupOrchestrator,
-  });
+
+  try {
+    if (target === "mcp") {
+      await handleMcpInteraction({
+        interaction,
+        store: mcpStore,
+        pool: getMcpPool(),
+      });
+      return;
+    }
+    if (target === "task") {
+      await handleTaskInteraction({
+        interaction,
+        orchestrator: taskOrchestrator,
+        setupStore,
+        config,
+      });
+      return;
+    }
+    await handleSetupInteraction({
+      interaction,
+      store: setupStore,
+      orchestrator: setupOrchestrator,
+    });
+  } catch (error) {
+    console.error(
+      `[threadcord] interaction handler failed (${target}):`,
+      summarizeError(error),
+    );
+    if (interaction.isRepliable()) {
+      await replyWithError(interaction, "internal");
+    }
+  }
+}
+
+type InteractionTarget = UiNamespace | "unknown";
+
+function resolveInteractionTarget(
+  interaction: Interaction,
+): InteractionTarget | null {
+  if (interaction.isChatInputCommand()) {
+    const name = interaction.commandName;
+    if (name === "task" || name === "setup" || name === "mcp") return name;
+    return "unknown";
+  }
+  if (
+    interaction.isButton() ||
+    interaction.isModalSubmit() ||
+    interaction.isStringSelectMenu()
+  ) {
+    const customId = interaction.customId;
+    const parsed = parseCustomId(customId);
+    return parsed?.ns ?? "unknown";
+  }
+  return null;
+}
+
+function getCustomId(interaction: Interaction): string | undefined {
+  if (
+    interaction.isButton() ||
+    interaction.isModalSubmit() ||
+    interaction.isStringSelectMenu()
+  ) {
+    return interaction.customId;
+  }
+  return undefined;
+}
+
+function getCommandName(interaction: Interaction): string | undefined {
+  return interaction.isChatInputCommand()
+    ? interaction.commandName
+    : undefined;
 }
 
 async function routeMessage(
@@ -106,15 +176,19 @@ async function routeMessage(
   await orchestrator.handleThreadMessage(toThreadMessage(message));
 }
 
-function toThreadMessage(message: Message): ThreadMessage {
+export function toThreadMessage(message: Message): TaskThreadMessage {
   return {
     id: message.id,
     content: message.content,
     authorBot: message.author.bot,
+    authorId: message.author.id,
     channelId: message.channelId,
     guildId: message.guildId,
     reply: async (content) => {
       await message.reply(clampDiscordContent(content));
+    },
+    replyView: async (payload) => {
+      await message.reply(payload);
     },
     react: async (emoji) => {
       await message.react(emoji);

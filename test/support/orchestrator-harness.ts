@@ -11,6 +11,9 @@ import type {
   SetupProfile,
 } from "../../src/setup/profile.js";
 import type { SetupStore } from "../../src/setup/store.js";
+import type { ViewPayload } from "../../src/discord/ui/index.js";
+import { buildCustomId } from "../../src/discord/ui/index.js";
+import type { TaskThreadRef } from "../../src/task/discord-thread.js";
 import type {
   ClaimedTurn,
   NewTaskRecord,
@@ -377,11 +380,17 @@ export interface RecordingControlMessage extends ReactionRecordings {
 export interface RecordingFollowupMessage
   extends ThreadMessage, ReactionRecordings {
   replies: string[];
+  viewReplies: ViewPayload[];
+  viewEdits: ViewPayload[];
+  authorId?: string | undefined;
+  replyView?: (payload: ViewPayload) => Promise<void>;
 }
-export interface RecordingThread extends ThreadRef {
+export interface RecordingThread extends TaskThreadRef {
   sends: string[];
+  viewSends: ViewPayload[];
   pins: string[];
   edits: { messageId: string; content: string }[];
+  viewEdits: { messageId: string; payload: ViewPayload }[];
   sendTypingCalls: number;
 }
 
@@ -441,20 +450,28 @@ export class World {
     const threadId = this.threadIdFor(messageId);
     const replies: string[] = [];
     const sends: string[] = [];
+    const viewSends: ViewPayload[] = [];
     const pins: string[] = [];
     const edits: { messageId: string; content: string }[] = [];
+    const viewEdits: { messageId: string; payload: ViewPayload }[] = [];
     let threadsCreated = 0;
 
     const thread: RecordingThread = {
       id: threadId,
       sends,
+      viewSends,
       pins,
       edits,
+      viewEdits,
       sendTypingCalls: 0,
-      send: async (content) => {
-        if (failure.headerSend && content.includes("**Threadcord task**")) {
+      sendView: async (payload) => {
+        if (failure.headerSend && isTaskHeaderPayload(payload)) {
           throw new Error("discord: header send 500");
         }
+        viewSends.push(payload);
+        return { id: `header-${this.counter++}` };
+      },
+      send: async (content) => {
         if (failure.statusSend) throw new Error("discord: status send 500");
         sends.push(content);
         return { id: `status-${this.counter++}` };
@@ -466,6 +483,10 @@ export class World {
       editMessage: async (messageId, content) => {
         if (failure.headerEdit) throw new Error("discord: header edit 500");
         edits.push({ messageId, content });
+      },
+      editView: async (messageId, payload) => {
+        if (failure.headerEdit) throw new Error("discord: header edit 500");
+        viewEdits.push({ messageId, payload });
       },
       sendTyping: async () => {
         if (failure.typingFail) throw new Error("discord: sendTyping 403");
@@ -517,17 +538,23 @@ export class World {
   ): Promise<{ message: RecordingFollowupMessage; replies: string[] }> {
     const task = this.store.snapshot(taskId);
     const replies: string[] = [];
+    const viewReplies: ViewPayload[] = [];
     const message: RecordingFollowupMessage = {
       id: followupMessageId,
       content,
       authorBot: false,
       channelId: task.discordThreadId,
       replies,
+      viewReplies,
+      viewEdits: [],
       reactCalls: [],
       unreactCalls: [],
       reactionLog: [],
       reply: async (c) => {
         replies.push(c);
+      },
+      replyView: async (payload) => {
+        viewReplies.push(payload);
       },
       react: async (emoji) => {
         message.reactCalls.push(emoji);
@@ -548,18 +575,33 @@ export class World {
     messageId: string,
     content: string,
   ): Promise<RecordingFollowupMessage> {
+    return this.sendControlMessage(taskId, messageId, content);
+  }
+
+  async sendControlMessage(
+    taskId: string,
+    messageId: string,
+    content: string,
+    opts: { authorId?: string } = {},
+  ): Promise<RecordingFollowupMessage> {
     const task = this.store.snapshot(taskId);
     const message: RecordingFollowupMessage = {
       id: messageId,
       content,
       authorBot: false,
       channelId: task.discordThreadId,
+      authorId: opts.authorId,
       replies: [],
+      viewReplies: [],
+      viewEdits: [],
       reactCalls: [],
       unreactCalls: [],
       reactionLog: [],
       reply: async (c) => {
         message.replies.push(c);
+      },
+      replyView: async (payload) => {
+        message.viewReplies.push(payload);
       },
       react: async (emoji) => {
         message.reactCalls.push(emoji);
@@ -571,6 +613,59 @@ export class World {
       },
     };
     await this.orchestrator.handleThreadMessage(message);
+    await flush();
+    return message;
+  }
+
+  async clickControlButton(input: {
+    customId: string;
+    userId: string;
+    message: RecordingFollowupMessage;
+    updateThrows?: boolean;
+    onDefer?: () => void;
+  }): Promise<{ deferred: boolean }> {
+    let deferred = false;
+    await this.orchestrator.handleControlButton({
+      customId: input.customId,
+      userId: input.userId,
+      defer: async () => {
+        input.onDefer?.();
+        deferred = true;
+      },
+      update: async (payload) => {
+        if (input.updateThrows) {
+          throw new Error("discord: control outcome update failed");
+        }
+        input.message.viewEdits.push(payload);
+      },
+      reply: async (payload) => {
+        input.message.viewReplies.push(payload);
+      },
+    });
+    return { deferred };
+  }
+
+  async confirmThreadControl(
+    taskId: string,
+    messageId: string,
+    command: "abort" | "cancel" | "done",
+    authorId = "user-1",
+  ): Promise<RecordingFollowupMessage> {
+    const message = await this.sendControlMessage(taskId, messageId, command, {
+      authorId,
+    });
+    await this.clickControlButton({
+      customId: buildCustomId(
+        "task",
+        "ctl",
+        "confirm",
+        command,
+        authorId,
+        taskId,
+      ),
+      userId: authorId,
+      message,
+    });
     await flush();
     return message;
   }
@@ -594,4 +689,22 @@ export async function flush(): Promise<void> {
   for (let i = 0; i < 50; i += 1) {
     await new Promise((resolve) => setImmediate(resolve));
   }
+}
+
+function isTaskHeaderPayload(payload: ViewPayload): boolean {
+  const body = JSON.stringify(payload);
+  return body.includes("Threadcord task");
+}
+
+export function viewPayloadText(payload: ViewPayload): string {
+  return JSON.stringify(payload);
+}
+
+export function headerEditContainsState(
+  thread: RecordingThread,
+  state: string,
+): boolean {
+  return thread.viewEdits.some((edit) =>
+    viewPayloadText(edit.payload).includes(`**State**: ${state}`),
+  );
 }

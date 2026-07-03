@@ -1,24 +1,23 @@
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  ActionRowBuilder,
   AttachmentBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   MessageFlags,
-  ModalBuilder,
-  SlashCommandBuilder,
-  TextInputBuilder,
-  TextInputStyle,
   type Attachment,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   type Interaction,
   type ModalSubmitInteraction,
+  type StringSelectMenuInteraction,
 } from "discord.js";
+import {
+  ensureDeferred,
+  infoView,
+  replyWithError,
+  respond,
+} from "../discord/ui/index.js";
 import { clampDiscordContent } from "../discord/limits.js";
 import { summarizeError } from "../util/redact.js";
 import {
-  type SetupDraft,
   type SetupEnvironment,
   parseSetupProfileKey,
   validateSetupEnvironment,
@@ -30,21 +29,30 @@ import {
   setupCreateRunModal,
   type PendingSetupWizard,
 } from "./create-flow.js";
+import {
+  checksTooLargeForModal,
+  commandsModal,
+  memoryModal,
+  memoryTooLargeForModal,
+  parseDraftCustomId,
+  renderDiscardConfirmView,
+  renderDraftView,
+  requirementsModal,
+} from "./draft-ui.js";
 import { openSetupRunThread } from "./discord-session.js";
 import {
+  buildProfilePickerView,
+  parseProfileSelectCustomId,
+  SETUP_PROFILE_SELECT_MAX,
+  type SetupProfileAction,
+} from "./profile-select.js";
+import {
   exportProfile,
-  renderDraft,
   renderSetupProfile,
   renderSetupStatus,
 } from "./renderer.js";
 import type { SetupOrchestrator } from "./orchestrator.js";
 import type { SetupStore } from "./store.js";
-
-const SETUP_CUSTOM_ID_PREFIX = "setup:";
-
-function discordContent(content: string): string {
-  return clampDiscordContent(content);
-}
 
 export async function handleSetupInteraction(input: {
   interaction: Interaction;
@@ -57,15 +65,22 @@ export async function handleSetupInteraction(input: {
     return true;
   }
   if (
+    interaction.isStringSelectMenu() &&
+    interaction.customId.startsWith("setup:")
+  ) {
+    await handleSetupProfileSelect(interaction, store);
+    return true;
+  }
+  if (
     interaction.isButton() &&
-    interaction.customId.startsWith(SETUP_CUSTOM_ID_PREFIX)
+    interaction.customId.startsWith("setup:")
   ) {
     await handleSetupButton(interaction, store);
     return true;
   }
   if (
     interaction.isModalSubmit() &&
-    interaction.customId.startsWith(SETUP_CUSTOM_ID_PREFIX)
+    interaction.customId.startsWith("setup:")
   ) {
     await handleSetupModal(interaction, store, orchestrator);
     return true;
@@ -86,87 +101,113 @@ async function handleSetupCommand(
       );
       return;
     }
-    if (subcommand === "status") {
-      const profile = await store.getProfile(
-        requiredStringOption(interaction, "repo"),
-        requiredStringOption(interaction, "branch"),
-      );
-      if (!profile) {
-        await interaction.reply({
-          content: discordContent("Setup profile is missing."),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      const run = profile.lastRunId
-        ? await store.getRun(profile.lastRunId)
-        : undefined;
-      const view = renderSetupStatus({
-        profile,
-        ...(run ? { run } : {}),
-      });
-      await interaction.reply({
-        content: discordContent(view.content),
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-    if (subcommand === "view") {
-      const profile = await store.getProfile(
-        requiredStringOption(interaction, "repo"),
-        requiredStringOption(interaction, "branch"),
-      );
-      if (!profile) {
-        await interaction.reply({
-          content: discordContent("Setup profile is missing."),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      const view = renderSetupProfile(profile);
-      await interaction.reply({
-        content: discordContent(view.content),
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-    if (subcommand === "edit") {
-      const profile = await requireProfileFromOptions(interaction, store);
-      if (!profile) return;
-      const draft = await store.createDraft(profile.id, interaction.user.id);
-      await interaction.reply({
-        content: discordContent(renderDraft(draft).content),
-        components: draftComponents(draft),
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-    if (subcommand === "export") {
-      const profile = await requireProfileFromOptions(interaction, store);
-      if (!profile) return;
-      const view = exportProfile(profile);
-      await interaction.reply({
-        content: discordContent(view.content),
-        files: (view.files ?? []).map(
-          (file) =>
-            new AttachmentBuilder(Buffer.from(file.content, "utf8"), {
-              name: file.name,
-            }),
-        ),
-        flags: MessageFlags.Ephemeral,
-      });
+    if (
+      subcommand === "status" ||
+      subcommand === "view" ||
+      subcommand === "edit" ||
+      subcommand === "export"
+    ) {
+      await showProfilePicker(interaction, store, subcommand);
       return;
     }
     if (subcommand === "import") {
       await handleImportCommand(interaction, store);
       return;
     }
-    await interaction.reply({
-      content: discordContent(`Unknown setup subcommand: ${subcommand}`),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(
+      interaction,
+      "validation",
+      `Unknown setup subcommand: ${subcommand}`,
+    );
   } catch (error) {
-    await replyWithError(interaction, summarizeError(error));
+    await replyWithError(interaction, "internal", summarizeError(error));
+  }
+}
+
+async function showProfilePicker(
+  interaction: ChatInputCommandInteraction,
+  store: SetupStore,
+  action: SetupProfileAction,
+): Promise<void> {
+  await ensureDeferred(interaction);
+  const profiles = await store.listProfiles(SETUP_PROFILE_SELECT_MAX);
+  if (profiles.length === 0) {
+    await replyWithError(
+      interaction,
+      "validation",
+      "No setup profiles found. Run `/setup create` first.",
+    );
+    return;
+  }
+  await respond(
+    interaction,
+    buildProfilePickerView(action, interaction.user.id, profiles),
+  );
+}
+
+async function handleSetupProfileSelect(
+  interaction: StringSelectMenuInteraction,
+  store: SetupStore,
+): Promise<void> {
+  const parsed = parseProfileSelectCustomId(interaction.customId);
+  if (!parsed) {
+    await replyWithError(interaction, "validation", "Invalid setup profile picker.");
+    return;
+  }
+  if (interaction.user.id !== parsed.userId) {
+    await replyWithError(
+      interaction,
+      "rejection",
+      "This picker belongs to another user.",
+    );
+    return;
+  }
+  const profileId = interaction.values[0];
+  if (!profileId) {
+    await replyWithError(interaction, "validation", "Select a setup profile.");
+    return;
+  }
+  await interaction.deferUpdate();
+  const profile = await store.getProfileById(profileId);
+  if (!profile) {
+    await replyWithError(
+      interaction,
+      "validation",
+      "Setup profile is missing.",
+    );
+    return;
+  }
+  try {
+    if (parsed.action === "status") {
+      const run = profile.lastRunId
+        ? await store.getRun(profile.lastRunId)
+        : undefined;
+      await respond(
+        interaction,
+        renderSetupStatus({
+          profile,
+          ...(run ? { run } : {}),
+        }),
+      );
+      return;
+    }
+    if (parsed.action === "view") {
+      await respond(interaction, renderSetupProfile(profile));
+      return;
+    }
+    if (parsed.action === "edit") {
+      const draft = await store.createDraft(profile.id, interaction.user.id);
+      await respond(interaction, renderDraftView(draft));
+      return;
+    }
+    if (parsed.action === "export") {
+      const bundle = exportProfile(profile);
+      await respondWithExport(interaction, bundle);
+      return;
+    }
+    await replyWithError(interaction, "validation", "Unknown setup action.");
+  } catch (error) {
+    await replyWithError(interaction, "internal", summarizeError(error));
   }
 }
 
@@ -174,98 +215,125 @@ async function handleImportCommand(
   interaction: ChatInputCommandInteraction,
   store: SetupStore,
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const profile = await store.getProfile(
-    requiredStringOption(interaction, "repo"),
-    requiredStringOption(interaction, "branch"),
-  );
-  if (!profile) {
-    await interaction.editReply(discordContent("Setup profile is missing."));
-    return;
-  }
+  await ensureDeferred(interaction);
+  const profile = await requireProfileFromOptions(interaction, store);
+  if (!profile) return;
   const environmentAttachment =
     interaction.options.getAttachment("environment");
   const memoryAttachment = interaction.options.getAttachment("memory");
   if (!environmentAttachment && !memoryAttachment) {
-    await interaction.editReply(
-      discordContent("Attach environment JSON, memory Markdown, or both."),
+    await replyWithError(
+      interaction,
+      "validation",
+      "Attach environment JSON, memory Markdown, or both.",
     );
     return;
   }
-  const environment = environmentAttachment
-    ? await readEnvironmentAttachment(environmentAttachment)
-    : undefined;
-  const memoryMarkdown = memoryAttachment
-    ? await readAttachmentText(memoryAttachment)
-    : undefined;
-  const draft = await store.createDraft(profile.id, interaction.user.id);
-  const parsed = validateSetupProfilePayload({
-    environment: environment ?? draft.environment,
-    memoryMarkdown: memoryMarkdown ?? draft.memoryMarkdown,
-  });
-  if (!parsed.ok) {
-    const invalidDraft = await store.updateDraft({
+  try {
+    const environment = environmentAttachment
+      ? await readEnvironmentAttachment(environmentAttachment)
+      : undefined;
+    const memoryMarkdown = memoryAttachment
+      ? await readAttachmentText(memoryAttachment)
+      : undefined;
+    const draft = await store.createDraft(profile.id, interaction.user.id);
+    const parsed = validateSetupProfilePayload({
+      environment: environment ?? draft.environment,
+      memoryMarkdown: memoryMarkdown ?? draft.memoryMarkdown,
+    });
+    if (!parsed.ok) {
+      const invalidDraft = await store.updateDraft({
+        draftId: draft.id,
+        validationStatus: "invalid",
+        validationMessage: parsed.message,
+      });
+      await respond(interaction, renderDraftView(invalidDraft));
+      return;
+    }
+    const imported = await store.updateDraft({
       draftId: draft.id,
-      validationStatus: "invalid",
-      validationMessage: parsed.message,
+      environment: parsed.value.environment,
+      memoryMarkdown: parsed.value.memoryMarkdown,
+      validationStatus: "valid",
+      validationMessage: "Imported files are valid.",
     });
-    await interaction.editReply({
-      content: discordContent(renderDraft(invalidDraft).content),
-      components: draftComponents(invalidDraft),
-    });
-    return;
+    await respond(interaction, renderDraftView(imported));
+  } catch (error) {
+    await replyWithError(interaction, "validation", summarizeError(error));
   }
-  const imported = await store.updateDraft({
-    draftId: draft.id,
-    environment: parsed.value.environment,
-    memoryMarkdown: parsed.value.memoryMarkdown,
-    validationStatus: "valid",
-    validationMessage: "Imported files are valid.",
-  });
-  await interaction.editReply({
-    content: discordContent(renderDraft(imported).content),
-    components: draftComponents(imported),
-  });
 }
 
 async function handleSetupButton(
   interaction: ButtonInteraction,
   store: SetupStore,
 ): Promise<void> {
-  const parsed = parseCustomId(interaction.customId);
+  const parsed = parseDraftCustomId(interaction.customId);
   if (!parsed) {
-    await interaction.reply({
-      content: discordContent("Invalid setup action."),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(interaction, "validation", "Invalid setup action.");
     return;
   }
+
+  if (parsed.action === "discard" && parsed.confirmStep === "confirm") {
+    const draft = await store.getDraft(parsed.draftId);
+    if (!draft) {
+      await replyWithError(interaction, "validation", "Draft not found.");
+      return;
+    }
+    if (draft.discordUserId !== interaction.user.id) {
+      await replyWithError(
+        interaction,
+        "rejection",
+        "Only the draft owner can edit this setup draft.",
+      );
+      return;
+    }
+    await interaction.deferUpdate();
+    await store.discardDraft(parsed.draftId);
+    await interaction.editReply(
+      infoView("Draft discarded", "The setup draft was discarded."),
+    );
+    return;
+  }
+
+  if (parsed.action === "discard" && parsed.confirmStep === "cancel") {
+    const draft = await store.getDraft(parsed.draftId);
+    if (!draft) {
+      await replyWithError(interaction, "validation", "Draft not found.");
+      return;
+    }
+    if (draft.discordUserId !== interaction.user.id) {
+      await replyWithError(
+        interaction,
+        "rejection",
+        "Only the draft owner can edit this setup draft.",
+      );
+      return;
+    }
+    await interaction.update(renderDraftView(draft));
+    return;
+  }
+
   const draft = await store.getDraft(parsed.draftId);
   if (!draft) {
-    await interaction.reply({
-      content: discordContent("Draft not found."),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(interaction, "validation", "Draft not found.");
     return;
   }
   if (draft.discordUserId !== interaction.user.id) {
-    await interaction.reply({
-      content: discordContent(
-        "Only the draft owner can edit this setup draft.",
-      ),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(
+      interaction,
+      "rejection",
+      "Only the draft owner can edit this setup draft.",
+    );
     return;
   }
+
   if (parsed.action === "commands") {
-    const checks = checksText(draft);
-    if (checks.length > 4000) {
-      await interaction.reply({
-        content: discordContent(
-          "This draft has too many check commands for a Discord modal. Use /setup export, edit the environment JSON, then /setup import.",
-        ),
-        flags: MessageFlags.Ephemeral,
-      });
+    if (checksTooLargeForModal(draft)) {
+      await replyWithError(
+        interaction,
+        "validation",
+        "This draft has too many check commands for a Discord modal. Use /setup export, edit the environment JSON, then /setup import.",
+      );
       return;
     }
     await interaction.showModal(commandsModal(draft));
@@ -276,13 +344,12 @@ async function handleSetupButton(
     return;
   }
   if (parsed.action === "memory") {
-    if (draft.memoryMarkdown.length > 4000) {
-      await interaction.reply({
-        content: discordContent(
-          "This setup memory is too large for a Discord modal. Use /setup export, edit the Markdown file, then /setup import.",
-        ),
-        flags: MessageFlags.Ephemeral,
-      });
+    if (memoryTooLargeForModal(draft)) {
+      await replyWithError(
+        interaction,
+        "validation",
+        "This setup memory is too large for a Discord modal. Use /setup export, edit the Markdown file, then /setup import.",
+      );
       return;
     }
     await interaction.showModal(memoryModal(draft));
@@ -302,17 +369,9 @@ async function handleSetupButton(
           ? "Draft is valid."
           : validation.message,
       });
-      await interaction.editReply({
-        content: discordContent(renderDraft(updated).content),
-        components: draftComponents(updated),
-      });
+      await interaction.editReply(renderDraftView(updated));
     } catch (error) {
-      await interaction.editReply({
-        content: discordContent(
-          `Setup action failed: ${summarizeError(error)}`,
-        ),
-        components: [],
-      });
+      await replyWithError(interaction, "internal", summarizeError(error));
     }
     return;
   }
@@ -321,42 +380,24 @@ async function handleSetupButton(
     try {
       const result = await store.applyDraft(draft.id);
       if (result.ok) {
-        await interaction.editReply({
-          content: discordContent(renderSetupProfile(result.profile).content),
-          components: [],
-        });
+        await interaction.editReply(renderSetupProfile(result.profile));
         return;
       }
       const message =
         result.reason === "conflict"
           ? "Profile changed since this draft was opened. Reopen the editor."
           : `Draft could not be applied: ${result.reason}`;
-      await interaction.editReply({
-        content: discordContent(message),
-        components: [],
-      });
+      await replyWithError(interaction, "rejection", message);
     } catch (error) {
-      await interaction.editReply({
-        content: discordContent(
-          `Setup action failed: ${summarizeError(error)}`,
-        ),
-        components: [],
-      });
+      await replyWithError(interaction, "internal", summarizeError(error));
     }
     return;
   }
   if (parsed.action === "discard") {
-    await store.discardDraft(draft.id);
-    await interaction.update({
-      content: discordContent("Draft discarded."),
-      components: [],
-    });
+    await interaction.update(renderDiscardConfirmView(draft));
     return;
   }
-  await interaction.reply({
-    content: discordContent("Unknown setup action."),
-    flags: MessageFlags.Ephemeral,
-  });
+  await replyWithError(interaction, "validation", "Unknown setup action.");
 }
 
 async function handleSetupModal(
@@ -367,17 +408,19 @@ async function handleSetupModal(
   const wizard = parseSetupWizardCustomId(interaction.customId);
   if (wizard?.kind === "create-run") {
     if (!orchestrator) {
-      await interaction.reply({
-        content: discordContent("Setup orchestrator unavailable."),
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyWithError(
+        interaction,
+        "internal",
+        "Setup orchestrator unavailable.",
+      );
       return;
     }
     if (interaction.user.id !== wizard.userId) {
-      await interaction.reply({
-        content: discordContent("This setup dialog belongs to another user."),
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyWithError(
+        interaction,
+        "rejection",
+        "This setup dialog belongs to another user.",
+      );
       return;
     }
     const repo = interaction.fields.getTextInputValue("repo").trim();
@@ -387,16 +430,9 @@ async function handleSetupModal(
     const checks = interaction.fields.getTextInputValue("checks");
     const key = parseSetupProfileKey(repo, branch);
     if (!key.ok) {
-      await interaction.reply({
-        content: discordContent(key.message),
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyWithError(interaction, "validation", key.message);
       return;
     }
-    const existingProfile =
-      wizard.mode === "update"
-        ? await store.getProfile(key.value.repo, key.value.branch)
-        : undefined;
     const pending = pendingFromRunModal({
       mode: wizard.mode,
       repo: key.value.repo,
@@ -406,12 +442,18 @@ async function handleSetupModal(
       checksRaw: checks,
     });
     if (!pending.install.trim()) {
-      await interaction.reply({
-        content: discordContent("Install command is required."),
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyWithError(
+        interaction,
+        "validation",
+        "Install command is required.",
+      );
       return;
     }
+    await interaction.deferReply();
+    const existingProfile =
+      wizard.mode === "update"
+        ? await store.getProfile(key.value.repo, key.value.branch)
+        : undefined;
     const envCheck = validateSetupEnvironment({
       install: pending.install,
       start: existingProfile?.environment.start ?? pending.start,
@@ -421,13 +463,9 @@ async function handleSetupModal(
       ...(pending.skills.length > 0 ? { skills: pending.skills } : {}),
     });
     if (!envCheck.ok) {
-      await interaction.reply({
-        content: discordContent(envCheck.message),
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyWithError(interaction, "validation", envCheck.message);
       return;
     }
-    await interaction.deferReply();
     try {
       await finishSetupFromWizard(
         interaction,
@@ -439,7 +477,7 @@ async function handleSetupModal(
     } catch (error) {
       try {
         await interaction.editReply(
-          discordContent(`Setup failed: ${summarizeError(error)}`),
+          clampDiscordContent(`Setup failed: ${summarizeError(error)}`),
         );
       } catch (editError) {
         console.error(
@@ -451,29 +489,22 @@ async function handleSetupModal(
     return;
   }
 
-  const parsed = parseCustomId(interaction.customId);
+  const parsed = parseDraftCustomId(interaction.customId);
   if (!parsed) {
-    await interaction.reply({
-      content: discordContent("Invalid setup modal."),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(interaction, "validation", "Invalid setup modal.");
     return;
   }
   const draft = await store.getDraft(parsed.draftId);
   if (!draft) {
-    await interaction.reply({
-      content: discordContent("Draft not found."),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(interaction, "validation", "Draft not found.");
     return;
   }
   if (draft.discordUserId !== interaction.user.id) {
-    await interaction.reply({
-      content: discordContent(
-        "Only the draft owner can edit this setup draft.",
-      ),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(
+      interaction,
+      "rejection",
+      "Only the draft owner can edit this setup draft.",
+    );
     return;
   }
   let environment = draft.environment;
@@ -511,7 +542,7 @@ async function handleSetupModal(
     environment,
     memoryMarkdown,
   });
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await ensureDeferred(interaction);
   try {
     const updated = await store.updateDraft({
       draftId: draft.id,
@@ -526,150 +557,35 @@ async function handleSetupModal(
         ? "Draft is valid."
         : parsedPayload.message,
     });
-    await respondWithDraft(interaction, updated);
+    await respond(interaction, renderDraftView(updated));
   } catch (error) {
-    await interaction.editReply({
-      content: discordContent(`Failed to save: ${summarizeError(error)}`),
-      components: [],
-    });
+    await replyWithError(interaction, "internal", summarizeError(error));
   }
 }
 
-async function respondWithDraft(
-  interaction: ModalSubmitInteraction,
-  draft: SetupDraft,
+async function respondWithExport(
+  interaction: StringSelectMenuInteraction | ChatInputCommandInteraction,
+  bundle: ReturnType<typeof exportProfile>,
 ): Promise<void> {
-  const response = {
-    content: discordContent(renderDraft(draft).content),
-    components: draftComponents(draft),
+  const payload = {
+    components: bundle.view.components,
+    flags: bundle.view.flags | MessageFlags.Ephemeral,
+    files: bundle.files.map(
+      (file) =>
+        new AttachmentBuilder(Buffer.from(file.content, "utf8"), {
+          name: file.name,
+        }),
+    ),
   };
-  if (interaction.deferred || interaction.replied) {
-    await interaction.editReply(response);
+  if (interaction.deferred) {
+    await interaction.editReply(payload);
     return;
   }
-  await interaction.reply({
-    ...response,
-    flags: MessageFlags.Ephemeral,
-  });
-}
-
-function draftComponents(draft: SetupDraft): ActionRowBuilder<ButtonBuilder>[] {
-  return [
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      button("commands", draft.id, "Commands", ButtonStyle.Secondary),
-      button(
-        "requirements",
-        draft.id,
-        "Env and services",
-        ButtonStyle.Secondary,
-      ),
-      button("memory", draft.id, "Memory", ButtonStyle.Secondary),
-    ),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      button("validate", draft.id, "Validate", ButtonStyle.Primary),
-      button("apply", draft.id, "Apply", ButtonStyle.Success),
-      button("discard", draft.id, "Discard", ButtonStyle.Danger),
-    ),
-  ];
-}
-
-function button(
-  action: string,
-  draftId: string,
-  label: string,
-  style: ButtonStyle,
-): ButtonBuilder {
-  return new ButtonBuilder()
-    .setCustomId(`${SETUP_CUSTOM_ID_PREFIX}${action}:${draftId}`)
-    .setLabel(label)
-    .setStyle(style);
-}
-
-function commandsModal(draft: SetupDraft): ModalBuilder {
-  return new ModalBuilder()
-    .setCustomId(`${SETUP_CUSTOM_ID_PREFIX}commands:${draft.id}`)
-    .setTitle("Setup commands")
-    .addComponents(
-      modalRow(
-        "install",
-        "Install command",
-        draft.environment.install,
-        4000,
-        true,
-      ),
-      modalRow("start", "Start command", draft.environment.start, 4000, false),
-      modalRow(
-        "checks",
-        "Checks as name=command lines",
-        checksText(draft),
-        4000,
-        false,
-      ),
-      modalRow(
-        "skills",
-        "Skills (URLs, one per line)",
-        (draft.environment.skills ?? []).join("\n"),
-        4000,
-        false,
-      ),
-    );
-}
-
-function requirementsModal(draft: SetupDraft): ModalBuilder {
-  return new ModalBuilder()
-    .setCustomId(`${SETUP_CUSTOM_ID_PREFIX}requirements:${draft.id}`)
-    .setTitle("Setup requirements")
-    .addComponents(
-      modalRow(
-        "requiredEnv",
-        "Required env names",
-        draft.environment.requiredEnv.join("\n"),
-        4000,
-        false,
-      ),
-      modalRow(
-        "requiredServices",
-        "Required services",
-        draft.environment.requiredServices.join("\n"),
-        4000,
-        false,
-      ),
-    );
-}
-
-function memoryModal(draft: SetupDraft): ModalBuilder {
-  return new ModalBuilder()
-    .setCustomId(`${SETUP_CUSTOM_ID_PREFIX}memory:${draft.id}`)
-    .setTitle("Setup memory")
-    .addComponents(
-      modalRow(
-        "memoryMarkdown",
-        "Memory Markdown",
-        draft.memoryMarkdown.slice(0, 4000),
-        4000,
-        true,
-        TextInputStyle.Paragraph,
-      ),
-    );
-}
-
-function modalRow(
-  customId: string,
-  label: string,
-  value: string,
-  maxLength: number,
-  required: boolean,
-  style: TextInputStyle = TextInputStyle.Paragraph,
-): ActionRowBuilder<TextInputBuilder> {
-  return new ActionRowBuilder<TextInputBuilder>().addComponents(
-    new TextInputBuilder()
-      .setCustomId(customId)
-      .setLabel(label)
-      .setValue(value.slice(0, maxLength))
-      .setMaxLength(maxLength)
-      .setRequired(required)
-      .setStyle(style),
-  );
+  if (interaction.replied) {
+    await interaction.followUp(payload);
+    return;
+  }
+  await interaction.reply(payload);
 }
 
 async function requireProfileFromOptions(
@@ -681,18 +597,12 @@ async function requireProfileFromOptions(
     requiredStringOption(interaction, "branch"),
   );
   if (!key.ok) {
-    await interaction.reply({
-      content: discordContent(key.message),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(interaction, "validation", key.message);
     return undefined;
   }
   const profile = await store.getProfile(key.value.repo, key.value.branch);
   if (!profile) {
-    await interaction.reply({
-      content: discordContent("Setup profile is missing."),
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyWithError(interaction, "validation", "Setup profile is missing.");
     return undefined;
   }
   return profile;
@@ -703,22 +613,6 @@ function requiredStringOption(
   name: string,
 ): string {
   return interaction.options.getString(name, true);
-}
-
-function parseCustomId(
-  customId: string,
-): { action: string; draftId: string } | undefined {
-  if (!customId.startsWith(SETUP_CUSTOM_ID_PREFIX)) return undefined;
-  const rest = customId.slice(SETUP_CUSTOM_ID_PREFIX.length);
-  const [action, draftId] = rest.split(":");
-  if (!action || !draftId) return undefined;
-  return { action, draftId };
-}
-
-function checksText(draft: SetupDraft): string {
-  return Object.entries(draft.environment.checks)
-    .map(([name, command]) => `${name}=${command}`)
-    .join("\n");
 }
 
 function parseChecks(value: string): Record<string, string> {
@@ -836,7 +730,7 @@ async function finishSetupFromWizard(
     (environment.skills?.length ?? 0) > 0
       ? `Skills (${environment.skills!.length} link(s)) install after install on profile save and on each task's first turn.`
       : undefined;
-  const replyBody = discordContent(
+  const replyBody = clampDiscordContent(
     [
       `Setup ${actionLabel} started.`,
       `Run: ${started.runId}`,
@@ -855,39 +749,5 @@ async function finishSetupFromWizard(
     await interaction.editReply(replyBody);
   } catch (error) {
     console.error("[threadcord] setup wizard editReply failed", error);
-  }
-}
-
-async function replyWithError(
-  interaction: ChatInputCommandInteraction,
-  message: string,
-): Promise<void> {
-  const content = discordContent(`Setup failed: ${message}`);
-  try {
-    if (interaction.deferred) {
-      await interaction.editReply(content);
-      return;
-    }
-    if (interaction.replied) {
-      await interaction.followUp({
-        content,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-    await interaction.reply({
-      content,
-      flags: MessageFlags.Ephemeral,
-    });
-  } catch {
-    if (!interaction.deferred && !interaction.replied) return;
-    try {
-      await interaction.followUp({
-        content,
-        flags: MessageFlags.Ephemeral,
-      });
-    } catch {
-      return;
-    }
   }
 }

@@ -4,6 +4,8 @@ import { dispatch } from "@flue/runtime";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
 import { formatTaskInstructionForDiscord } from "../discord/task-instruction-message.js";
 import { renderTaskHeader } from "../discord/task-header.js";
+import type { ViewPayload } from "../discord/ui/index.js";
+import { errorView } from "../discord/ui/index.js";
 import {
   clearPendingUserTurnMessage,
   takePendingUserTurnMessages,
@@ -38,6 +40,15 @@ import {
   parseThreadControlCommand,
   stopTaskWork,
 } from "./abort-thread-task.js";
+import type { TaskThreadRef } from "./discord-thread.js";
+import {
+  buildThreadControlConfirmView,
+  controlOutcomeView,
+  controlPrompt,
+  dismissedControlView,
+  parseThreadControlButtonCustomId,
+  type ThreadControlCommand,
+} from "./thread-controls.js";
 import { threadName } from "./thread-name.js";
 import type {
   ClaimedTurn,
@@ -56,7 +67,7 @@ export type StartTaskFromSlashResult =
 export interface StartTaskFromSlashInput {
   initiatorMessageId: string;
   pending: PendingTaskCreate;
-  createThread: (name: string) => Promise<ThreadRef>;
+  createThread: (name: string) => Promise<TaskThreadRef>;
 }
 
 const EYES = "👀";
@@ -98,8 +109,21 @@ export type RunSetupInstallTurn = (
 export type EditHeaderMessage = (
   threadId: string,
   messageId: string,
-  content: string,
+  payload: ViewPayload,
 ) => Promise<void>;
+
+export interface TaskThreadMessage extends ThreadMessage {
+  authorId?: string | undefined;
+  replyView?: ((payload: ViewPayload) => Promise<void>) | undefined;
+}
+
+export interface HandleControlButtonInput {
+  customId: string;
+  userId: string;
+  defer: () => Promise<void>;
+  update: (payload: ViewPayload) => Promise<void>;
+  reply: (payload: ViewPayload) => Promise<void>;
+}
 
 export type SendThreadTyping = (threadId: string) => Promise<void>;
 
@@ -118,7 +142,7 @@ export class TaskOrchestrator {
   private editHeaderMessage?: EditHeaderMessage;
   private sendThreadTyping?: SendThreadTyping;
   private renameDiscordThread?: RenameDiscordThread;
-  private readonly taskThreads = new Map<string, ThreadRef>();
+  private readonly taskThreads = new Map<string, TaskThreadRef>();
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
   private readonly pendingInitiatorIds = new Map<string, Set<string>>();
   private readonly inFlightTurns = new Map<string, InFlightTurn>();
@@ -225,7 +249,7 @@ export class TaskOrchestrator {
       return { ok: false, reason: "This task was already submitted." };
     }
 
-    let thread: ThreadRef;
+    let thread: TaskThreadRef;
     try {
       thread = await input.createThread(threadName(taskRequest.repo, taskId));
     } catch (error) {
@@ -288,7 +312,7 @@ export class TaskOrchestrator {
     return { ok: true, threadId: thread.id, startedImmediately: false };
   }
 
-  async handleThreadMessage(message: ThreadMessage): Promise<void> {
+  async handleThreadMessage(message: TaskThreadMessage): Promise<void> {
     if (message.authorBot) return;
     const task = await this.store.getByThreadId(message.channelId);
     if (!task) return;
@@ -306,49 +330,24 @@ export class TaskOrchestrator {
       );
       return;
     }
-    if (command === "abort" || command === "cancel") {
-      const result = await stopTaskWork(
-        task,
-        {
-          store: this.store,
-          clearInFlight: (id) => this.clearInFlight(id),
-          flipReaction: (initiator, emoji) =>
-            this.flipReaction(initiator, emoji),
-          disposeInitiators: (taskId, emoji) =>
-            this.disposeInitiators(taskId, emoji),
-          deleteTaskThread: (id) => {
-            this.taskThreads.delete(id);
-          },
-          fillConcurrencySlots: () => this.fillConcurrencySlots(),
-        },
-        { abortInFlight: command === "abort" },
-      );
-      if (!result.cancelled) {
+    if (command === "abort" || command === "cancel" || command === "done") {
+      if (TERMINAL_STATUSES.has(task.status)) {
         await message.reply(`Task is already ${task.status}.`);
         return;
       }
-      const reply =
-        command === "abort"
-          ? "Aborted. The in-flight agent turn was stopped and no further turns will run."
-          : "Cancelled. No further turns will be dispatched for this task.";
-      await message.reply(reply);
-      await this.refreshHeader(task.id);
-      return;
-    }
-    if (command === "done") {
-      const completed = await this.store.transition(
-        task.id,
-        ["waiting", "queued"],
-        "completed",
-      );
-      if (!completed) {
-        await message.reply(`Cannot mark done from status ${task.status}.`);
+      if (!message.authorId) {
+        await message.reply("Cannot verify who sent this command.");
         return;
       }
-      await message.reply("Task marked complete.");
-      await this.refreshHeader(task.id);
-      await this.disposeInitiators(task.id, CHECK);
-      this.taskThreads.delete(task.flueInstanceId);
+      await replyThreadView(
+        message,
+        buildThreadControlConfirmView({
+          command,
+          userId: message.authorId,
+          taskId: task.id,
+          prompt: controlPrompt(command),
+        }),
+      );
       return;
     }
     if (TERMINAL_STATUSES.has(task.status)) {
@@ -372,6 +371,99 @@ export class TaskOrchestrator {
       const claimed = await this.store.claimNextTurn(task.id);
       if (claimed) void this.runTurn(claimed);
     }
+  }
+
+  async handleControlButton(input: HandleControlButtonInput): Promise<void> {
+    const parsed = parseThreadControlButtonCustomId(input.customId);
+    if (!parsed) {
+      await input.reply(errorView("validation", "Invalid task control."));
+      return;
+    }
+    if (input.userId !== parsed.userId) {
+      await input.reply(
+        errorView(
+          "rejection",
+          "Only the user who requested this action can confirm it.",
+        ),
+      );
+      return;
+    }
+
+    const task = await this.store.getById(parsed.taskId);
+    if (!task) {
+      await input.reply(errorView("validation", "Task not found."));
+      return;
+    }
+
+    if (parsed.kind === "dismiss") {
+      await input.update(dismissedControlView());
+      return;
+    }
+
+    await input.defer();
+    const outcome = await this.executeThreadControl(task, parsed.command);
+    try {
+      await input.update(outcome.view);
+    } catch (error) {
+      console.error("[threadcord] control button outcome update failed", error);
+    }
+    if (outcome.refreshHeader) {
+      await this.refreshHeader(task.id);
+    }
+  }
+
+  private async executeThreadControl(
+    task: TaskRecord,
+    command: ThreadControlCommand,
+  ): Promise<{ view: ViewPayload; refreshHeader: boolean }> {
+    if (command === "abort" || command === "cancel") {
+      const result = await stopTaskWork(
+        task,
+        {
+          store: this.store,
+          clearInFlight: (id) => this.clearInFlight(id),
+          flipReaction: (initiator, emoji) =>
+            this.flipReaction(initiator, emoji),
+          disposeInitiators: (taskId, emoji) =>
+            this.disposeInitiators(taskId, emoji),
+          deleteTaskThread: (id) => {
+            this.taskThreads.delete(id);
+          },
+          fillConcurrencySlots: () => this.fillConcurrencySlots(),
+        },
+        { abortInFlight: command === "abort" },
+      );
+      if (!result.cancelled) {
+        return {
+          view: controlOutcomeView(
+            command,
+            false,
+            `Task is already ${task.status}.`,
+          ),
+          refreshHeader: false,
+        };
+      }
+      return { view: controlOutcomeView(command, true), refreshHeader: true };
+    }
+
+    const completed = await this.store.transition(
+      task.id,
+      ["waiting", "queued"],
+      "completed",
+    );
+    if (!completed) {
+      return {
+        view: controlOutcomeView(
+          command,
+          false,
+          `Cannot mark done from status ${task.status}.`,
+        ),
+        refreshHeader: false,
+      };
+    }
+    await this.disposeInitiators(task.id, CHECK);
+    this.taskThreads.delete(task.flueInstanceId);
+    return { view: controlOutcomeView(command, true), refreshHeader: true };
   }
 
   async handleAgentEnd(instanceId: string): Promise<void> {
@@ -665,7 +757,7 @@ export class TaskOrchestrator {
 
   private async createHeaderMessage(
     task: TaskRecord,
-    thread: ThreadRef,
+    thread: TaskThreadRef,
   ): Promise<string | undefined> {
     const projected: TaskRecord = {
       ...task,
@@ -674,9 +766,8 @@ export class TaskOrchestrator {
       status: "queued",
     };
     try {
-      const header = await thread.send(
-        renderTaskHeader(projected, { now: new Date() }),
-      );
+      const payload = renderTaskHeader(projected, { now: new Date() });
+      const header = await thread.sendView(payload);
       try {
         await thread.pin(header.id);
       } catch (error) {
@@ -703,22 +794,22 @@ export class TaskOrchestrator {
         task.status === "queued"
           ? await this.store.queueSnapshot(task.id)
           : undefined;
-      const content = renderTaskHeader(task, {
+      const payload = renderTaskHeader(task, {
         now: new Date(),
         queue,
         runningTurn,
       });
-      const thread = this.taskThreads.get(task.flueInstanceId);
+      const taskThread = this.taskThreads.get(task.flueInstanceId);
+      if (taskThread && task.headerMessageId) {
+        await taskThread.editView(task.headerMessageId, payload);
+        return task;
+      }
       if (this.editHeaderMessage) {
         await this.editHeaderMessage(
           task.discordThreadId,
           task.headerMessageId,
-          content,
+          payload,
         );
-        return task;
-      }
-      if (thread) {
-        await thread.editMessage(task.headerMessageId, content);
       }
       return task;
     } catch (error) {
@@ -734,6 +825,17 @@ function headerJumpLink(
   messageId: string,
 ): string {
   return `https://discord.com/channels/${guildId ?? "@me"}/${threadId}/${messageId}`;
+}
+
+async function replyThreadView(
+  message: TaskThreadMessage,
+  payload: ViewPayload,
+): Promise<void> {
+  if (message.replyView) {
+    await message.replyView(payload);
+    return;
+  }
+  await message.reply("Confirm or cancel using the buttons above.");
 }
 
 function buildPrompt(

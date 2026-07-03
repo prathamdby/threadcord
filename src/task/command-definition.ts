@@ -11,7 +11,7 @@ export function buildTaskCommandJson(): ReturnType<
       subcommand
         .setName("create")
         .setDescription(
-          "Start a new task (repo, branch, model, and instruction).",
+          "Create a task: pick a setup profile, model, and instruction.",
         ),
     );
   return command.toJSON();

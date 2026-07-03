@@ -22,60 +22,22 @@ export function buildSetupCommandJson(): ReturnType<
         ),
     )
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName("status")
-        .setDescription("Show setup status.")
-        .addStringOption((option) =>
-          option.setName("repo").setDescription("owner/repo").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option
-            .setName("branch")
-            .setDescription("Base branch")
-            .setRequired(true),
-        ),
+      subcommand.setName("status").setDescription("Show setup status."),
     )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("view")
-        .setDescription("View the active setup profile.")
-        .addStringOption((option) =>
-          option.setName("repo").setDescription("owner/repo").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option
-            .setName("branch")
-            .setDescription("Base branch")
-            .setRequired(true),
-        ),
+        .setDescription("View the active setup profile."),
     )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("edit")
-        .setDescription("Open a draft editor for the active setup profile.")
-        .addStringOption((option) =>
-          option.setName("repo").setDescription("owner/repo").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option
-            .setName("branch")
-            .setDescription("Base branch")
-            .setRequired(true),
-        ),
+        .setDescription("Open a draft editor for the active setup profile."),
     )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("export")
-        .setDescription("Export setup environment JSON and memory Markdown.")
-        .addStringOption((option) =>
-          option.setName("repo").setDescription("owner/repo").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option
-            .setName("branch")
-            .setDescription("Base branch")
-            .setRequired(true),
-        ),
+        .setDescription("Export setup environment JSON and memory Markdown."),
     )
     .addSubcommand((subcommand) =>
       subcommand

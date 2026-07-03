@@ -65,7 +65,10 @@ describe("inbound-message reactions", () => {
     expect(
       result.thread.edits.some((edit) =>
         edit.content.includes("State: ready for a follow-up"),
-      ),
+      ) ||
+        result.thread.viewEdits.some((edit) =>
+          JSON.stringify(edit.payload).includes("ready for a follow-up"),
+        ),
     ).toBe(true);
   });
 
@@ -271,7 +274,10 @@ describe("non-fatal reaction and typing errors", () => {
     expect(
       result.thread.edits.some((edit) =>
         edit.content.includes("State: ready for a follow-up"),
-      ),
+      ) ||
+        result.thread.viewEdits.some((edit) =>
+          JSON.stringify(edit.payload).includes("ready for a follow-up"),
+        ),
     ).toBe(true);
   });
 
@@ -315,7 +321,7 @@ describe("cancel during an in-flight turn", () => {
     expect(task.status).toBe("running");
     expect(world.dispatched).not.toContain(task.flueInstanceId);
 
-    await world.sendThreadMessage(task.id, "cancel-setup", "cancel");
+    await world.confirmThreadControl(task.id, "cancel-setup", "cancel");
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
     expect(result.message.reactionLog).toEqual([]);
 
@@ -348,7 +354,7 @@ describe("cancel during an in-flight turn", () => {
 
     expect(task.status).toBe("running");
 
-    await world.sendThreadMessage(task.id, "cancel-dispatch", "cancel");
+    await world.confirmThreadControl(task.id, "cancel-dispatch", "cancel");
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
 
     release();
@@ -368,7 +374,7 @@ describe("reaction cleanup on terminal commands", () => {
     const task = result.task!;
     expect(task.status).toBe("running");
 
-    await world.sendThreadMessage(task.id, "cancel-1", "cancel");
+    await world.confirmThreadControl(task.id, "cancel-1", "cancel");
 
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
     expect(result.message.reactionLog).toEqual([]);
@@ -387,7 +393,7 @@ describe("reaction cleanup on terminal commands", () => {
     const queued = await world.submitFollowup(task.id, "m-cancel-queued-f2");
     expect(world.store.snapshot(task.id).status).toBe("running");
 
-    await world.sendThreadMessage(task.id, "cancel-x", "cancel");
+    await world.confirmThreadControl(task.id, "cancel-x", "cancel");
 
     expect(world.store.snapshot(task.id).status).toBe("cancelled");
     expect(running.message.reactionLog).toEqual([
@@ -409,7 +415,7 @@ describe("reaction cleanup on terminal commands", () => {
     expect(queued.task!.status).toBe("queued");
     expect(queued.message.reactCalls).toHaveLength(0);
 
-    await world.sendThreadMessage(queued.task!.id, "done-1", "done");
+    await world.confirmThreadControl(queued.task!.id, "done-1", "done");
 
     expect(world.store.snapshot(queued.task!.id).status).toBe("completed");
     expect(queued.message.reactionLog).toEqual([]);

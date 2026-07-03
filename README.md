@@ -10,7 +10,7 @@
 
 > `/task create` opens a public thread on your reply, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, tasks that were `running` are moved to `waiting` so follow-ups can continue.
 
-Threadcord is a Discord bot plus a small Hono server. Use `/task create` to supply repo, branch, model, and instruction. The bot opens a thread on the command reply, clones the repo, and dispatches work to a Flue coding agent. Thread messages handle follow-ups; thread commands handle cancel and done.
+Threadcord is a Discord bot plus a small Hono server. Use `/task create` to pick a setup profile, model, and instruction in one modal. The bot opens a thread on the command reply, clones the repo, and dispatches work to a Flue coding agent. Thread messages handle follow-ups; thread commands handle status, cancel, abort, and done.
 
 Configuration lives in [`.env.example`](.env.example). Zod validation is in [`src/config.ts`](src/config.ts).
 
@@ -125,15 +125,14 @@ PROVIDER_AGENT_ROUTER_HEADERS={"User-Agent":"Threadcord"}
 
 Inside Docker Compose, `localhost` in a provider URL points at the container, not your host. Use `host.docker.internal`, a Compose service name, or host networking.
 
-Allowed models are derived at startup from these provider blocks. When a Discord task omits `model:`, the first configured model is used.
+Allowed models are derived at startup from these provider blocks. The create modal requires a model; it is pre-filled with the default (first configured model).
 
 ## Creating tasks
 
 Run `/task create` in any channel where the bot can post and create threads.
 
-1. An ephemeral message lists **ready setup profiles** in a dropdown (`owner/repo @ branch`). Discord modals only support text fields, not dropdowns, so repo and branch are chosen here (up to 25 profiles).
-2. After you pick one, a modal asks for **model** and **task instruction** (model defaults to the first allowed model at startup).
-3. The bot replies with a link to a new public thread. Progress and agent output stream there.
+1. A modal opens with a **setup profile** dropdown (`owner/repo @ branch`, up to 25 ready profiles), a **model** field (defaults to the first allowed model at startup), and a **task instruction** field.
+2. After you submit, the bot replies with a link to a new public thread. Progress and agent output stream there.
 
 If no setup profile is ready, run `/setup create` first.
 
@@ -141,10 +140,10 @@ Coding agents normally create branches named `threadcord/<type>/<meaningful-name
 
 Thread commands (in a Threadcord-created thread):
 
-- `status` prints the current task status.
-- `abort` or `/abort` stops the in-flight agent turn and cancels the task.
-- `cancel` or `/cancel` cancels the task without failing the current turn (no further dispatches).
-- `done` marks a `waiting` or `queued` task complete.
+- `status` replies with a jump link to the pinned task header (live status lives there).
+- `abort` or `/abort` asks for confirmation, then stops the in-flight agent turn and cancels the task.
+- `cancel` or `/cancel` asks for confirmation, then cancels the task without failing the current turn (no further dispatches).
+- `done` asks for confirmation, then marks a `waiting` or `queued` task complete.
 
 ## Setup profiles
 
@@ -180,17 +179,17 @@ Promotion happens when the setup agent calls `save_threadcord_setup_profile`. Th
 
 Threadcord scopes each setup and task workspace with its own `HOME`, npm global prefix, and cache directory. Commands such as `npm install -g <tool>` install into that workspace and put the workspace-local `bin` directory on `PATH`. Deleting the workspace deletes those globals.
 
-Setup commands (Discord slash command `/setup` with subcommands; `repo` and `branch` are required options, optional `model` on create/update):
+Setup commands (Discord slash command `/setup` with subcommands; `status`, `view`, `edit`, and `export` use a profile picker instead of repo/branch args; `import` still takes repo, branch, and attachments):
 
 | Subcommand | Purpose                                                                                                                                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create`   | First-time setup when no profile exists, or when the profile is `failed`. Spawns a public thread on the slash command with a live agent log (same style as coding tasks).                                     |
-| `update`   | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). Spawns a setup thread with live log.                                                                                |
-| `status`   | Show profile status, revision, and last run state (ephemeral). Re-run anytime for a fresh snapshot; while setup is running, open the setup thread from your `create`/`update` command for the live agent log. |
-| `view`     | View the active profile environment and memory (ephemeral).                                                                                                                                                   |
-| `edit`     | Open a private draft editor with buttons and modals.                                                                                                                                                          |
-| `export`   | Export environment JSON and memory Markdown as ephemeral attachments.                                                                                                                                         |
-| `import`   | Import environment and/or memory attachments into a draft.                                                                                                                                                    |
+| `create`   | First-time setup when no profile exists, or when the profile is `failed`. Opens a modal (repo, branch, skills, install, checks — no model field), then spawns a public thread on the slash command with a live agent log (same style as coding tasks). |
+| `update`   | Re-run setup when the profile is `ready` or `failed` (not while `running` or `updating`). Same modal as `create`, then spawns a setup thread with live log.                                                   |
+| `status`   | Pick a profile, then show profile status, revision, and last run state (ephemeral). Re-run anytime for a fresh snapshot; while setup is running, open the setup thread from your `create`/`update` command for the live agent log. |
+| `view`     | Pick a profile, then view the active profile environment and memory (ephemeral).                                                                                                                              |
+| `edit`     | Pick a profile, then open a private draft editor with buttons and modals.                                                                                                                                     |
+| `export`   | Pick a profile, then export environment JSON and memory Markdown as ephemeral attachments.                                                                                                                    |
+| `import`   | Import environment and/or memory attachments into a draft (`repo` and `branch` required).                                                                                                                     |
 
 Repository names are normalized to lowercase `owner/repo`. Coding tasks require a profile in `ready` status.
 
@@ -207,8 +206,8 @@ Add external MCP (Model Context Protocol) tool servers at runtime via Discord. N
 | Command       | What it does                                                                                                      |
 | ------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `/mcp add`    | Opens a modal to configure a server (id, URL, token, transport, headers). Validates the connection before saving. |
-| `/mcp remove` | Removes a server by id. Closes the live connection and deletes from DB.                                           |
-| `/mcp list`   | Lists configured servers (id, URL, transport). Tokens are never shown.                                            |
+| `/mcp remove` | Pick a server from a dropdown, confirm removal. Closes the live connection and deletes from DB.                   |
+| `/mcp list`   | Lists configured servers (id, URL, transport), paginated when there are many. Tokens are never shown.           |
 
 MCP servers are global — every task gets tools from all connected servers. Servers persist in Postgres and reconnect on restart.
 
@@ -232,10 +231,10 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 | ---------- | --------------- | ----------------------------------------------------------------------------- |
 | New task   | Control channel | Thread created, repo cloned, first turn queued (requires ready setup profile) |
 | Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`                               |
-| `status`   | Task thread     | Replies with current task status                                              |
-| `abort`    | Task thread     | Stops in-flight agent work and cancels the task (`/abort` or `abort`)         |
-| `cancel`   | Task thread     | Cancels task; current turn may finish; no further dispatches                  |
-| `done`     | Task thread     | Marks task `completed` from `waiting` or `queued`                             |
+| `status`   | Task thread     | Replies with a jump link to the pinned task header                         |
+| `abort`    | Task thread     | Confirms, then stops in-flight agent work and cancels the task (`/abort` or `abort`) |
+| `cancel`   | Task thread     | Confirms, then cancels task; current turn may finish; no further dispatches |
+| `done`     | Task thread     | Confirms, then marks task `completed` from `waiting` or `queued`           |
 | Open PR    | Agent tool      | `create_github_pull_request` after push                                       |
 | Learn      | Agent tool      | `append_threadcord_setup_memory` after verified repo lessons                  |
 | Setup      | `/setup` slash  | Durable per-repo profiles; see [Setup profiles](#setup-profiles)              |
@@ -252,14 +251,14 @@ flowchart TD
   orchestrator --> flue["Flue coding agent"]
   flue --> githubApi["GitHub API"]
   flue --> observe["observe-bridge.ts"]
-  observe --> thread["Discord thread status"]
+  observe --> thread["Discord thread progress"]
 ```
 
 1. [`gateway.ts`](src/discord/gateway.ts) routes channel messages to task creation and thread messages to follow-ups.
 2. [`orchestrator.ts`](src/task/orchestrator.ts) parses the message, creates the thread, bootstraps the workspace, calls `dispatch`.
 3. [`store.ts`](src/task/store.ts) persists state and claims turns under a Postgres advisory lock.
 4. [`agents/coding.ts`](src/agents/coding.ts) runs the Flue agent with git/bash tools and the GitHub PR tool.
-5. [`observe-bridge.ts`](src/discord/observe-bridge.ts) edits the thread status message from Flue events.
+5. [`observe-bridge.ts`](src/discord/observe-bridge.ts) streams agent progress lines into the thread. [`TaskOrchestrator`](src/task/orchestrator.ts) refreshes the pinned Components-v2 task header for live state.
 
 ## Data privacy
 

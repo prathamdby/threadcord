@@ -1,3 +1,4 @@
+import { kvView, type ViewPayload } from "../discord/ui/index.js";
 import type { TaskRecord } from "../types.js";
 
 export interface TaskHeaderQueue {
@@ -14,42 +15,52 @@ export interface TaskHeaderOptions {
 export function renderTaskHeader(
   task: TaskRecord,
   options: TaskHeaderOptions,
-): string {
-  const lines = [
-    "**Threadcord task**",
-    `State: ${plainState(task.status)}`,
-    `Repo: ${task.repo}`,
-    `Branch: ${task.branch}`,
-    `Model: ${task.model}`,
+): ViewPayload {
+  return kvView("Threadcord task", taskHeaderEntries(task, options));
+}
+
+export function taskHeaderEntries(
+  task: TaskRecord,
+  options: TaskHeaderOptions,
+): [string, string][] {
+  const entries: [string, string][] = [
+    ["State", plainState(task.status)],
+    ["Repo", task.repo],
+    ["Branch", task.branch],
+    ["Model", task.model],
   ];
 
   if (task.status === "queued" && options.queue) {
-    lines.push(
-      `Queue: position ${options.queue.position} of ${options.queue.depth}`,
-    );
+    entries.push([
+      "Queue",
+      `position ${options.queue.position} of ${options.queue.depth}`,
+    ]);
   }
 
   if (task.status === "running") {
-    lines.push(`Turn: ${options.runningTurn ?? "running"}`);
+    entries.push(["Turn", options.runningTurn ?? "running"]);
   }
 
   if (task.status === "failed" && task.errorSummary) {
-    lines.push(`Failure: ${singleLine(task.errorSummary)}`);
-    lines.push("Next: fix the cause and send a new message in this thread.");
+    entries.push(["Failure", singleLine(task.errorSummary)]);
+    entries.push([
+      "Next",
+      "fix the cause and send a new message in this thread.",
+    ]);
   }
 
   if (task.status === "cancelled") {
-    lines.push("Outcome: no further turns will run.");
+    entries.push(["Outcome", "no further turns will run."]);
   }
 
   if (task.status === "completed") {
-    lines.push("Outcome: closed by user.");
+    entries.push(["Outcome", "closed by user."]);
   }
 
-  lines.push(`Elapsed: ${formatRelativeDuration(task.createdAt, options.now)}`);
-  lines.push(`Last update: ${formatAgo(task.updatedAt, options.now)}`);
+  entries.push(["Elapsed", formatRelativeDuration(task.createdAt, options.now)]);
+  entries.push(["Last update", formatAgo(task.updatedAt, options.now)]);
 
-  return lines.join("\n");
+  return entries;
 }
 
 function plainState(status: TaskRecord["status"]): string {
