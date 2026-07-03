@@ -27,6 +27,13 @@ export function validateAddInputs(
     };
   }
 
+  if (id.length > 50) {
+    return {
+      ok: false,
+      message: "Server id must be at most 50 characters.",
+    };
+  }
+
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(url);

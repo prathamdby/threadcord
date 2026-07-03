@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { formatTaskInstructionForDiscord } from "../src/discord/task-instruction-message.js";
-import { InMemoryStore, World, flush } from "./support/orchestrator-harness.js";
+import { InMemoryStore, World, flush, headerEditContainsState } from "./support/orchestrator-harness.js";
 import type { NewTaskRecord } from "../src/types.js";
 
 function draftInput(messageId: string): NewTaskRecord {
@@ -32,18 +32,14 @@ describe("task admission when Discord succeeds", () => {
     expect(task!.progressMessageIds).toBeDefined();
     expect(result.threadsCreated).toBe(1);
     expect(result.sends).toContain("Queued");
-    expect(result.sends[0]).toContain("**Threadcord task**");
+    expect(result.thread.viewSends).toHaveLength(1);
     expect(result.sends).toContain(
       formatTaskInstructionForDiscord("Do the work"),
     );
     expect(result.sends).not.toContain("Started");
     expect(task!.headerMessageId).toBeDefined();
     expect(result.thread.pins).toEqual([task!.headerMessageId]);
-    expect(
-      result.thread.edits.some((edit) =>
-        edit.content.includes("State: running"),
-      ),
-    ).toBe(true);
+    expect(headerEditContainsState(result.thread, "running")).toBe(true);
     expect(world.dispatched).toContain(task!.flueInstanceId);
   });
 
@@ -57,8 +53,8 @@ describe("task admission when Discord succeeds", () => {
       false,
     );
     expect(
-      second.thread.edits.some((edit) =>
-        edit.content.includes("Queue: position 1 of 1"),
+      second.thread.viewEdits.some((edit) =>
+        JSON.stringify(edit.payload).includes("**Queue**: position 1 of 1"),
       ),
     ).toBe(true);
     expect(world.dispatched).not.toContain(second.task!.flueInstanceId);
@@ -82,7 +78,7 @@ describe("task status header", () => {
     ]);
     expect(message.replies[0]).not.toContain("Status: running");
     expect(
-      result.thread.edits.some(
+      result.thread.viewEdits.some(
         (edit) => edit.messageId === task.headerMessageId,
       ),
     ).toBe(true);
@@ -113,9 +109,7 @@ describe("task admission when header pin throws", () => {
     expect(result.task!.headerMessageId).toBeDefined();
     expect(result.thread.pins).toEqual([]);
     expect(
-      result.thread.edits.some((edit) =>
-        edit.content.includes("State: running"),
-      ),
+      headerEditContainsState(result.thread, "running"),
     ).toBe(true);
     expect(world.dispatched).toContain(result.task!.flueInstanceId);
   });

@@ -108,6 +108,19 @@ export class SetupStore {
     return result.rows.map((row) => rowToProfile(row));
   }
 
+  async listProfiles(limit = 25): Promise<SetupProfile[]> {
+    const capped = Math.min(Math.max(1, limit), 25);
+    const result = await this.pool.query(
+      `
+        SELECT * FROM setup_profiles
+        ORDER BY repo, branch
+        LIMIT $1
+      `,
+      [capped],
+    );
+    return result.rows.map((row) => rowToProfile(row));
+  }
+
   async getReadyProfile(
     repo: string,
     branch: string,

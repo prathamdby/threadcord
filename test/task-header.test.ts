@@ -1,6 +1,12 @@
+import { MessageFlags } from "discord.js";
 import { describe, expect, it } from "vitest";
-import { renderTaskHeader } from "../src/discord/task-header.js";
+import {
+  renderTaskHeader,
+  taskHeaderEntries,
+} from "../src/discord/task-header.js";
 import type { TaskRecord } from "../src/types.js";
+
+const IS_COMPONENTS_V2 = 32768;
 
 const baseTask: TaskRecord = {
   id: "task-1",
@@ -20,44 +26,43 @@ const baseTask: TaskRecord = {
 };
 
 const now = new Date("2026-01-01T00:05:00Z");
+const options = { now, queue: { position: 2, depth: 4 } as const };
 
 describe("renderTaskHeader", () => {
-  it("renders queued position and task identity", () => {
-    const header = renderTaskHeader(baseTask, {
-      now,
-      queue: { position: 2, depth: 4 },
-    });
+  it("renders a CV2 kv container without message content", () => {
+    const header = renderTaskHeader(baseTask, options);
+    expect(header).not.toHaveProperty("content");
+    expect(header.flags & MessageFlags.IsComponentsV2).toBe(IS_COMPONENTS_V2);
+    const body = JSON.stringify(header);
+    expect(body).toContain("Threadcord task");
+    expect(body).toContain("**State**: queued");
+    expect(body).toContain("**Repo**: acme/web");
+    expect(body).toContain("**Queue**: position 2 of 4");
+  });
 
-    expect(header).toContain("State: queued");
-    expect(header).toContain("Repo: acme/web");
-    expect(header).toContain("Branch: main");
-    expect(header).toContain("Model: anthropic/claude-sonnet-4-5");
-    expect(header).toContain("Queue: position 2 of 4");
-    expect(header).toContain("Elapsed: 5m");
-    expect(header).toContain("Last update: 4m ago");
+  it("renders queue position in entries", () => {
+    const entries = taskHeaderEntries(baseTask, options);
+    expect(entries).toContainEqual(["Queue", "position 2 of 4"]);
   });
 
   it("renders running turns", () => {
-    const header = renderTaskHeader(
+    const entries = taskHeaderEntries(
       { ...baseTask, status: "running", initialTurnStarted: true },
       { now, runningTurn: "follow-up" },
     );
-
-    expect(header).toContain("State: running");
-    expect(header).toContain("Turn: follow-up");
+    expect(entries).toContainEqual(["Turn", "follow-up"]);
   });
 
   it("renders waiting as ready for a follow-up", () => {
-    const header = renderTaskHeader(
+    const entries = taskHeaderEntries(
       { ...baseTask, status: "waiting", initialTurnStarted: true },
       { now },
     );
-
-    expect(header).toContain("State: ready for a follow-up");
+    expect(entries).toContainEqual(["State", "ready for a follow-up"]);
   });
 
   it("renders failed summaries on one line", () => {
-    const header = renderTaskHeader(
+    const entries = taskHeaderEntries(
       {
         ...baseTask,
         status: "failed",
@@ -65,27 +70,22 @@ describe("renderTaskHeader", () => {
       },
       { now },
     );
-
-    expect(header).toContain("State: failed");
-    expect(header).toContain("Failure: first line second line");
-    expect(header).toContain(
-      "Next: fix the cause and send a new message in this thread.",
-    );
+    expect(entries).toContainEqual(["Failure", "first line second line"]);
   });
 
   it("renders terminal outcome states", () => {
-    const cancelled = renderTaskHeader(
+    const cancelled = taskHeaderEntries(
       { ...baseTask, status: "cancelled" },
       { now },
     );
-    const completed = renderTaskHeader(
+    const completed = taskHeaderEntries(
       { ...baseTask, status: "completed" },
       { now },
     );
 
-    expect(cancelled).toContain("State: cancelled, no further turns");
-    expect(cancelled).toContain("Outcome: no further turns will run.");
-    expect(completed).toContain("State: completed");
-    expect(completed).toContain("Outcome: closed by user.");
+    expect(cancelled).toContainEqual(["State", "cancelled, no further turns"]);
+    expect(cancelled).toContainEqual(["Outcome", "no further turns will run."]);
+    expect(completed).toContainEqual(["State", "completed"]);
+    expect(completed).toContainEqual(["Outcome", "closed by user."]);
   });
 });

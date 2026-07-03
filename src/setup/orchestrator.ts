@@ -10,7 +10,7 @@ import {
 } from "../task/git-auth.js";
 import { ensureWorkspaceDirs } from "../task/workspace-env.js";
 import { summarizeError } from "../util/redact.js";
-import { renderSetupProfile } from "./renderer.js";
+import { formatSetupProfileThreadPost } from "./renderer.js";
 import { parseSetupProfileKey } from "./profile.js";
 import type { SetupStore } from "./store.js";
 import type { ThreadRef } from "../types.js";
@@ -217,7 +217,7 @@ export class SetupOrchestrator {
         ? await this.store.getProfileById(run.profileId)
         : undefined;
       if (profile) {
-        await this.post(threadId, renderSetupProfile(profile).content);
+        await this.post(threadId, formatSetupProfileThreadPost(profile));
       }
     }
   }

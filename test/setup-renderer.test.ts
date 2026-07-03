@@ -1,10 +1,14 @@
+import { MessageFlags } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
   exportProfile,
   renderSetupProfile,
   renderSetupStatus,
 } from "../src/setup/renderer.js";
+import { renderDraftView } from "../src/setup/draft-ui.js";
 import type { SetupProfile, SetupRun } from "../src/setup/profile.js";
+
+const IS_COMPONENTS_V2 = 32768;
 
 const profile: SetupProfile = {
   id: "profile-1",
@@ -25,15 +29,18 @@ const profile: SetupProfile = {
   updatedAt: new Date("2026-01-01T00:00:00Z"),
 };
 
+function expectComponentsV2View(payload: { components: unknown[]; flags: number }) {
+  expect(payload).not.toHaveProperty("content");
+  expect(payload.flags & MessageFlags.IsComponentsV2).toBe(IS_COMPONENTS_V2);
+}
+
 describe("setup renderer", () => {
-  it("renders profile state for Discord", () => {
-    expect(renderSetupProfile(profile).content).toContain(
-      "Setup profile for owner/repo on main",
-    );
-    expect(renderSetupProfile(profile).content).toContain("Install: npm ci");
-    expect(renderSetupProfile(profile).content).toContain(
-      "Required env: DATABASE_URL",
-    );
+  it("renders profile state as Components v2", () => {
+    const view = renderSetupProfile(profile);
+    expectComponentsV2View(view);
+    expect(JSON.stringify(view)).toContain("owner/repo");
+    expect(JSON.stringify(view)).toContain("npm ci");
+    expect(JSON.stringify(view)).toContain("DATABASE_URL");
   });
 
   it("renders status separately from full profile view", () => {
@@ -52,21 +59,40 @@ describe("setup renderer", () => {
       updatedAt: new Date(0),
     };
     const status = renderSetupStatus({ profile: running, run });
-    expect(status.content).toContain("Status: running");
-    expect(status.content).toContain("Run status: running");
-    expect(status.content).toContain("<#thread-setup>");
-    expect(status.content).not.toContain("Install: npm ci");
-    expect(status.content).toContain("/setup view");
+    expectComponentsV2View(status);
+    expect(JSON.stringify(status)).toContain("running");
+    expect(JSON.stringify(status)).toContain("thread-setup");
+    expect(JSON.stringify(status)).not.toContain("npm ci");
+    expect(JSON.stringify(status)).toContain("Setup status");
   });
 
-  it("exports environment JSON and memory Markdown", () => {
-    const view = exportProfile(profile);
+  it("renders draft editor view with action buttons", () => {
+    const draft = {
+      id: "draft-1",
+      profileId: profile.id,
+      discordUserId: "user-1",
+      baseRevision: 3,
+      environment: profile.environment,
+      memoryMarkdown: profile.memoryMarkdown,
+      validationStatus: "unchecked" as const,
+      createdAt: profile.createdAt,
+      updatedAt: profile.updatedAt,
+    };
+    const view = renderDraftView(draft);
+    expectComponentsV2View(view);
+    expect(JSON.stringify(view)).toContain("setup:validate:draft-1");
+    expect(JSON.stringify(view)).toContain("setup:discard:draft-1");
+  });
 
-    expect(view.files?.map((file) => file.name)).toEqual([
+  it("exports environment JSON and memory Markdown with cv2 summary", () => {
+    const bundle = exportProfile(profile);
+    expectComponentsV2View(bundle.view);
+    expect(bundle.files.map((file) => file.name)).toEqual([
       "owner-repo-main-environment.json",
       "owner-repo-main-memory.md",
     ]);
-    expect(view.files?.[0]?.content).toContain('"install": "npm ci"');
-    expect(view.files?.[1]?.content).toBe("Use npm. Tests need Postgres.");
+    expect(bundle.files[0]?.content).toContain('"install": "npm ci"');
+    expect(bundle.files[1]?.content).toBe("Use npm. Tests need Postgres.");
+    expect(JSON.stringify(bundle.view)).toContain("owner/repo");
   });
 });
