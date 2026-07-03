@@ -1,3 +1,4 @@
+import { type ModalBuilder } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
   parseSetupWizardCustomId,
@@ -6,11 +7,34 @@ import {
 } from "../src/setup/create-flow.js";
 import { validateSetupEnvironment } from "../src/setup/profile.js";
 
+function modalTextInputIds(modal: ModalBuilder): string[] {
+  return modal.toJSON().components.flatMap((label) => {
+    const input = (label as { component?: { custom_id?: string } }).component;
+    return input?.custom_id ? [input.custom_id] : [];
+  });
+}
+
 describe("setup create flow", () => {
   it("builds create-run modal with kit custom id", () => {
     const modal = setupCreateRunModal("user-1", "create");
     expect(modal.data.custom_id).toBe("setup:create-run:create:user-1");
     expect(modal.data.title).toBe("Setup create");
+  });
+
+  it("create modal asks only for repo, branch, and skills", () => {
+    const modal = setupCreateRunModal("user-1", "create");
+    expect(modalTextInputIds(modal)).toEqual(["repo", "branch", "skills"]);
+  });
+
+  it("update modal still asks for install and checks", () => {
+    const modal = setupCreateRunModal("user-1", "update");
+    expect(modalTextInputIds(modal)).toEqual([
+      "repo",
+      "branch",
+      "skills",
+      "install",
+      "checks",
+    ]);
   });
 
   it("parses create-run modal custom id", () => {
@@ -22,9 +46,37 @@ describe("setup create flow", () => {
     expect(parseSetupWizardCustomId("setup:commands:draft-1")).toBeUndefined();
   });
 
-  it("rejects wizard when install command is empty", () => {
+  it("create pending wizard omits install and checks", () => {
     const pending = pendingFromRunModal({
       mode: "create",
+      repo: "owner/repo",
+      branch: "main",
+      skillsRaw: "https://example.com/skill.md",
+    });
+    expect(pending.install).toBeUndefined();
+    expect(pending.checks).toBeUndefined();
+    expect(pending.skills).toEqual(["https://example.com/skill.md"]);
+  });
+
+  it("update pending wizard parses install and checks", () => {
+    const pending = pendingFromRunModal({
+      mode: "update",
+      repo: "owner/repo",
+      branch: "main",
+      skillsRaw: "",
+      install: "npm ci",
+      checksRaw: "test=npm test\nbuild=npm run build",
+    });
+    expect(pending.install).toBe("npm ci");
+    expect(pending.checks).toEqual({
+      test: "npm test",
+      build: "npm run build",
+    });
+  });
+
+  it("rejects update wizard when install command is empty", () => {
+    const pending = pendingFromRunModal({
+      mode: "update",
       repo: "owner/repo",
       branch: "main",
       skillsRaw: "",
@@ -34,9 +86,9 @@ describe("setup create flow", () => {
     expect(pending.install).toBe("");
   });
 
-  it("validates wizard environment from modal fields", () => {
+  it("validates update wizard environment from modal fields", () => {
     const pending = pendingFromRunModal({
-      mode: "create",
+      mode: "update",
       repo: "owner/repo",
       branch: "main",
       skillsRaw: "",
@@ -44,18 +96,18 @@ describe("setup create flow", () => {
       checksRaw: "test=npm test\nbuild=npm run build",
     });
     const envCheck = validateSetupEnvironment({
-      install: pending.install,
-      start: pending.start,
-      checks: pending.checks,
+      install: pending.install!,
+      start: pending.start ?? "",
+      checks: pending.checks ?? {},
       requiredEnv: [],
       requiredServices: [],
     });
     expect(envCheck).toMatchObject({ ok: true });
   });
 
-  it("rejects wizard environment when install is missing", () => {
+  it("rejects update wizard environment when install is missing", () => {
     const pending = pendingFromRunModal({
-      mode: "create",
+      mode: "update",
       repo: "owner/repo",
       branch: "main",
       skillsRaw: "",
@@ -63,9 +115,9 @@ describe("setup create flow", () => {
       checksRaw: "",
     });
     const envCheck = validateSetupEnvironment({
-      install: pending.install,
-      start: pending.start,
-      checks: pending.checks,
+      install: pending.install ?? "",
+      start: pending.start ?? "",
+      checks: pending.checks ?? {},
       requiredEnv: [],
       requiredServices: [],
     });

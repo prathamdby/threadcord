@@ -68,6 +68,7 @@ function mockStore(
     })),
     applyDraft: vi.fn().mockResolvedValue({ ok: true, profile: baseProfile }),
     discardDraft: vi.fn().mockResolvedValue(true),
+    patchEnvironmentWhileRunning: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as SetupStore;
 }
@@ -603,6 +604,80 @@ describe("handleSetupInteraction create/update commands", () => {
 });
 
 describe("handleSetupInteraction wizard modal", () => {
+  it("create wizard patches skills only before dispatch", async () => {
+    const patchEnvironmentWhileRunning = vi.fn().mockResolvedValue(undefined);
+    const store = mockStore({
+      patchEnvironmentWhileRunning,
+    });
+    const orchestrator = {
+      startSetup: vi.fn().mockResolvedValue({
+        profileId: "profile-1",
+        runId: "run-2",
+        repo: "owner/repo",
+        branch: "main",
+      }),
+      registerSetupThread: vi.fn(),
+      dispatchSetupAgent: vi.fn(),
+    } as unknown as SetupOrchestrator;
+    const interaction = mockModal({
+      customId: "setup:create-run:create:user-1",
+      fields: {
+        repo: "owner/repo",
+        branch: "main",
+        skills: "https://example.com/skill.md",
+      },
+    });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      orchestrator,
+    });
+    expect(store.getProfile).not.toHaveBeenCalled();
+    expect(patchEnvironmentWhileRunning).toHaveBeenCalledWith("profile-1", {
+      skills: ["https://example.com/skill.md"],
+    });
+    expect(orchestrator.dispatchSetupAgent).toHaveBeenCalled();
+  });
+
+  it("update wizard patches install, checks, and skills before dispatch", async () => {
+    const patchEnvironmentWhileRunning = vi.fn().mockResolvedValue(undefined);
+    const store = mockStore({
+      getProfile: vi.fn().mockResolvedValue(baseProfile),
+      patchEnvironmentWhileRunning,
+    });
+    const orchestrator = {
+      startSetup: vi.fn().mockResolvedValue({
+        profileId: "profile-1",
+        runId: "run-2",
+        repo: "owner/repo",
+        branch: "main",
+      }),
+      registerSetupThread: vi.fn(),
+      dispatchSetupAgent: vi.fn(),
+    } as unknown as SetupOrchestrator;
+    const interaction = mockModal({
+      customId: "setup:create-run:update:user-1",
+      fields: {
+        repo: "owner/repo",
+        branch: "main",
+        skills: "",
+        install: "npm ci",
+        checks: "test=npm test",
+      },
+    });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      orchestrator,
+    });
+    expect(store.getProfile).toHaveBeenCalledWith("owner/repo", "main");
+    expect(patchEnvironmentWhileRunning).toHaveBeenCalledWith("profile-1", {
+      install: "npm ci",
+      checks: { test: "npm test" },
+      skills: [],
+    });
+  });
+
   it("defers before loading profile for update wizard", async () => {
     const callOrder: string[] = [];
     const store = mockStore({

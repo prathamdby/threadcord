@@ -9,9 +9,9 @@ export interface PendingSetupWizard {
   model?: string;
   skills: string[];
   update: boolean;
-  install: string;
-  start: string;
-  checks: Record<string, string>;
+  install?: string;
+  start?: string;
+  checks?: Record<string, string>;
   createdAt: number;
 }
 
@@ -29,26 +29,26 @@ export function setupCreateRunModal(
           .join("\n")
       : "test=npm test\nbuild=npm run build\ntypecheck=npm run check";
   const skillsDefault = (existing?.skills ?? []).join("\n");
-  return new ModalBuilder()
-    .setCustomId(buildCustomId("setup", "create-run", mode, userId))
-    .setTitle(mode === "create" ? "Setup create" : "Setup update")
-    .addLabelComponents(
-      modalRow("repo", "Repository (owner/repo)", {
-        value: repoDefault ?? "",
-        required: true,
-        style: "short",
-        maxLength: 100,
-      }),
-      modalRow("branch", "Base branch", {
-        value: branchDefault ?? "main",
-        required: true,
-        style: "short",
-        maxLength: 100,
-      }),
-      modalRow("skills", "Skills (URLs, one per line)", {
-        value: skillsDefault,
-        style: "paragraph",
-      }),
+  const rows = [
+    modalRow("repo", "Repository (owner/repo)", {
+      value: repoDefault ?? "",
+      required: true,
+      style: "short",
+      maxLength: 100,
+    }),
+    modalRow("branch", "Base branch", {
+      value: branchDefault ?? "main",
+      required: true,
+      style: "short",
+      maxLength: 100,
+    }),
+    modalRow("skills", "Skills (URLs, one per line)", {
+      value: skillsDefault,
+      style: "paragraph",
+    }),
+  ];
+  if (mode === "update") {
+    rows.push(
       modalRow("install", "Install command", {
         value: existing?.install?.trim() || "npm ci",
         required: true,
@@ -58,6 +58,11 @@ export function setupCreateRunModal(
         style: "paragraph",
       }),
     );
+  }
+  return new ModalBuilder()
+    .setCustomId(buildCustomId("setup", "create-run", mode, userId))
+    .setTitle(mode === "create" ? "Setup create" : "Setup update")
+    .addLabelComponents(...rows);
 }
 
 export function pendingFromRunModal(input: {
@@ -65,19 +70,22 @@ export function pendingFromRunModal(input: {
   repo: string;
   branch: string;
   skillsRaw: string;
-  install: string;
-  checksRaw: string;
+  install?: string;
+  checksRaw?: string;
 }): PendingSetupWizard {
-  return {
+  const pending: PendingSetupWizard = {
     repo: input.repo,
     branch: input.branch,
     skills: parseSkillLinksInput(input.skillsRaw),
     update: input.mode === "update",
-    install: input.install.trim(),
-    start: "",
-    checks: parseChecksLines(input.checksRaw),
     createdAt: Date.now(),
   };
+  if (input.mode === "update") {
+    pending.install = input.install?.trim() ?? "";
+    pending.start = "";
+    pending.checks = parseChecksLines(input.checksRaw ?? "");
+  }
+  return pending;
 }
 
 function parseChecksLines(value: string): Record<string, string> {
