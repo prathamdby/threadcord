@@ -484,12 +484,20 @@ async function handleSetupModal(
       key.value.repo,
       key.value.branch,
     );
+    if (!existingProfile) {
+      await replyWithError(
+        interaction,
+        "validation",
+        "Setup profile is missing. Run `/setup create` before updating.",
+      );
+      return;
+    }
     const envCheck = validateSetupEnvironment({
       install: pending.install,
-      start: existingProfile?.environment.start ?? pending.start ?? "",
+      start: existingProfile.environment.start ?? pending.start ?? "",
       checks: pending.checks ?? {},
-      requiredEnv: existingProfile?.environment.requiredEnv ?? [],
-      requiredServices: existingProfile?.environment.requiredServices ?? [],
+      requiredEnv: existingProfile.environment.requiredEnv ?? [],
+      requiredServices: existingProfile.environment.requiredServices ?? [],
       ...(pending.skills.length > 0 ? { skills: pending.skills } : {}),
     });
     if (!envCheck.ok) {

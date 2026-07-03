@@ -717,4 +717,44 @@ describe("handleSetupInteraction wizard modal", () => {
     });
     expect(callOrder.slice(0, 2)).toEqual(["deferReply", "getProfile"]);
   });
+
+  it("update wizard rejects missing profile after defer", async () => {
+    const patchEnvironmentWhileRunning = vi.fn().mockResolvedValue(undefined);
+    const store = mockStore({
+      getProfile: vi.fn().mockResolvedValue(undefined),
+      patchEnvironmentWhileRunning,
+    });
+    const startSetup = vi.fn();
+    const orchestrator = {
+      startSetup,
+      registerSetupThread: vi.fn(),
+      dispatchSetupAgent: vi.fn(),
+    } as unknown as SetupOrchestrator;
+    const interaction = mockModal({
+      customId: "setup:create-run:update:user-1",
+      fields: {
+        repo: "owner/repo",
+        branch: "main",
+        skills: "",
+        install: "npm ci",
+        checks: "test=npm test",
+      },
+    });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      orchestrator,
+    });
+    expect(interaction.deferReply).toHaveBeenCalled();
+    expect(store.getProfile).toHaveBeenCalledWith("owner/repo", "main");
+    expect(startSetup).not.toHaveBeenCalled();
+    expect(patchEnvironmentWhileRunning).not.toHaveBeenCalled();
+    const payload = vi.mocked(interaction.editReply).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expectComponentsV2EditReply(payload);
+    expect(JSON.stringify(payload)).toContain("Setup profile is missing");
+    expect(JSON.stringify(payload)).toContain("before updating");
+  });
 });
