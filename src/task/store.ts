@@ -40,6 +40,31 @@ export class TaskStore {
     `);
     await this.pool.query(`
       ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS push_override TEXT,
+      ADD COLUMN IF NOT EXISTS status_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS error_summary TEXT
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS flue_instance_id TEXT
+    `);
+    await this.pool.query(`
+      UPDATE tasks
+      SET flue_instance_id = CASE
+        WHEN discord_thread_id LIKE 'pending:%' THEN discord_thread_id
+        WHEN discord_thread_id IS NOT NULL THEN 'discord:thread:' || discord_thread_id
+        ELSE 'legacy:' || id
+      END
+      WHERE flue_instance_id IS NULL
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks ALTER COLUMN flue_instance_id SET NOT NULL
+    `);
+    await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS tasks_flue_instance_id_key ON tasks (flue_instance_id)
+    `);
+    await this.pool.query(`
+      ALTER TABLE tasks
       ADD COLUMN IF NOT EXISTS initial_turn_started BOOLEAN NOT NULL DEFAULT false
     `);
     await this.pool.query(`
