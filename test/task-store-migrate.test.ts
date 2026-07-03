@@ -15,6 +15,33 @@ describe("TaskStore.migrate", () => {
     const store = new TaskStore(pool, 3);
     await store.migrate();
 
+    const backfillIdx = queries.findIndex(
+      (sql) =>
+        sql.includes("SET flue_instance_id = CASE") &&
+        sql.includes("WHERE flue_instance_id IS NULL"),
+    );
+    const notNullIdx = queries.findIndex((sql) =>
+      sql.includes("ALTER COLUMN flue_instance_id SET NOT NULL"),
+    );
+    const addFlueIdx = queries.findIndex((sql) =>
+      sql.includes("ADD COLUMN IF NOT EXISTS flue_instance_id"),
+    );
+    const progressBackfillIdx = queries.findIndex((sql) =>
+      sql.includes("SET progress_message_ids = ARRAY[status_message_id]"),
+    );
+    const statusMsgColIdx = queries.findIndex((sql) =>
+      sql.includes("ADD COLUMN IF NOT EXISTS status_message_id"),
+    );
+
+    expect(backfillIdx).toBeGreaterThanOrEqual(0);
+    expect(notNullIdx).toBeGreaterThanOrEqual(0);
+    expect(addFlueIdx).toBeGreaterThanOrEqual(0);
+    expect(addFlueIdx).toBeLessThan(backfillIdx);
+    expect(backfillIdx).toBeLessThan(notNullIdx);
+    expect(statusMsgColIdx).toBeGreaterThanOrEqual(0);
+    expect(progressBackfillIdx).toBeGreaterThanOrEqual(0);
+    expect(statusMsgColIdx).toBeLessThan(progressBackfillIdx);
+
     const joined = queries.join("\n");
     expect(joined).toContain("ADD COLUMN IF NOT EXISTS flue_instance_id");
     expect(joined).toContain("ADD COLUMN IF NOT EXISTS status_message_id");
