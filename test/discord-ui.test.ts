@@ -388,25 +388,23 @@ describe("modalRow", () => {
       placeholder: "provider/model",
     });
     expect(row.toJSON()).toEqual({
-      type: 1,
-      components: [
-        {
-          type: 4,
-          custom_id: "model",
-          label: "Model",
-          max_length: 100,
-          required: true,
-          style: TextInputStyle.Short,
-          value: "anthropic/claude",
-          placeholder: "provider/model",
-        },
-      ],
+      type: 18,
+      label: "Model",
+      component: {
+        type: 4,
+        custom_id: "model",
+        max_length: 100,
+        required: true,
+        style: TextInputStyle.Short,
+        value: "anthropic/claude",
+        placeholder: "provider/model",
+      },
     });
   });
 
   it("defaults to a paragraph optional input", () => {
     const row = modalRow("instruction", "Task instruction");
-    expect(row.toJSON().components[0]).toMatchObject({
+    expect(row.toJSON().component).toMatchObject({
       style: TextInputStyle.Paragraph,
       required: false,
       max_length: 4000,

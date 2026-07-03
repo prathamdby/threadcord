@@ -1,4 +1,3 @@
-import { MessageFlags } from "discord.js";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dispatch } from "@flue/runtime";
@@ -381,17 +380,12 @@ export class TaskOrchestrator {
       return;
     }
     if (input.userId !== parsed.userId) {
-      await input.reply({
-        ...errorView(
+      await input.reply(
+        errorView(
           "rejection",
           "Only the user who requested this action can confirm it.",
         ),
-        flags:
-          errorView(
-            "rejection",
-            "Only the user who requested this action can confirm it.",
-          ).flags | MessageFlags.Ephemeral,
-      });
+      );
       return;
     }
 

@@ -340,6 +340,10 @@ describe("TaskOrchestrator.handleControlButton", () => {
     expect(update).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledTimes(1);
     const payload = reply.mock.calls[0]![0] as ViewPayload;
-    expect(payload.flags & MessageFlags.Ephemeral).toBe(MessageFlags.Ephemeral);
+    expect((payload.flags as number) & MessageFlags.IsComponentsV2).toBe(
+      IS_COMPONENTS_V2,
+    );
+    expect((payload.flags as number) & MessageFlags.Ephemeral).toBe(0);
+    expect(JSON.stringify(payload)).toContain("Action not allowed");
   });
 });

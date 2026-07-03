@@ -55,8 +55,6 @@ export function buildTaskCreateModal(input: {
       new LabelBuilder()
         .setLabel("Setup profile")
         .setStringSelectMenuComponent(profileSelect),
-    )
-    .addComponents(
       modalRow("model", "Model (provider/model-id)", {
         style: "short",
         required: true,

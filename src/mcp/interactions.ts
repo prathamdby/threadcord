@@ -11,8 +11,8 @@ import type { McpTransport } from "@flue/runtime";
 import type { McpPool, McpServerConfig } from "../flue/mcp.js";
 import {
   confirmView,
-  confirmViewDisabled,
   ensureDeferred,
+  errorView,
   infoView,
   modalRow,
   parseCustomId,
@@ -222,15 +222,10 @@ async function handleMcpRemoveConfirm(
   const existing = await store.getServer(serverId);
   const removedFromPool = await pool.removeServer(serverId);
 
-  const terminalView = (prompt: string) =>
-    confirmViewDisabled(
-      prompt,
-      mcpRemoveConfirmId(userId, serverId),
-      mcpRemoveCancelId(userId, serverId),
-    );
-
   if (!existing && !removedFromPool) {
-    await interaction.editReply(terminalView(`MCP server \`${serverId}\` not found.`));
+    await interaction.editReply(
+      errorView("validation", `MCP server \`${serverId}\` not found.`),
+    );
     return;
   }
 
@@ -238,11 +233,13 @@ async function handleMcpRemoveConfirm(
     const removedFromDb = await store.removeServer(serverId);
     if (removedFromDb || removedFromPool) {
       await interaction.editReply(
-        terminalView(`Removed MCP server \`${serverId}\`.`),
+        infoView("Removed", `MCP server \`${serverId}\` was removed.`),
       );
       return;
     }
-    await interaction.editReply(terminalView(`MCP server \`${serverId}\` not found.`));
+    await interaction.editReply(
+      errorView("validation", `MCP server \`${serverId}\` not found.`),
+    );
   } catch (error) {
     if (existing && removedFromPool) {
       try {
@@ -255,7 +252,8 @@ async function handleMcpRemoveConfirm(
       }
     }
     await interaction.editReply(
-      terminalView(
+      errorView(
+        "internal",
         `Failed to remove MCP server \`${serverId}\`: ${summarizeError(error)}`,
       ),
     );
@@ -277,13 +275,7 @@ async function handleMcpRemoveCancel(
 
   const { serverId, userId } = parsed;
   await interaction.update(
-    withEphemeral(
-      confirmViewDisabled(
-        "Removal cancelled.",
-        mcpRemoveConfirmId(userId, serverId),
-        mcpRemoveCancelId(userId, serverId),
-      ),
-    ),
+    withEphemeral(infoView("Cancelled", "Removal cancelled.")),
   );
 }
 
@@ -434,7 +426,7 @@ function mcpAddModal(userId: string): ModalBuilder {
   return new ModalBuilder()
     .setCustomId(mcpAddModalId(userId))
     .setTitle("Add MCP Server")
-    .addComponents(
+    .addLabelComponents(
       modalRow("id", "Server ID (lowercase, hyphens)", {
         style: "short",
         required: true,

@@ -114,7 +114,7 @@ export function commandsModal(draft: SetupDraft): ModalBuilder {
   return new ModalBuilder()
     .setCustomId(draftCustomId("commands", draft.id))
     .setTitle("Setup commands")
-    .addComponents(
+    .addLabelComponents(
       modalRow("install", "Install command", {
         value: draft.environment.install,
         required: true,
@@ -135,7 +135,7 @@ export function requirementsModal(draft: SetupDraft): ModalBuilder {
   return new ModalBuilder()
     .setCustomId(draftCustomId("requirements", draft.id))
     .setTitle("Setup requirements")
-    .addComponents(
+    .addLabelComponents(
       modalRow("requiredEnv", "Required env names", {
         value: draft.environment.requiredEnv.join("\n"),
       }),
@@ -149,7 +149,7 @@ export function memoryModal(draft: SetupDraft): ModalBuilder {
   return new ModalBuilder()
     .setCustomId(draftCustomId("memory", draft.id))
     .setTitle("Setup memory")
-    .addComponents(
+    .addLabelComponents(
       modalRow("memoryMarkdown", "Memory Markdown", {
         value: draft.memoryMarkdown.slice(0, 4000),
         required: true,

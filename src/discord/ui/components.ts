@@ -2,6 +2,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  LabelBuilder,
   StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -24,11 +25,10 @@ export function modalRow(
   customId: string,
   label: string,
   opts: ModalRowOptions = {},
-): ActionRowBuilder<TextInputBuilder> {
+): LabelBuilder {
   const maxLength = opts.maxLength ?? 4000;
   const input = new TextInputBuilder()
     .setCustomId(customId)
-    .setLabel(label.slice(0, MODAL_LABEL_LIMIT))
     .setMaxLength(maxLength)
     .setRequired(opts.required ?? false)
     .setStyle(
@@ -36,7 +36,9 @@ export function modalRow(
     );
   if (opts.value !== undefined) input.setValue(opts.value.slice(0, maxLength));
   if (opts.placeholder) input.setPlaceholder(opts.placeholder.slice(0, 100));
-  return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
+  return new LabelBuilder()
+    .setLabel(label.slice(0, MODAL_LABEL_LIMIT))
+    .setTextInputComponent(input);
 }
 
 export interface SelectMenuOption {

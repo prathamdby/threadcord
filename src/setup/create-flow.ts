@@ -32,7 +32,7 @@ export function setupCreateRunModal(
   return new ModalBuilder()
     .setCustomId(buildCustomId("setup", "create-run", mode, userId))
     .setTitle(mode === "create" ? "Setup create" : "Setup update")
-    .addComponents(
+    .addLabelComponents(
       modalRow("repo", "Repository (owner/repo)", {
         value: repoDefault ?? "",
         required: true,

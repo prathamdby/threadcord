@@ -775,9 +775,7 @@ describe("handleMcpInteraction /mcp remove", () => {
     expect(state).toHaveLength(1);
     const payload = cancel.calls.update[0] as Record<string, unknown>;
     expect(containerText(payload)).toContain("Removal cancelled.");
-    for (const button of actionButtons(payload)) {
-      expect(button.disabled).toBe(true);
-    }
+    expect(actionButtons(payload)).toHaveLength(0);
   });
 
   it("removes from store and pool only after confirm", async () => {
@@ -801,10 +799,8 @@ describe("handleMcpInteraction /mcp remove", () => {
     const payload = confirm.calls.editReply[0] as Record<string, unknown>;
     expectComponentsV2(payload);
     expect((payload.flags as number) & MessageFlags.Ephemeral).toBe(0);
-    expect(containerText(payload)).toContain("Removed MCP server `alpha`.");
-    for (const button of actionButtons(payload)) {
-      expect(button.disabled).toBe(true);
-    }
+    expect(containerText(payload)).toContain("MCP server `alpha` was removed.");
+    expect(actionButtons(payload)).toHaveLength(0);
   });
 
   it("defers update before store/pool IO on remove confirm", async () => {
