@@ -83,17 +83,7 @@ export function confirmView(
   cancelCustomId: string,
 ): ViewPayload {
   return payload(
-    confirmContainer(prompt, confirmCustomId, cancelCustomId, false),
-  );
-}
-
-export function confirmViewDisabled(
-  prompt: string,
-  confirmCustomId: string,
-  cancelCustomId: string,
-): ViewPayload {
-  return payload(
-    confirmContainer(prompt, confirmCustomId, cancelCustomId, true),
+    confirmContainer(prompt, confirmCustomId, cancelCustomId),
   );
 }
 
@@ -101,7 +91,6 @@ function confirmContainer(
   prompt: string,
   confirmCustomId: string,
   cancelCustomId: string,
-  disabled: boolean,
 ): ContainerBuilder {
   const confirmButton = new ButtonBuilder()
     .setCustomId(confirmCustomId)
@@ -111,10 +100,6 @@ function confirmContainer(
     .setCustomId(cancelCustomId)
     .setLabel("Cancel")
     .setStyle(ButtonStyle.Secondary);
-  if (disabled) {
-    confirmButton.setDisabled(true);
-    cancelButton.setDisabled(true);
-  }
   return new ContainerBuilder()
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(clampViewText(prompt)),

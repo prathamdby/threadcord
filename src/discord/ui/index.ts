@@ -12,7 +12,6 @@ export {
   VIEW_TEXT_LIMIT,
   clampViewText,
   confirmView,
-  confirmViewDisabled,
   errorView,
   infoView,
   kvView,

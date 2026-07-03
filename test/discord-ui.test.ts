@@ -12,7 +12,6 @@ import {
   button,
   clampViewText,
   confirmView,
-  confirmViewDisabled,
   disableAllComponents,
   errorView,
   ensureDeferred,
@@ -169,47 +168,6 @@ describe("confirmView", () => {
                   custom_id: "setup:del:no",
                   label: "Cancel",
                   style: ButtonStyle.Secondary,
-                },
-              ],
-            },
-          ],
-        },
-      ],
-      flags: IS_COMPONENTS_V2,
-    });
-  });
-});
-
-describe("confirmViewDisabled", () => {
-  it("renders confirm and cancel buttons with disabled true", () => {
-    const view = confirmViewDisabled(
-      "Removed MCP server `foo`.",
-      "mcp:rm:yes",
-      "mcp:rm:no",
-    );
-    expectComponentsV2View(view);
-    expect(view).toEqual({
-      components: [
-        {
-          type: 17,
-          components: [
-            { type: 10, content: "Removed MCP server `foo`." },
-            {
-              type: 1,
-              components: [
-                {
-                  type: 2,
-                  custom_id: "mcp:rm:yes",
-                  label: "Confirm",
-                  style: ButtonStyle.Danger,
-                  disabled: true,
-                },
-                {
-                  type: 2,
-                  custom_id: "mcp:rm:no",
-                  label: "Cancel",
-                  style: ButtonStyle.Secondary,
-                  disabled: true,
                 },
               ],
             },
