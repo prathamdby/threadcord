@@ -51,11 +51,18 @@ export function buildTaskCreateModal(input: {
       })),
     );
 
+  // Prepend the default model and dedupe so it is always the first option
+  // and is never silently sliced out when the list exceeds 25 entries. This
+  // also guarantees at least one option even if a caller forgets to include
+  // the default in allowedModels.
+  const uniqueModels = [
+    ...new Set([defaultModel, ...allowedModels]),
+  ].filter(Boolean);
   const modelSelect = new StringSelectMenuBuilder()
     .setCustomId("model")
     .setPlaceholder("Choose a model (provider/model-id)")
     .addOptions(
-      allowedModels.slice(0, TASK_MODEL_SELECT_MAX).map((modelId) => ({
+      uniqueModels.slice(0, TASK_MODEL_SELECT_MAX).map((modelId) => ({
         label: truncate(modelId, 100),
         value: modelId,
         ...(modelId === defaultModel ? { default: true } : {}),
