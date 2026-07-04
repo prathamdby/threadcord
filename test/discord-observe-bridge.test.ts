@@ -23,11 +23,16 @@ import { progressMessageIdsFromRow } from "../src/task/store.js";
 import { InMemoryStore } from "./support/orchestrator-harness.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
 import { config, fakeSetupStore } from "./support/orchestrator-harness.js";
+import {
+  markOperatorAborted,
+  resetOperatorAbortStateForTests,
+} from "../src/flue/agent-work-abort.js";
 import { resetToolFailureGuardsForTests } from "../src/flue/tool-failure-guard.js";
 
 beforeEach(() => {
   cacheConfig(config);
   resetToolFailureGuardsForTests();
+  resetOperatorAbortStateForTests();
 });
 
 function taskEvent(partial: Record<string, unknown>): FlueEvent {
@@ -412,6 +417,110 @@ describe("handleObserveEvent", () => {
 
     await vi.runAllTimersAsync();
     expect(edits[0]).toContain("Model turn started");
+    vi.useRealTimers();
+  });
+
+  it("does not post progress after the task is cancelled", async () => {
+    vi.useFakeTimers();
+    const edits: string[] = [];
+    const instanceId = toFlueInstanceId("thread-cancelled");
+    await handleObserveEvent(
+      taskEvent({
+        type: "turn_start",
+        turnId: "turn-cancelled",
+        purpose: "agent",
+        instanceId,
+      }),
+      {
+        store: {
+          getByInstanceId: async () => ({
+            id: "task-cancelled",
+            discordMessageId: "msg-cancelled",
+            discordThreadId: "thread-cancelled",
+            flueInstanceId: instanceId,
+            workspacePath: "/workspaces/task-cancelled",
+            repo: "acme/web",
+            branch: "main",
+            model: "anthropic/claude-sonnet-4-5",
+            instruction: "Do the work",
+            setupProfileRevision: 2,
+            status: "cancelled",
+            initialTurnStarted: true,
+            progressMessageIds: ["status-cancelled"],
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+          }),
+        },
+        publisher: {
+          edit: async (
+            _threadId: string,
+            _messageId: string,
+            content: string,
+          ) => {
+            edits.push(content);
+          },
+          send: async () => ({ id: "m-cancelled" }),
+        },
+        onAgentEnd: async () => {},
+        onAgentFailure: async () => {},
+      } as unknown as ObserveBridgeCallbacks,
+    );
+
+    await vi.runAllTimersAsync();
+    expect(edits).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it("does not post progress after operator abort is marked", async () => {
+    vi.useFakeTimers();
+    const edits: string[] = [];
+    const instanceId = toFlueInstanceId("thread-aborted");
+    markOperatorAborted(instanceId);
+    await handleObserveEvent(
+      taskEvent({
+        type: "tool_start",
+        toolName: "post_thread_report",
+        toolCallId: "tc-abort",
+        args: { parts: ["## Summary\nDone."] },
+        instanceId,
+      }),
+      {
+        store: {
+          getByInstanceId: async () => ({
+            id: "task-aborted",
+            discordMessageId: "msg-aborted",
+            discordThreadId: "thread-aborted",
+            flueInstanceId: instanceId,
+            workspacePath: "/workspaces/task-aborted",
+            repo: "acme/web",
+            branch: "main",
+            model: "anthropic/claude-sonnet-4-5",
+            instruction: "Do the work",
+            setupProfileRevision: 2,
+            status: "running",
+            initialTurnStarted: true,
+            progressMessageIds: ["status-aborted"],
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+          }),
+        },
+        publisher: {
+          edit: async (
+            _threadId: string,
+            _messageId: string,
+            content: string,
+          ) => {
+            edits.push(content);
+          },
+          send: async () => ({ id: "m-aborted" }),
+        },
+        onAgentEnd: async () => {},
+        onAgentFailure: async () => {},
+      } as unknown as ObserveBridgeCallbacks,
+    );
+
+    await vi.runAllTimersAsync();
+    expect(edits).toEqual([]);
     vi.useRealTimers();
   });
 

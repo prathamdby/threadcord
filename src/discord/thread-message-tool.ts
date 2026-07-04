@@ -1,5 +1,6 @@
 import { defineTool } from "@flue/runtime";
 import * as v from "valibot";
+import { isOperatorAborted } from "../flue/agent-work-abort.js";
 import {
   hasPendingUserTurnMessages,
   queuePendingUserTurnMessages,
@@ -28,6 +29,12 @@ export function createPostThreadMessageTool(instanceId: string) {
       ),
     }),
     async execute(input) {
+      if (isOperatorAborted(instanceId)) {
+        throw new DOMException(
+          "Aborted by operator via thread command.",
+          "AbortError",
+        );
+      }
       if (hasPendingUserTurnMessages(instanceId)) {
         throw new Error(
           "This turn already has a queued report. Combine into a single call.",
@@ -64,6 +71,12 @@ export function createPostThreadReportTool(instanceId: string) {
       ),
     }),
     async execute(input) {
+      if (isOperatorAborted(instanceId)) {
+        throw new DOMException(
+          "Aborted by operator via thread command.",
+          "AbortError",
+        );
+      }
       for (let i = 0; i < input.parts.length; i++) {
         const part = input.parts[i]!;
         const validationError = validateFinalOutput(part);

@@ -15,7 +15,9 @@ import {
   noteAgentTurnBoundary,
   shouldSkipObserveFailureDelivery,
 } from "../flue/tool-failure-guard.js";
+import { isOperatorAborted } from "../flue/agent-work-abort.js";
 import { isThreadcordInstance } from "../ids.js";
+import type { TaskStatus } from "../types.js";
 import { checkoutPathForTask } from "../task/turn-context.js";
 import {
   setupProgressSessionFromRun,
@@ -144,6 +146,10 @@ export async function handleObserveEvent(
   }
 
   if (!isTaskInstance && !isSetupInstance) return;
+
+  if (isTaskInstance && (await shouldSuppressTaskProgress(instanceId, args))) {
+    return;
+  }
 
   const summary = await eventSummary(event, instanceId, args, state);
   if (!summary) return;
@@ -405,6 +411,22 @@ async function resolveRepoRootForInstance(
     return posix.join(run.workspacePath, posix.basename(run.repo));
   }
   return undefined;
+}
+
+const TERMINAL_TASK_STATUSES = new Set<TaskStatus>([
+  "cancelled",
+  "failed",
+  "completed",
+]);
+
+async function shouldSuppressTaskProgress(
+  instanceId: string,
+  args: ObserveBridgeCallbacks,
+): Promise<boolean> {
+  if (isOperatorAborted(instanceId)) return true;
+  const task = await args.store.getByInstanceId(instanceId);
+  if (!task) return false;
+  return TERMINAL_TASK_STATUSES.has(task.status);
 }
 
 function resolveMaxFailuresForObserve(): {
