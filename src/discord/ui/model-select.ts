@@ -28,7 +28,8 @@ export function buildModelSelectMenu(
   const uniqueModels = [...new Set([defaultModel, ...allowedModels])].filter(
     Boolean,
   );
-  for (const modelId of uniqueModels) {
+  const displayedModels = uniqueModels.slice(0, MODEL_SELECT_MAX);
+  for (const modelId of displayedModels) {
     if (modelId.length > SELECT_LABEL_LIMIT) {
       throw new Error(
         `Model ID "${modelId}" exceeds Discord's ${SELECT_LABEL_LIMIT}-character select option limit`,
@@ -39,7 +40,7 @@ export function buildModelSelectMenu(
     .setCustomId("model")
     .setPlaceholder("Choose a model (provider/model-id)")
     .addOptions(
-      uniqueModels.slice(0, MODEL_SELECT_MAX).map((modelId) => ({
+      displayedModels.map((modelId) => ({
         label: truncate(modelId, SELECT_LABEL_LIMIT),
         value: modelId,
         ...(modelId === defaultModel ? { default: true } : {}),

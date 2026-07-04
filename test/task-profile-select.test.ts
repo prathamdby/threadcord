@@ -116,4 +116,18 @@ describe("task create modal custom ids", () => {
       }),
     ).toThrow(/exceeds Discord.*character select option limit/);
   });
+
+  it("does not throw when an over-limit model is sliced off", () => {
+    const longModel = "x".repeat(101);
+    const shortModels = Array.from(
+      { length: 25 },
+      (_, i) => `provider/short-model-${i}`,
+    );
+    expect(() =>
+      buildModelSelectMenu({
+        allowedModels: [...shortModels, longModel],
+        defaultModel: shortModels[0]!,
+      }),
+    ).not.toThrow();
+  });
 });
