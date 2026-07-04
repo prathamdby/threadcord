@@ -48,14 +48,24 @@ let source = readFileSync(target, "utf8");
 if (source.includes(MARKER)) {
   process.exit(0);
 }
-if (!source.includes(RETURN_NEEDLE)) {
+if (
+  !source.includes(RETURN_NEEDLE) ||
+  !source.includes(SHUTDOWN_NEEDLE) ||
+  !source.includes(CLOSE_NEEDLE)
+) {
   console.error(
-    "[patch-flue-runtime-abort] Could not find coordinator return block; @flue/runtime version may have changed.",
+    "[patch-flue-runtime-abort] Could not find all coordinator patch anchors; @flue/runtime version may have changed.",
   );
   process.exit(1);
 }
 source = source.replace(RETURN_NEEDLE, RETURN_REPLACEMENT);
 source = source.replace(SHUTDOWN_NEEDLE, SHUTDOWN_REPLACEMENT);
 source = source.replace(CLOSE_NEEDLE, CLOSE_REPLACEMENT);
+if (source.includes(RETURN_NEEDLE)) {
+  console.error(
+    "[patch-flue-runtime-abort] Coordinator return anchor still present after patch.",
+  );
+  process.exit(1);
+}
 writeFileSync(target, source);
 console.log("[patch-flue-runtime-abort] Patched @flue/runtime NodeAgentCoordinator.abortInstance");

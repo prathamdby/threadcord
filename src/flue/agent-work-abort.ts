@@ -46,15 +46,13 @@ export function clearOperatorAborted(instanceId: string): void {
 export function resetOperatorAbortStateForTests(): void {
   operatorAbortedInstances.clear();
   coordinatorAbort = undefined;
+  executionStore = undefined;
 }
 
 /** Fail every in-flight Flue submission for this task/setup instance. */
 export async function abortAgentWorkForInstance(
   instanceId: string,
 ): Promise<number> {
-  const submissions = executionStore?.submissions;
-  if (!submissions) return 0;
-
   markOperatorAborted(instanceId);
 
   const reason = new DOMException(
@@ -70,6 +68,9 @@ export async function abortAgentWorkForInstance(
       console.error("[threadcord] coordinator abort failed", error);
     }
   }
+
+  const submissions = executionStore?.submissions;
+  if (!submissions) return stopped;
 
   const sessionKey = sessionKeyForInstance(instanceId);
 
