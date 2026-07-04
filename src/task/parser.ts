@@ -8,8 +8,16 @@ type RequiredKey = (typeof REQUIRED_KEYS)[number];
 export type ParseResult =
   { ok: true; request: ParsedTaskRequest } | { ok: false; message: string };
 
+export interface ParseTaskMessageOptions {
+  /** Allow an empty instruction when the Discord message includes attachments. */
+  hasAttachments?: boolean | undefined;
+}
+
 /** Parses control-channel task messages: prose instruction, then trailing keyed metadata (repo, branch, optional model and push). */
-export function parseTaskMessage(content: string): ParseResult {
+export function parseTaskMessage(
+  content: string,
+  options: ParseTaskMessageOptions = {},
+): ParseResult {
   const lines = content.split(/\r?\n/);
   const fields = new Map<string, string>();
   let metadataStart = lines.length;
@@ -31,7 +39,7 @@ export function parseTaskMessage(content: string): ParseResult {
   }
 
   const instruction = lines.slice(0, metadataStart).join("\n").trim();
-  if (!instruction) {
+  if (!instruction && !options.hasAttachments) {
     return {
       ok: false,
       message: "Missing task instruction before the keyed fields.",

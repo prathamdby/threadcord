@@ -22,6 +22,8 @@ const EnvSchema = z
   .object({
     DATABASE_URL: z.string().min(1),
     DISCORD_BOT_TOKEN: z.string().min(1),
+    /** When set, plain messages in this channel can create tasks (see message format). */
+    DISCORD_CHANNEL_ID: optionalNonEmptyString,
     GITHUB_TOKEN: z.string().min(1),
     WORKSPACE_ROOT: z.string().min(1).default("/workspaces"),
     MAX_CONCURRENT_TASKS: z.coerce.number().int().positive().default(3),
