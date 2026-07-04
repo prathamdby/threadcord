@@ -384,6 +384,9 @@ export interface RecordingFollowupMessage
   viewEdits: ViewPayload[];
   authorId?: string | undefined;
   replyView?: (payload: ViewPayload) => Promise<void>;
+  replyQuote?:
+    | import("../../src/types.js").ThreadMessageReplyQuote
+    | undefined;
 }
 export interface RecordingThread extends TaskThreadRef {
   sends: string[];
@@ -535,6 +538,7 @@ export class World {
     taskId: string,
     followupMessageId: string,
     content = "fix the tests",
+    replyQuote?: import("../../src/types.js").ThreadMessageReplyQuote,
   ): Promise<{ message: RecordingFollowupMessage; replies: string[] }> {
     const task = this.store.snapshot(taskId);
     const replies: string[] = [];
@@ -544,6 +548,7 @@ export class World {
       content,
       authorBot: false,
       channelId: task.discordThreadId,
+      replyQuote,
       replies,
       viewReplies,
       viewEdits: [],
