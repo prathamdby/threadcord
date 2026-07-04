@@ -167,4 +167,6 @@ Name the Discord thread for one coding task, derived from the instruction below.
 
 OUTPUT
 Exactly one line, <=80 chars, verb-led, summarizing the task. No quotes. No markdown. No emoji. No preamble. No trailing period.
-Redact obvious secrets in the title: sk-*, gh[pousr]_*, github_pat_*, basic-auth URLs. Unicode is allowed.`;
+Redact obvious secrets in the title: sk-*, gh[pousr]_*, github_pat_*, basic-auth URLs. Unicode is allowed.
+
+Your first printable character must be the first character of the title. Do not lead the reply with any of: "Sure,", "Here's", "Here is", "OK,", "OK —", "Certainly,", "Of course,", "Great,", "Title:", "Name:", "Thread name:", "Thread title:", or any similar polite opener or label. These prefixes are stripped programmatically and would leave the title looking like noise. Reply with the bare title only.`.trim();
