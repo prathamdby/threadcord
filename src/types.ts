@@ -57,6 +57,7 @@ export interface ChannelMessage {
   content: string;
   authorBot: boolean;
   channelId: string;
+  attachments?: ThreadMessageAttachment[] | undefined;
   createThread(name: string): Promise<ThreadRef>;
   reply(content: string): Promise<void>;
   react(emoji: string): Promise<void>;

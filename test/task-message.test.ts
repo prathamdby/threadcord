@@ -59,6 +59,22 @@ describe("parseTaskMessage", () => {
     });
   });
 
+  it("allows attachment-only messages when hasAttachments is set", () => {
+    const result = parseTaskMessage(
+      ["repo: acme/web", "branch: main"].join("\n"),
+      { hasAttachments: true },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      request: {
+        instruction: "",
+        repo: "acme/web",
+        branch: "main",
+      },
+    });
+  });
+
   it("rejects messages missing required keyed fields", () => {
     const result = parseTaskMessage(
       ["Do the thing.", "repo: acme/web"].join("\n"),

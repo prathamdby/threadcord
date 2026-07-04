@@ -3,6 +3,7 @@ import {
   Events,
   GatewayIntentBits,
   Partials,
+  ThreadAutoArchiveDuration,
   type Interaction,
   type Message,
 } from "discord.js";
@@ -14,10 +15,12 @@ import type { McpStore } from "../mcp/store.js";
 import { handleSetupInteraction } from "../setup/interactions.js";
 import type { SetupOrchestrator } from "../setup/orchestrator.js";
 import type { SetupStore } from "../setup/store.js";
+import { toTaskThreadRef } from "../task/discord-thread.js";
 import { handleTaskInteraction } from "../task/interactions.js";
 import type { TaskOrchestrator } from "../task/orchestrator.js";
 import type { TaskThreadMessage } from "../task/orchestrator.js";
 import type {
+  ChannelMessage,
   ThreadMessageAttachment,
   ThreadMessageReplyQuote,
 } from "../types.js";
@@ -177,9 +180,41 @@ async function routeMessage(
 ): Promise<void> {
   if (message.partial) message = await message.fetch();
   if (message.author.bot) return;
-  if (!message.channel.isThread()) return;
-  const replyQuote = await resolveReplyQuote(message);
-  await orchestrator.handleThreadMessage(toThreadMessage(message, replyQuote));
+
+  if (message.channel.isThread()) {
+    const replyQuote = await resolveReplyQuote(message);
+    await orchestrator.handleThreadMessage(toThreadMessage(message, replyQuote));
+    return;
+  }
+
+  await orchestrator.handleChannelMessage(toChannelMessage(message));
+}
+
+function toChannelMessage(message: Message): ChannelMessage {
+  return {
+    id: message.id,
+    content: message.content,
+    authorBot: message.author.bot,
+    channelId: message.channelId,
+    attachments: toAttachments(message),
+    createThread: async (name) =>
+      toTaskThreadRef(
+        await message.startThread({
+          name,
+          autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+        }),
+      ),
+    reply: async (content) => {
+      await message.reply(clampDiscordContent(content));
+    },
+    react: async (emoji) => {
+      await message.react(emoji);
+    },
+    unreact: async (emoji) => {
+      const me = message.client.user;
+      if (me) await message.reactions.resolve(emoji)?.users.remove(me.id);
+    },
+  };
 }
 
 /**

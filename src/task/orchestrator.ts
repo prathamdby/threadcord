@@ -25,6 +25,7 @@ import {
 } from "./bootstrap.js";
 import type { BootstrapMode } from "./bootstrap.js";
 import type { PendingTaskCreate } from "./create-flow.js";
+import { parseTaskMessage } from "./parser.js";
 import { validateTaskPolicy } from "./policy.js";
 import type { TaskStore } from "./store.js";
 import type { SetupEnvironment } from "../setup/profile.js";
@@ -49,6 +50,7 @@ import {
 } from "./thread-controls.js";
 import { threadName } from "./thread-name.js";
 import type {
+  ChannelMessage,
   ClaimedTurn,
   DispatchAgentInput,
   TaskRecord,
@@ -57,7 +59,6 @@ import type {
   ThreadMessage,
   ThreadMessageAttachment,
   ThreadMessageReplyQuote,
-  ThreadRef,
 } from "../types.js";
 
 export type StartTaskFromSlashResult =
@@ -68,6 +69,14 @@ export interface StartTaskFromSlashInput {
   initiatorMessageId: string;
   pending: PendingTaskCreate;
   createThread: (name: string) => Promise<TaskThreadRef>;
+}
+
+interface AdmitTaskInput {
+  initiatorMessageId: string;
+  taskRequest: TaskRequest;
+  setupProfileRevision: number;
+  createThread: (name: string) => Promise<TaskThreadRef>;
+  recordInitiator: (taskId: string) => void;
 }
 
 const EYES = "👀";
@@ -235,6 +244,88 @@ export class TaskOrchestrator {
       branch: setupProfile.branch,
     };
 
+    return this.admitTask({
+      initiatorMessageId: input.initiatorMessageId,
+      taskRequest,
+      setupProfileRevision: setupProfile.revision,
+      createThread: input.createThread,
+      recordInitiator: (taskId) =>
+        this.recordSlashInitiator(taskId, input.initiatorMessageId),
+    });
+  }
+
+  async handleChannelMessage(message: ChannelMessage): Promise<void> {
+    const controlChannelId = this.config.DISCORD_CHANNEL_ID;
+    if (
+      !controlChannelId ||
+      message.authorBot ||
+      message.channelId !== controlChannelId
+    ) {
+      return;
+    }
+    if (await this.store.getByMessageId(message.id)) return;
+
+    const hasAttachments = !!message.attachments?.some((a) => a.url);
+    const parsed = parseTaskMessage(message.content, { hasAttachments });
+    if (!parsed.ok) {
+      await this.replySafely(message, `Rejected: ${parsed.message}`);
+      return;
+    }
+
+    const instruction = buildInstructionWithAttachments(
+      parsed.request.instruction,
+      message.attachments,
+    ).trim();
+    if (!instruction) {
+      await this.replySafely(
+        message,
+        "Rejected: Missing task instruction. Include prose or an attachment.",
+      );
+      return;
+    }
+
+    const request = resolveTaskRequest(
+      { ...parsed.request, instruction },
+      this.config,
+    );
+    const policy = validateTaskPolicy(request, this.config);
+    if (!policy.ok) {
+      await this.replySafely(message, `Rejected: ${policy.reason}`);
+      return;
+    }
+    const setupProfile = await this.setupStore.getReadyProfile(
+      request.repo,
+      request.branch,
+    );
+    if (!setupProfile) {
+      await this.replySafely(
+        message,
+        `Rejected: Missing ready setup profile for ${request.repo} on ${request.branch}. Run /setup create with repo ${request.repo} and branch ${request.branch} first.`,
+      );
+      return;
+    }
+    const taskRequest: TaskRequest = {
+      ...request,
+      repo: setupProfile.repo,
+      branch: setupProfile.branch,
+    };
+
+    const result = await this.admitTask({
+      initiatorMessageId: message.id,
+      taskRequest,
+      setupProfileRevision: setupProfile.revision,
+      createThread: (name) =>
+        message.createThread(name) as Promise<TaskThreadRef>,
+      recordInitiator: (taskId) => this.recordInitiator(taskId, message),
+    });
+    if (!result.ok) {
+      await this.replySafely(message, result.reason);
+      return;
+    }
+    void this.reactSafely(message, EYES);
+  }
+
+  private async admitTask(input: AdmitTaskInput): Promise<StartTaskFromSlashResult> {
     if (await this.store.getByMessageId(input.initiatorMessageId)) {
       return { ok: false, reason: "This task was already submitted." };
     }
@@ -246,8 +337,8 @@ export class TaskOrchestrator {
       discordThreadId: pendingThreadId(taskId),
       flueInstanceId: pendingThreadId(taskId),
       workspacePath: join(this.config.WORKSPACE_ROOT, taskId),
-      setupProfileRevision: setupProfile.revision,
-      ...taskRequest,
+      setupProfileRevision: input.setupProfileRevision,
+      ...input.taskRequest,
     });
     if (!created) {
       return { ok: false, reason: "This task was already submitted." };
@@ -255,7 +346,7 @@ export class TaskOrchestrator {
 
     let thread: TaskThreadRef;
     try {
-      thread = await input.createThread(threadName(taskRequest.repo, taskId));
+      thread = await input.createThread(threadName(input.taskRequest.repo, taskId));
     } catch (error) {
       const summary = summarizeError(error);
       await this.store.markDraftFailed(task.id, summary);
@@ -268,7 +359,7 @@ export class TaskOrchestrator {
     const headerMessageId = await this.createHeaderMessage(task, thread);
 
     const instructionPost = formatTaskInstructionForDiscord(
-      taskRequest.instruction,
+      input.taskRequest.instruction,
     );
     if (instructionPost) {
       try {
@@ -305,7 +396,7 @@ export class TaskOrchestrator {
     }
 
     this.taskThreads.set(attached.flueInstanceId, thread);
-    this.recordSlashInitiator(attached.id, input.initiatorMessageId);
+    input.recordInitiator(attached.id);
 
     const claimed = await this.store.claimNextTurn(attached.id);
     if (claimed) {
@@ -683,6 +774,17 @@ export class TaskOrchestrator {
       await target.react(emoji);
     } catch (error) {
       console.error("[threadcord] reaction failed", error);
+    }
+  }
+
+  private async replySafely(
+    target: { reply(content: string): Promise<void> },
+    content: string,
+  ): Promise<void> {
+    try {
+      await target.reply(content);
+    } catch (error) {
+      console.error("[threadcord] reply failed", error);
     }
   }
 

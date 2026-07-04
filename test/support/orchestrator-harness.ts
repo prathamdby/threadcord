@@ -28,6 +28,7 @@ const TEST_WORKSPACE_ROOT = join(process.cwd(), "test", "tmp", "workspaces");
 export const config: AppConfig = {
   DATABASE_URL: "postgres://example",
   DISCORD_BOT_TOKEN: "token",
+  DISCORD_CHANNEL_ID: "control-channel",
   GITHUB_TOKEN: "github",
   WORKSPACE_ROOT: TEST_WORKSPACE_ROOT,
   MAX_CONCURRENT_TASKS: 1,
@@ -524,6 +525,107 @@ export class World {
       replies.push(result.reason);
     }
     await flush();
+    return {
+      task: this.store.findByMessageId(messageId),
+      replies,
+      sends,
+      threadsCreated,
+      message,
+      thread,
+    };
+  }
+
+  async submitChannelMessage(
+    messageId: string,
+    content: string,
+    options: {
+      attachments?: import("../../src/types.js").ThreadMessageAttachment[];
+      channelId?: string;
+      failure?: ThreadFailure;
+    } = {},
+  ): Promise<SubmitResult> {
+    const threadId = this.threadIdFor(messageId);
+    const replies: string[] = [];
+    const sends: string[] = [];
+    const viewSends: ViewPayload[] = [];
+    const pins: string[] = [];
+    const edits: { messageId: string; content: string }[] = [];
+    const viewEdits: { messageId: string; payload: ViewPayload }[] = [];
+    let threadsCreated = 0;
+    const failure = options.failure ?? {};
+
+    const thread: RecordingThread = {
+      id: threadId,
+      sends,
+      viewSends,
+      pins,
+      edits,
+      viewEdits,
+      sendTypingCalls: 0,
+      sendView: async (payload) => {
+        if (failure.headerSend && isTaskHeaderPayload(payload)) {
+          throw new Error("discord: header send 500");
+        }
+        viewSends.push(payload);
+        return { id: `header-${this.counter++}` };
+      },
+      send: async (content) => {
+        if (failure.statusSend) throw new Error("discord: status send 500");
+        sends.push(content);
+        return { id: `status-${this.counter++}` };
+      },
+      pin: async (messageId) => {
+        if (failure.headerPin) throw new Error("discord: header pin 500");
+        pins.push(messageId);
+      },
+      editMessage: async (messageId, content) => {
+        if (failure.headerEdit) throw new Error("discord: header edit 500");
+        edits.push({ messageId, content });
+      },
+      editView: async (messageId, payload) => {
+        if (failure.headerEdit) throw new Error("discord: header edit 500");
+        viewEdits.push({ messageId, payload });
+      },
+      sendTyping: async () => {
+        if (failure.typingFail) throw new Error("discord: sendTyping 403");
+        thread.sendTypingCalls += 1;
+      },
+      setName: async () => {},
+    };
+
+    const message: RecordingControlMessage = {
+      id: messageId,
+      replies,
+      reactCalls: [],
+      unreactCalls: [],
+      reactionLog: [],
+    };
+
+    await this.orchestrator.handleChannelMessage({
+      id: messageId,
+      content,
+      authorBot: false,
+      channelId: options.channelId ?? config.DISCORD_CHANNEL_ID!,
+      attachments: options.attachments,
+      createThread: async () => {
+        if (failure.createThread) throw new Error("discord: thread create 500");
+        threadsCreated += 1;
+        return thread;
+      },
+      reply: async (replyContent) => {
+        replies.push(replyContent);
+      },
+      react: async (emoji) => {
+        message.reactCalls.push(emoji);
+        message.reactionLog.push(`react:${emoji}`);
+      },
+      unreact: async (emoji) => {
+        message.unreactCalls.push(emoji);
+        message.reactionLog.push(`unreact:${emoji}`);
+      },
+    });
+    await flush();
+
     return {
       task: this.store.findByMessageId(messageId),
       replies,
