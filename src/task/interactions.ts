@@ -105,6 +105,7 @@ async function handleTaskCommand(
         buildTaskCreateModal({
           userId: interaction.user.id,
           profiles,
+          allowedModels: config.allowedModels,
           defaultModel: config.defaultModel,
         }),
       );
@@ -145,6 +146,12 @@ async function handleTaskModal(
     return;
   }
 
+  const model = interaction.fields.getStringSelectValues("model")[0];
+  if (!model) {
+    await replyWithError(interaction, "validation", "Select a model.");
+    return;
+  }
+
   const profile = await setupStore.getProfileById(profileId);
   if (!profile || profile.status !== "ready") {
     await replyWithError(
@@ -158,7 +165,7 @@ async function handleTaskModal(
   const pending = pendingFromTaskCreateModal({
     repo: profile.repo,
     branch: profile.branch,
-    model: interaction.fields.getTextInputValue("model"),
+    model,
     instruction: interaction.fields.getTextInputValue("instruction"),
   });
 

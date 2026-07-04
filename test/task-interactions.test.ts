@@ -32,6 +32,7 @@ const baseProfile: SetupProfile = {
 };
 
 const config = {
+  allowedModels: ["anthropic/claude-sonnet-4-5"],
   defaultModel: "anthropic/claude-sonnet-4-5",
 } as AppConfig;
 
@@ -114,6 +115,7 @@ function mockModal(input: {
       },
       getStringSelectValues: (id: string) => {
         if (id === "profile") return [input.profileId ?? "profile-1"];
+        if (id === "model") return [input.model ?? "anthropic/claude-sonnet-4-5"];
         throw new Error(`unknown select ${id}`);
       },
     },

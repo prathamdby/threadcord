@@ -48,6 +48,7 @@ describe("task create modal custom ids", () => {
     const modal = buildTaskCreateModal({
       userId: "user-1",
       profiles: [readyProfile],
+      allowedModels: ["anthropic/claude-sonnet-4-5"],
       defaultModel: "anthropic/claude-sonnet-4-5",
     });
     expect(modalTextInputIds(modal)).toEqual([
