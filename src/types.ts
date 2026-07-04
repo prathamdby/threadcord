@@ -83,6 +83,15 @@ export interface ThreadRef {
   setName(name: string): Promise<void>;
 }
 
+/** Attachment metadata extracted from a Discord message (images, files). */
+export interface ThreadMessageAttachment {
+  url: string;
+  name: string;
+  contentType: string | null;
+  width: number | null;
+  height: number | null;
+}
+
 /** Payload passed to the coding agent on each dispatched turn. */
 export interface DispatchAgentInput {
   kind: "threadcord.turn";

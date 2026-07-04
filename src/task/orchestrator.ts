@@ -57,6 +57,7 @@ import type {
   TaskRequest,
   TaskStatus,
   ThreadMessage,
+  ThreadMessageAttachment,
   ThreadRef,
 } from "../types.js";
 
@@ -115,6 +116,8 @@ export type EditHeaderMessage = (
 export interface TaskThreadMessage extends ThreadMessage {
   authorId?: string | undefined;
   replyView?: ((payload: ViewPayload) => Promise<void>) | undefined;
+  /** Image attachments from the Discord message (filtered by content type). */
+  attachments?: ThreadMessageAttachment[] | undefined;
 }
 
 export interface HandleControlButtonInput {
@@ -357,10 +360,20 @@ export class TaskOrchestrator {
       return;
     }
 
+    const instructionWithAttachments = buildInstructionWithAttachments(
+      message.content,
+      message.attachments,
+    ).trim();
+    if (!instructionWithAttachments) {
+      await message.reply(
+        "Cannot queue an empty instruction. Please include some text or an attachment.",
+      );
+      return;
+    }
     const position = await this.store.enqueueFollowup(
       task.id,
       message.id,
-      message.content,
+      instructionWithAttachments,
     );
     await message.reply(`Queued follow-up - position ${position}`);
     await this.refreshHeader(task.id);
@@ -890,4 +903,43 @@ function formatChecks(checks: Record<string, string>): string {
   const entries = Object.entries(checks);
   if (entries.length === 0) return "none";
   return entries.map(([name, command]) => `${name}=${command}`).join("; ");
+}
+
+/**
+ * Describes attachments in the instruction text so the model can fetch and
+ * examine them via tools (curl, read, etc.). Images include dimensions;
+ * all other files are listed with their type.
+ */
+function buildInstructionWithAttachments(
+  instruction: string,
+  attachments: ThreadMessageAttachment[] | undefined | null,
+): string {
+  if (!attachments || attachments.length === 0) return instruction;
+
+  const safeName = (name: string): string => name.replace(/]/g, "\\]");
+
+  const descs = attachments
+    .filter((a) => a.url)
+    .map((a) => {
+      const isImage = a.contentType && a.contentType.startsWith("image/");
+      const dims =
+        a.width && a.height ? ` (${a.width}×${a.height})` : "";
+      if (isImage) {
+        return `- [Attached image: ${safeName(a.name)}${dims}](${a.url})`;
+      }
+      const typeLabel = a.contentType ? ` (${a.contentType})` : "";
+      return `- [Attached file: ${safeName(a.name)}${typeLabel}](${a.url})`;
+    });
+
+  if (descs.length === 0) return instruction;
+
+  const trimmed = instruction.trim();
+  const intro = trimmed
+    ? "The user attached the following file(s) with this instruction:"
+    : "The user attached the following file(s):";
+
+  if (trimmed) {
+    return [intro, ...descs, "", trimmed].join("\n");
+  }
+  return [intro, ...descs].join("\n");
 }

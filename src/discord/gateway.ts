@@ -17,6 +17,7 @@ import type { SetupStore } from "../setup/store.js";
 import { handleTaskInteraction } from "../task/interactions.js";
 import type { TaskOrchestrator } from "../task/orchestrator.js";
 import type { TaskThreadMessage } from "../task/orchestrator.js";
+import type { ThreadMessageAttachment } from "../types.js";
 import { clampDiscordContent } from "./limits.js";
 import {
   parseCustomId,
@@ -184,6 +185,7 @@ export function toThreadMessage(message: Message): TaskThreadMessage {
     authorId: message.author.id,
     channelId: message.channelId,
     guildId: message.guildId,
+    attachments: toAttachments(message),
     reply: async (content) => {
       await message.reply(clampDiscordContent(content));
     },
@@ -198,4 +200,19 @@ export function toThreadMessage(message: Message): TaskThreadMessage {
       if (me) await message.reactions.resolve(emoji)?.users.remove(me.id);
     },
   };
+}
+
+function toAttachments(message: Message): ThreadMessageAttachment[] | undefined {
+  if (!message.attachments || message.attachments.size === 0) return undefined;
+  const result: ThreadMessageAttachment[] = [];
+  for (const attachment of message.attachments.values()) {
+    result.push({
+      url: attachment.url,
+      name: attachment.name,
+      contentType: attachment.contentType,
+      width: attachment.width,
+      height: attachment.height,
+    });
+  }
+  return result;
 }
