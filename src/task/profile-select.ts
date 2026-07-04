@@ -31,12 +31,15 @@ export function parseTaskCreateModalCustomId(
   return userId ? { userId } : undefined;
 }
 
+export const TASK_MODEL_SELECT_MAX = 25;
+
 export function buildTaskCreateModal(input: {
   userId: string;
   profiles: SetupProfile[];
+  allowedModels: string[];
   defaultModel: string;
 }): ModalBuilder {
-  const { userId, profiles, defaultModel } = input;
+  const { userId, profiles, allowedModels, defaultModel } = input;
   const profileSelect = new StringSelectMenuBuilder()
     .setCustomId("profile")
     .setPlaceholder("Choose a setup profile (repo @ branch)")
@@ -48,6 +51,24 @@ export function buildTaskCreateModal(input: {
       })),
     );
 
+  // Prepend the default model and dedupe so it is always the first option
+  // and is never silently sliced out when the list exceeds 25 entries. This
+  // also guarantees at least one option even if a caller forgets to include
+  // the default in allowedModels.
+  const uniqueModels = [
+    ...new Set([defaultModel, ...allowedModels]),
+  ].filter(Boolean);
+  const modelSelect = new StringSelectMenuBuilder()
+    .setCustomId("model")
+    .setPlaceholder("Choose a model (provider/model-id)")
+    .addOptions(
+      uniqueModels.slice(0, TASK_MODEL_SELECT_MAX).map((modelId) => ({
+        label: truncate(modelId, 100),
+        value: modelId,
+        ...(modelId === defaultModel ? { default: true } : {}),
+      })),
+    );
+
   return new ModalBuilder()
     .setCustomId(taskCreateModalCustomId(userId))
     .setTitle("Create task")
@@ -55,13 +76,9 @@ export function buildTaskCreateModal(input: {
       new LabelBuilder()
         .setLabel("Setup profile")
         .setStringSelectMenuComponent(profileSelect),
-      modalRow("model", "Model (provider/model-id)", {
-        style: "short",
-        required: true,
-        value: defaultModel,
-        maxLength: 100,
-        placeholder: "provider/model-id",
-      }),
+      new LabelBuilder()
+        .setLabel("Model")
+        .setStringSelectMenuComponent(modelSelect),
       modalRow("instruction", "Task instruction", {
         style: "paragraph",
         required: true,

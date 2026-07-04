@@ -34,6 +34,22 @@ function modalTextInputIds(
   });
 }
 
+function modelSelectOptions(
+  modal: ReturnType<typeof buildTaskCreateModal>,
+): Array<{ value: string; default?: boolean }> {
+  for (const label of modal.toJSON().components as Array<{
+    component?: {
+      custom_id?: string;
+      options?: Array<{ value: string; default?: boolean }>;
+    };
+  }>) {
+    if (label.component?.custom_id === "model") {
+      return label.component.options ?? [];
+    }
+  }
+  return [];
+}
+
 describe("task create modal custom ids", () => {
   it("builds and parses the single-step create modal id", () => {
     expect(taskCreateModalCustomId("user-1")).toBe(
@@ -48,6 +64,7 @@ describe("task create modal custom ids", () => {
     const modal = buildTaskCreateModal({
       userId: "user-1",
       profiles: [readyProfile],
+      allowedModels: ["anthropic/claude-sonnet-4-5"],
       defaultModel: "anthropic/claude-sonnet-4-5",
     });
     expect(modalTextInputIds(modal)).toEqual([
@@ -57,5 +74,35 @@ describe("task create modal custom ids", () => {
     ]);
     expect(JSON.stringify(modal.toJSON())).not.toContain("install");
     expect(JSON.stringify(modal.toJSON())).not.toContain("checks");
+  });
+
+  it("model select prepends and pre-selects the default model", () => {
+    const modal = buildTaskCreateModal({
+      userId: "user-1",
+      profiles: [readyProfile],
+      allowedModels: ["openai/gpt-4o", "anthropic/claude-sonnet-4-5"],
+      defaultModel: "anthropic/claude-sonnet-4-5",
+    });
+    const options = modelSelectOptions(modal);
+    expect(options[0]?.value).toBe("anthropic/claude-sonnet-4-5");
+    expect(options.find((o) => o.value === "anthropic/claude-sonnet-4-5")?.default)
+      .toBe(true);
+    // no duplicate entries after dedupe
+    expect(options.filter((o) => o.value === "anthropic/claude-sonnet-4-5")).toHaveLength(1);
+  });
+
+  it("model select guarantees the default model even when absent from allowedModels", () => {
+    const modal = buildTaskCreateModal({
+      userId: "user-1",
+      profiles: [readyProfile],
+      allowedModels: ["openai/gpt-4o"],
+      defaultModel: "anthropic/claude-sonnet-4-5",
+    });
+    const options = modelSelectOptions(modal);
+    expect(options[0]?.value).toBe("anthropic/claude-sonnet-4-5");
+    expect(options).toHaveLength(2);
+    expect(options.find((o) => o.default === true)?.value).toBe(
+      "anthropic/claude-sonnet-4-5",
+    );
   });
 });
