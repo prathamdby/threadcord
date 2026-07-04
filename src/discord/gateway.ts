@@ -214,5 +214,5 @@ function toAttachments(message: Message): ThreadMessageAttachment[] | undefined 
       height: attachment.height,
     });
   }
-  return result.length > 0 ? result : undefined;
+  return result;
 }
