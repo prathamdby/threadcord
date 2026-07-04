@@ -100,7 +100,7 @@ export interface ThreadMessageAttachment {
 export interface ThreadMessageReplyQuote {
   /** The referenced message content, clamped to a safe length. */
   content: string;
-  /** Whether the referenced message was authored by a bot (the agent itself). */
+  /** Whether the referenced message was authored by this bot (the agent itself). */
   authorBot: boolean;
 }
 

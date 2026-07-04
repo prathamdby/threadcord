@@ -192,19 +192,17 @@ async function resolveReplyQuote(
 ): Promise<ThreadMessageReplyQuote | undefined> {
   const referencedId = message.reference?.messageId;
   if (!referencedId) return undefined;
-  let referenced: Message | undefined;
   try {
-    referenced = await message.channel.messages.fetch(referencedId);
+    const referenced = await message.channel.messages.fetch(referencedId);
+    const content = (referenced.content ?? "").trim();
+    if (!content) return undefined;
+    return {
+      content: clampDiscordContent(content),
+      authorBot: referenced.author.id === message.client.user?.id,
+    };
   } catch {
     return undefined;
   }
-  if (!referenced) return undefined;
-  const content = (referenced.content ?? "").trim();
-  if (!content) return undefined;
-  return {
-    content: clampDiscordContent(content),
-    authorBot: referenced.author?.bot ?? false,
-  };
 }
 
 export function toThreadMessage(
