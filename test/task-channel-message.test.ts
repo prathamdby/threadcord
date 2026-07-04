@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { formatTaskInstructionForDiscord } from "../src/discord/task-instruction-message.js";
-import { World } from "./support/orchestrator-harness.js";
+import { World, flush } from "./support/orchestrator-harness.js";
 
+const EYES = "👀";
+const CROSS = "❌";
 const taskFields = ["repo: acme/web", "branch: main"].join("\n");
 
 describe("control channel message task creation", () => {
@@ -103,6 +105,27 @@ describe("control channel message task creation", () => {
 
     expect(result.task?.status).toBe("failed");
     expect(result.replies[0]).toContain("Could not create a thread");
+  });
+
+  it("adds eyes before dispatch so fast turn failures flip to cross", async () => {
+    const world = new World(1, 9000, {
+      bootstrap: async () => {
+        throw new Error("bootstrap failed");
+      },
+    });
+    const result = await world.submitChannelMessage(
+      "m-fast-fail",
+      ["Fix it.", "", taskFields].join("\n"),
+    );
+
+    await flush();
+
+    expect(result.task?.status).toBe("failed");
+    expect(result.message.reactionLog).toEqual([
+      `react:${EYES}`,
+      `unreact:${EYES}`,
+      `react:${CROSS}`,
+    ]);
   });
 });
 

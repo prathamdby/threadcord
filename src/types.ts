@@ -58,7 +58,7 @@ export interface ChannelMessage {
   authorBot: boolean;
   channelId: string;
   attachments?: ThreadMessageAttachment[] | undefined;
-  createThread(name: string): Promise<ThreadRef>;
+  createThread(name: string): Promise<TaskThreadRef>;
   reply(content: string): Promise<void>;
   react(emoji: string): Promise<void>;
   unreact(emoji: string): Promise<void>;
@@ -82,6 +82,15 @@ export interface ThreadRef {
   editMessage(messageId: string, content: string): Promise<void>;
   sendTyping(): Promise<void>;
   setName(name: string): Promise<void>;
+}
+
+/** Thread handle with Components-v2 send/edit support (see discord-thread.ts). */
+export interface TaskThreadRef extends ThreadRef {
+  sendView(payload: import("./discord/ui/index.js").ViewPayload): Promise<{ id: string }>;
+  editView(
+    messageId: string,
+    payload: import("./discord/ui/index.js").ViewPayload,
+  ): Promise<void>;
 }
 
 /** Attachment metadata extracted from a Discord message (images, files). */

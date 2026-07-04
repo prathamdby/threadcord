@@ -1,12 +1,9 @@
 import type { Message } from "discord.js";
 import { clampDiscordContent } from "../discord/limits.js";
 import type { ViewPayload } from "../discord/ui/index.js";
-import type { ThreadRef } from "../types.js";
+import type { TaskThreadRef, ThreadRef } from "../types.js";
 
-export interface TaskThreadRef extends ThreadRef {
-  sendView(payload: ViewPayload): Promise<{ id: string }>;
-  editView(messageId: string, payload: ViewPayload): Promise<void>;
-}
+export type { TaskThreadRef };
 
 export function isViewPayload(value: unknown): value is ViewPayload {
   return (

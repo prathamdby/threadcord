@@ -77,6 +77,7 @@ interface AdmitTaskInput {
   setupProfileRevision: number;
   createThread: (name: string) => Promise<TaskThreadRef>;
   recordInitiator: (taskId: string) => void;
+  onAdmitted?: (() => void | Promise<void>) | undefined;
 }
 
 const EYES = "👀";
@@ -314,15 +315,13 @@ export class TaskOrchestrator {
       initiatorMessageId: message.id,
       taskRequest,
       setupProfileRevision: setupProfile.revision,
-      createThread: (name) =>
-        message.createThread(name) as Promise<TaskThreadRef>,
+      createThread: (name) => message.createThread(name),
       recordInitiator: (taskId) => this.recordInitiator(taskId, message),
+      onAdmitted: () => this.reactSafely(message, EYES),
     });
     if (!result.ok) {
       await this.replySafely(message, result.reason);
-      return;
     }
-    void this.reactSafely(message, EYES);
   }
 
   private async admitTask(input: AdmitTaskInput): Promise<StartTaskFromSlashResult> {
@@ -397,6 +396,7 @@ export class TaskOrchestrator {
 
     this.taskThreads.set(attached.flueInstanceId, thread);
     input.recordInitiator(attached.id);
+    await input.onAdmitted?.();
 
     const claimed = await this.store.claimNextTurn(attached.id);
     if (claimed) {
