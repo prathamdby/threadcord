@@ -17,6 +17,7 @@ import {
 } from "../discord/ui/index.js";
 import { clampDiscordContent } from "../discord/limits.js";
 import { summarizeError } from "../util/redact.js";
+import type { AppConfig } from "../config.js";
 import {
   type SetupEnvironment,
   parseSetupProfileKey,
@@ -58,10 +59,11 @@ export async function handleSetupInteraction(input: {
   interaction: Interaction;
   store: SetupStore;
   orchestrator: SetupOrchestrator;
+  config: AppConfig;
 }): Promise<boolean> {
-  const { interaction, store, orchestrator } = input;
+  const { interaction, store, orchestrator, config } = input;
   if (interaction.isChatInputCommand() && interaction.commandName === "setup") {
-    await handleSetupCommand(interaction, store, orchestrator);
+    await handleSetupCommand(interaction, store, orchestrator, config);
     return true;
   }
   if (
@@ -92,12 +94,21 @@ async function handleSetupCommand(
   interaction: ChatInputCommandInteraction,
   store: SetupStore,
   orchestrator: SetupOrchestrator,
+  config: AppConfig,
 ): Promise<void> {
   const subcommand = interaction.options.getSubcommand();
   try {
     if (subcommand === "create" || subcommand === "update") {
       await interaction.showModal(
-        setupCreateRunModal(interaction.user.id, subcommand),
+        setupCreateRunModal(
+          interaction.user.id,
+          subcommand,
+          undefined,
+          undefined,
+          undefined,
+          config.allowedModels,
+          config.defaultModel,
+        ),
       );
       return;
     }
@@ -432,11 +443,17 @@ async function handleSetupModal(
       return;
     }
     if (wizard.mode === "create") {
+      const model = interaction.fields.getStringSelectValues("model")[0];
+      if (!model) {
+        await replyWithError(interaction, "validation", "Select a model.");
+        return;
+      }
       const pending = pendingFromRunModal({
         mode: "create",
         repo: key.value.repo,
         branch: key.value.branch,
         skillsRaw,
+        model,
       });
       await interaction.deferReply();
       try {

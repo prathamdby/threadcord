@@ -7,28 +7,92 @@ import {
 } from "../src/setup/create-flow.js";
 import { validateSetupEnvironment } from "../src/setup/profile.js";
 
-function modalTextInputIds(modal: ModalBuilder): string[] {
+const ALLOWED_MODELS = ["anthropic/claude-sonnet-4-5", "openai/gpt-4o"];
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4-5";
+
+function modalComponentCustomIds(modal: ModalBuilder): string[] {
   return modal.toJSON().components.flatMap((label) => {
     const input = (label as { component?: { custom_id?: string } }).component;
     return input?.custom_id ? [input.custom_id] : [];
   });
 }
 
+function modalModelOptions(
+  modal: ModalBuilder,
+): Array<{ value: string; default?: boolean }> {
+  for (const label of modal.toJSON().components as Array<{
+    component?: {
+      custom_id?: string;
+      options?: Array<{ value: string; default?: boolean }>;
+    };
+  }>) {
+    if (label.component?.custom_id === "model") {
+      return label.component.options ?? [];
+    }
+  }
+  return [];
+}
+
 describe("setup create flow", () => {
   it("builds create-run modal with kit custom id", () => {
-    const modal = setupCreateRunModal("user-1", "create");
+    const modal = setupCreateRunModal(
+      "user-1",
+      "create",
+      undefined,
+      undefined,
+      undefined,
+      ALLOWED_MODELS,
+      DEFAULT_MODEL,
+    );
     expect(modal.data.custom_id).toBe("setup:create-run:create:user-1");
     expect(modal.data.title).toBe("Setup create");
   });
 
-  it("create modal asks only for repo, branch, and skills", () => {
-    const modal = setupCreateRunModal("user-1", "create");
-    expect(modalTextInputIds(modal)).toEqual(["repo", "branch", "skills"]);
+  it("create modal asks for repo, branch, skills, and model", () => {
+    const modal = setupCreateRunModal(
+      "user-1",
+      "create",
+      undefined,
+      undefined,
+      undefined,
+      ALLOWED_MODELS,
+      DEFAULT_MODEL,
+    );
+    expect(modalComponentCustomIds(modal)).toEqual([
+      "repo",
+      "branch",
+      "skills",
+      "model",
+    ]);
   });
 
-  it("update modal still asks for install and checks", () => {
-    const modal = setupCreateRunModal("user-1", "update");
-    expect(modalTextInputIds(modal)).toEqual([
+  it("create modal model select prepends and pre-selects the default model", () => {
+    const modal = setupCreateRunModal(
+      "user-1",
+      "create",
+      undefined,
+      undefined,
+      undefined,
+      ["openai/gpt-4o", "anthropic/claude-sonnet-4-5"],
+      DEFAULT_MODEL,
+    );
+    const options = modalModelOptions(modal);
+    expect(options[0]?.value).toBe("anthropic/claude-sonnet-4-5");
+    expect(options.find((o) => o.value === "anthropic/claude-sonnet-4-5")?.default)
+      .toBe(true);
+  });
+
+  it("update modal still asks for install and checks and no model picker", () => {
+    const modal = setupCreateRunModal(
+      "user-1",
+      "update",
+      undefined,
+      undefined,
+      undefined,
+      ALLOWED_MODELS,
+      DEFAULT_MODEL,
+    );
+    expect(modalComponentCustomIds(modal)).toEqual([
       "repo",
       "branch",
       "skills",
@@ -56,6 +120,28 @@ describe("setup create flow", () => {
     expect(pending.install).toBeUndefined();
     expect(pending.checks).toBeUndefined();
     expect(pending.skills).toEqual(["https://example.com/skill.md"]);
+  });
+
+  it("create pending wizard carries the selected model", () => {
+    const pending = pendingFromRunModal({
+      mode: "create",
+      repo: "owner/repo",
+      branch: "main",
+      skillsRaw: "",
+      model: "openai/gpt-4o",
+    });
+    expect(pending.model).toBe("openai/gpt-4o");
+  });
+
+  it("create pending wizard omits model when blank", () => {
+    const pending = pendingFromRunModal({
+      mode: "create",
+      repo: "owner/repo",
+      branch: "main",
+      skillsRaw: "",
+      model: "   ",
+    });
+    expect(pending.model).toBeUndefined();
   });
 
   it("update pending wizard parses install and checks", () => {

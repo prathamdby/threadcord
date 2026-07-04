@@ -1,5 +1,6 @@
-import { ModalBuilder } from "discord.js";
+import { LabelBuilder, ModalBuilder } from "discord.js";
 import { buildCustomId, modalRow } from "../discord/ui/index.js";
+import { buildModelSelectMenu } from "../discord/ui/model-select.js";
 import type { SetupEnvironment } from "./profile.js";
 import { parseSkillLinksInput } from "./skills.js";
 
@@ -18,9 +19,11 @@ export interface PendingSetupWizard {
 export function setupCreateRunModal(
   userId: string,
   mode: "create" | "update",
-  existing?: SetupEnvironment,
-  repoDefault?: string,
-  branchDefault?: string,
+  existing: SetupEnvironment | undefined,
+  repoDefault: string | undefined,
+  branchDefault: string | undefined,
+  allowedModels: string[],
+  defaultModel: string,
 ): ModalBuilder {
   const checksDefault =
     existing && Object.keys(existing.checks).length > 0
@@ -47,6 +50,18 @@ export function setupCreateRunModal(
       style: "paragraph",
     }),
   ];
+  // `/setup create` and `/task create` share the same model picker. The update
+  // wizard is skipped here: it already has 5 text-input rows and Discord caps a
+  // modal at 5 label components, so the run keeps the existing profile's model.
+  if (mode === "create") {
+    rows.push(
+      new LabelBuilder()
+        .setLabel("Model")
+        .setStringSelectMenuComponent(
+          buildModelSelectMenu({ allowedModels, defaultModel }),
+        ),
+    );
+  }
   if (mode === "update") {
     rows.push(
       modalRow("install", "Install command", {
@@ -72,6 +87,7 @@ export function pendingFromRunModal(input: {
   skillsRaw: string;
   install?: string;
   checksRaw?: string;
+  model?: string;
 }): PendingSetupWizard {
   const pending: PendingSetupWizard = {
     repo: input.repo,
@@ -80,6 +96,10 @@ export function pendingFromRunModal(input: {
     update: input.mode === "update",
     createdAt: Date.now(),
   };
+  if (input.mode === "create") {
+    const model = input.model?.trim();
+    if (model) pending.model = model;
+  }
   if (input.mode === "update") {
     pending.install = input.install?.trim() ?? "";
     pending.start = "";
