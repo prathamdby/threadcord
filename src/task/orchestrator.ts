@@ -57,6 +57,7 @@ import type {
   TaskRequest,
   TaskStatus,
   ThreadMessage,
+  ThreadMessageAttachment,
   ThreadRef,
 } from "../types.js";
 
@@ -115,6 +116,8 @@ export type EditHeaderMessage = (
 export interface TaskThreadMessage extends ThreadMessage {
   authorId?: string | undefined;
   replyView?: ((payload: ViewPayload) => Promise<void>) | undefined;
+  /** Image attachments from the Discord message (filtered by content type). */
+  attachments?: ThreadMessageAttachment[] | undefined;
 }
 
 export interface HandleControlButtonInput {
@@ -357,10 +360,14 @@ export class TaskOrchestrator {
       return;
     }
 
+    const instructionWithImages = buildInstructionWithAttachments(
+      message.content,
+      message.attachments,
+    );
     const position = await this.store.enqueueFollowup(
       task.id,
       message.id,
-      message.content,
+      instructionWithImages,
     );
     await message.reply(`Queued follow-up - position ${position}`);
     await this.refreshHeader(task.id);
@@ -890,4 +897,34 @@ function formatChecks(checks: Record<string, string>): string {
   const entries = Object.entries(checks);
   if (entries.length === 0) return "none";
   return entries.map(([name, command]) => `${name}=${command}`).join("; ");
+}
+
+/**
+ * Prepends image attachment descriptions to the instruction text so the
+ * model can fetch and examine them via tools (curl, read, etc.).
+ */
+function buildInstructionWithAttachments(
+  instruction: string,
+  attachments: ThreadMessageAttachment[] | undefined | null,
+): string {
+  if (!attachments || attachments.length === 0) return instruction;
+
+  const imageDescs = attachments
+    .filter(
+      (a) => a.contentType && a.contentType.startsWith("image/") && a.url,
+    )
+    .map((a) => {
+      const dims =
+        a.width && a.height ? ` (${a.width}×${a.height})` : "";
+      return `- [Attached image: ${a.name}${dims}](${a.url})`;
+    });
+
+  if (imageDescs.length === 0) return instruction;
+
+  return [
+    "The user attached the following image(s) with this instruction:",
+    ...imageDescs,
+    "",
+    instruction,
+  ].join("\n");
 }
