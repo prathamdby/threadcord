@@ -92,6 +92,18 @@ export interface ThreadMessageAttachment {
   height: number | null;
 }
 
+/**
+ * Quoted content of an earlier Discord message that a follow-up message was a
+ * reply to (Discord's reply/reference feature). Forwarded into the agent prompt
+ * so the agent sees what the user was replying to.
+ */
+export interface ThreadMessageReplyQuote {
+  /** The referenced message content, clamped to a safe length. */
+  content: string;
+  /** Whether the referenced message was authored by this bot (the agent itself). */
+  authorBot: boolean;
+}
+
 /** Payload passed to the coding agent on each dispatched turn. */
 export interface DispatchAgentInput {
   kind: "threadcord.turn";

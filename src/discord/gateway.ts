@@ -17,7 +17,10 @@ import type { SetupStore } from "../setup/store.js";
 import { handleTaskInteraction } from "../task/interactions.js";
 import type { TaskOrchestrator } from "../task/orchestrator.js";
 import type { TaskThreadMessage } from "../task/orchestrator.js";
-import type { ThreadMessageAttachment } from "../types.js";
+import type {
+  ThreadMessageAttachment,
+  ThreadMessageReplyQuote,
+} from "../types.js";
 import { clampDiscordContent } from "./limits.js";
 import {
   parseCustomId,
@@ -174,10 +177,38 @@ async function routeMessage(
   if (message.partial) message = await message.fetch();
   if (message.author.bot) return;
   if (!message.channel.isThread()) return;
-  await orchestrator.handleThreadMessage(toThreadMessage(message));
+  const replyQuote = await resolveReplyQuote(message);
+  await orchestrator.handleThreadMessage(toThreadMessage(message, replyQuote));
 }
 
-export function toThreadMessage(message: Message): TaskThreadMessage {
+/**
+ * When the user used Discord's reply feature, fetch the referenced message and
+ * return its content (clamped) plus whether the author was the bot, so the
+ * agent can be given the context the user was replying to. Returns undefined
+ * when the message was not a reply or the referenced message cannot be loaded.
+ */
+async function resolveReplyQuote(
+  message: Message,
+): Promise<ThreadMessageReplyQuote | undefined> {
+  const referencedId = message.reference?.messageId;
+  if (!referencedId) return undefined;
+  try {
+    const referenced = await message.channel.messages.fetch(referencedId);
+    const content = (referenced.content ?? "").trim();
+    if (!content) return undefined;
+    return {
+      content: clampDiscordContent(content),
+      authorBot: referenced.author.id === message.client.user?.id,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function toThreadMessage(
+  message: Message,
+  replyQuote?: ThreadMessageReplyQuote,
+): TaskThreadMessage {
   return {
     id: message.id,
     content: message.content,
@@ -186,6 +217,7 @@ export function toThreadMessage(message: Message): TaskThreadMessage {
     channelId: message.channelId,
     guildId: message.guildId,
     attachments: toAttachments(message),
+    replyQuote,
     reply: async (content) => {
       await message.reply(clampDiscordContent(content));
     },

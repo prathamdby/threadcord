@@ -58,6 +58,7 @@ import type {
   TaskStatus,
   ThreadMessage,
   ThreadMessageAttachment,
+  ThreadMessageReplyQuote,
   ThreadRef,
 } from "../types.js";
 
@@ -118,6 +119,8 @@ export interface TaskThreadMessage extends ThreadMessage {
   replyView?: ((payload: ViewPayload) => Promise<void>) | undefined;
   /** Image attachments from the Discord message (filtered by content type). */
   attachments?: ThreadMessageAttachment[] | undefined;
+  /** Content of the earlier message this message was a Discord reply to. */
+  replyQuote?: ThreadMessageReplyQuote | undefined;
 }
 
 export interface HandleControlButtonInput {
@@ -360,16 +363,23 @@ export class TaskOrchestrator {
       return;
     }
 
-    const instructionWithAttachments = buildInstructionWithAttachments(
-      message.content,
-      message.attachments,
-    ).trim();
-    if (!instructionWithAttachments) {
+    const hasInstruction =
+      message.content.trim().length > 0 ||
+      !!message.attachments?.some((a) => a.url);
+    if (!hasInstruction) {
       await message.reply(
         "Cannot queue an empty instruction. Please include some text or an attachment.",
       );
       return;
     }
+    const instructionWithReply = buildInstructionWithReplyQuote(
+      message.content,
+      message.replyQuote,
+    );
+    const instructionWithAttachments = buildInstructionWithAttachments(
+      instructionWithReply,
+      message.attachments,
+    ).trim();
     const position = await this.store.enqueueFollowup(
       task.id,
       message.id,
@@ -910,6 +920,34 @@ function formatChecks(checks: Record<string, string>): string {
  * examine them via tools (curl, read, etc.). Images include dimensions;
  * all other files are listed with their type.
  */
+/**
+ * Prepends the content of an earlier Discord message that this follow-up was a
+ * reply to (Discord's reply/reference feature) so the agent sees the context
+ * the user was responding to. No-op when the message was not sent as a reply.
+ */
+function buildInstructionWithReplyQuote(
+  instruction: string,
+  quote: ThreadMessageReplyQuote | undefined,
+): string {
+  if (!quote) return instruction;
+  const content = quote.content.trim();
+  if (!content) return instruction;
+
+  const source = quote.authorBot
+    ? "the bot's earlier message"
+    : "this earlier message in the thread";
+  const quoted = content
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  const trimmed = instruction.trim();
+  const intro = `The user replied to ${source}:`;
+  if (trimmed) {
+    return [intro, quoted, "", trimmed].join("\n");
+  }
+  return [intro, quoted].join("\n");
+}
+
 function buildInstructionWithAttachments(
   instruction: string,
   attachments: ThreadMessageAttachment[] | undefined | null,
