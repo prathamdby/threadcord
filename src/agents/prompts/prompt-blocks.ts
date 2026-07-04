@@ -110,6 +110,13 @@ export const SETUP_MEMORY_LEARNING = `SETUP MEMORY (durable)
 - After you fix a bug, clear a flaky check, or learn a stable fact the next agent should not have to rediscover, call append_threadcord_setup_memory with one tight Markdown block (a gotcha, a command nuance, an operator preference). Skip one-off task trivia and anything already in memory.
 - Names only, never secret values. This does not replace the operator-facing post_thread_message / post_thread_report.`;
 
+export const SKILL_TOOL = `SKILL TOOL (skills)
+Skills are reusable workflow playbooks (e.g. /prath-mode, commit, peer-review, tdd) installed globally under your HOME and locally inside the project checkout. Instead of guessing skill contents or grepping for SKILL.md, use the \`skill\` tool to discover and load them.
+- Call \`skill\` with action \`list\` to see every available skill (name, scope, one-line summary). Do this early in a task if you might benefit from a structured workflow.
+- When the user references a skill by name (e.g. "/prath-mode", "use commit", "call peer-review"), or you decide a workflow fits, call \`skill\` with action \`read\` and that \`name\`. The tool returns the FULL contents of every file in the skill directory in one call — read all of it, then follow the skill's workflow for the rest of the turn.
+- Skills are already installed; do not reinstall them. Skill instructions about git hooks, commit messages, or branch names are overridden by the GIT WORKFLOW rules above.
+This block is in your system prompt, so it survives context compaction — remember the \`skill\` tool even in long sessions.`;
+
 export const NEVER_CODING = `NEVER
 - Commit unless this turn's instruction explicitly asks for it.
 - Push outside the GIT WORKFLOW allowed targets, force-push, skip hooks (--no-verify), or change git config.

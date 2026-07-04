@@ -1,9 +1,14 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const SKILL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+export const SKILL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
-const SKILL_DIRS = [".agents/skills", ".pi/agent/skills", ".tabnine/agent/skills"];
+/** Relative directories (under HOME or a project root) that hold skill packages. */
+export const SKILL_DIRS = [
+  ".agents/skills",
+  ".pi/agent/skills",
+  ".tabnine/agent/skills",
+];
 
 /**
  * Discover skill names installed under the workspace HOME directory.

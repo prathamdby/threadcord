@@ -13,7 +13,8 @@ import {
 import { resolveGithubHttpsGitEnv } from "../task/git-auth.js";
 import { composePrompt } from "./prompts/compose.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
-import { workspaceEnv } from "../task/workspace-env.js";
+import { workspaceEnv, workspacePaths } from "../task/workspace-env.js";
+import { createSkillTools } from "../skills/skill-tool.js";
 import type { DispatchAgentInput } from "../types.js";
 
 export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
@@ -33,6 +34,8 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
 
   const mcpTools = await getMcpTools();
 
+  const skillHome = workspacePaths(turn.workspaceRoot).home;
+
   return {
     model: turn.model,
     cwd: turn.cwd,
@@ -44,6 +47,7 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
     tools: [
       ...createThreadMessageTools(id),
       ...createSetupMemoryTools(turn.repo, turn.baseBranch),
+      ...createSkillTools(skillHome, turn.cwd),
       ...(githubToken ? createGitHubTools(githubToken) : []),
       ...mcpTools,
     ],
