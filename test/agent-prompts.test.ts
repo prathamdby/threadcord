@@ -90,6 +90,10 @@ describe("composePrompt coding invariants", () => {
     "Repo = acme/web",
     "Minimum structure",
     "substantive body",
+    "SKILL TOOL",
+    "action `list`",
+    "action `read`",
+    "survives context compaction",
   ])("contains %s", (token) => {
     expect(prompt).toContain(token);
   });
@@ -230,6 +234,7 @@ describe("agent factory instructions", () => {
     expect(config.instructions).toContain("END_TURN_CHECKLIST");
     expect(config.instructions).toContain("post_thread_report");
     expect(config.instructions).toContain("cwd = /workspaces/task-1/web");
+    expect(config.tools?.map((t) => t.name)).toContain("skill");
   });
 
   it("boots the setup agent with save contract in instructions", async () => {

@@ -10,6 +10,7 @@ import {
   createSetupMemoryTools,
 } from "../src/setup/memory-tools.js";
 import { createSetupTools } from "../src/setup/tools.js";
+import { SKILL_DESCRIPTION, createSkillTools } from "../src/skills/skill-tool.js";
 
 describe("tool descriptions", () => {
   it("post_thread_message description contains required contract phrases", () => {
@@ -84,5 +85,15 @@ describe("tool descriptions", () => {
       "post_thread_message",
       "post_thread_report",
     ]);
+  });
+
+  it("skill description and tool surface contain required contract phrases", () => {
+    const tools = createSkillTools("/tmp/home", "/tmp/proj");
+    expect(tools.map((tool) => tool.name)).toEqual(["skill"]);
+    expect(SKILL_DESCRIPTION).toContain("list");
+    expect(SKILL_DESCRIPTION).toContain("read");
+    expect(SKILL_DESCRIPTION).toContain("FULL contents of EVERY file");
+    expect(SKILL_DESCRIPTION).toContain("/prath-mode");
+    expect(SKILL_DESCRIPTION).toContain("GIT WORKFLOW");
   });
 });
