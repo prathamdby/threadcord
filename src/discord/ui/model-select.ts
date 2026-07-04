@@ -1,4 +1,5 @@
 import { StringSelectMenuBuilder } from "discord.js";
+import { truncate } from "./components.js";
 
 /** Maximum number of options Discord allows in a single string select menu. */
 export const MODEL_SELECT_MAX = 25;
@@ -27,6 +28,13 @@ export function buildModelSelectMenu(
   const uniqueModels = [...new Set([defaultModel, ...allowedModels])].filter(
     Boolean,
   );
+  for (const modelId of uniqueModels) {
+    if (modelId.length > SELECT_LABEL_LIMIT) {
+      throw new Error(
+        `Model ID "${modelId}" exceeds Discord's ${SELECT_LABEL_LIMIT}-character select option limit`,
+      );
+    }
+  }
   return new StringSelectMenuBuilder()
     .setCustomId("model")
     .setPlaceholder("Choose a model (provider/model-id)")
@@ -37,8 +45,4 @@ export function buildModelSelectMenu(
         ...(modelId === defaultModel ? { default: true } : {}),
       })),
     );
-}
-
-function truncate(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }

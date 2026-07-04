@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCustomId } from "../src/discord/ui/index.js";
+import { buildModelSelectMenu } from "../src/discord/ui/model-select.js";
 import {
   buildTaskCreateModal,
   parseTaskCreateModalCustomId,
@@ -104,5 +105,15 @@ describe("task create modal custom ids", () => {
     expect(options.find((o) => o.default === true)?.value).toBe(
       "anthropic/claude-sonnet-4-5",
     );
+  });
+
+  it("throws when a model id exceeds the Discord select option limit", () => {
+    const longModel = "x".repeat(101);
+    expect(() =>
+      buildModelSelectMenu({
+        allowedModels: [longModel],
+        defaultModel: longModel,
+      }),
+    ).toThrow(/exceeds Discord.*character select option limit/);
   });
 });

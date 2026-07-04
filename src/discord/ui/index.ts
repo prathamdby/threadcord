@@ -26,6 +26,7 @@ export {
   disableAllComponents,
   modalRow,
   selectMenuRow,
+  truncate,
   type ModalRowOptions,
   type SelectMenuOption,
 } from "./components.js";
