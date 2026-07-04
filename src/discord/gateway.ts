@@ -119,6 +119,7 @@ export async function routeInteraction(
       interaction,
       store: setupStore,
       orchestrator: setupOrchestrator,
+      config,
     });
   } catch (error) {
     console.error(

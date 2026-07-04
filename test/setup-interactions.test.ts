@@ -1,5 +1,6 @@
 import { MessageFlags, type Interaction } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
+import type { AppConfig } from "../src/config.js";
 import { handleSetupInteraction } from "../src/setup/interactions.js";
 import type { SetupDraft, SetupProfile, SetupRun } from "../src/setup/profile.js";
 import { profileSelectCustomId } from "../src/setup/profile-select.js";
@@ -76,6 +77,13 @@ function mockStore(
 function mockOrchestrator(): SetupOrchestrator {
   return {} as SetupOrchestrator;
 }
+
+const ALLOWED_MODELS = ["anthropic/claude-sonnet-4-5", "openai/gpt-4o"];
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4-5";
+const config = {
+  allowedModels: ALLOWED_MODELS,
+  defaultModel: DEFAULT_MODEL,
+} as unknown as AppConfig;
 
 function mockChatCommand(input: {
   subcommand: string;
@@ -182,6 +190,7 @@ function mockModal(input: {
   customId: string;
   userId?: string;
   fields?: Record<string, string>;
+  selects?: Record<string, string[]>;
 }) {
   const interaction = {
     isChatInputCommand: () => false,
@@ -194,6 +203,7 @@ function mockModal(input: {
     replied: false,
     fields: {
       getTextInputValue: (name: string) => input.fields?.[name] ?? "",
+      getStringSelectValues: (name: string) => input.selects?.[name] ?? [],
     },
     showModal: vi.fn().mockResolvedValue(undefined),
     reply: vi.fn().mockImplementation(async () => {
@@ -244,6 +254,7 @@ describe("handleSetupInteraction profile picker", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(callOrder).toEqual(["deferReply", "listProfiles"]);
@@ -270,6 +281,7 @@ describe("handleSetupInteraction profile picker", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(interaction.deferReply).toHaveBeenCalled();
@@ -294,6 +306,7 @@ describe("handleSetupInteraction profile picker", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     const payload = vi.mocked(interaction.editReply).mock.calls[0]?.[0] as Record<
@@ -337,6 +350,7 @@ describe("handleSetupInteraction profile picker", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(callOrder.slice(0, 2)).toEqual(["deferUpdate", "getProfileById"]);
@@ -360,6 +374,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(interaction.deferUpdate).toHaveBeenCalled();
@@ -383,6 +398,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(store.applyDraft).toHaveBeenCalledWith("draft-1");
@@ -402,6 +418,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(store.discardDraft).not.toHaveBeenCalled();
@@ -422,6 +439,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(store.discardDraft).toHaveBeenCalledWith("draft-1");
@@ -441,6 +459,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(store.discardDraft).not.toHaveBeenCalled();
@@ -460,6 +479,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(store.discardDraft).not.toHaveBeenCalled();
@@ -486,6 +506,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     const payload = vi.mocked(interaction.reply).mock.calls[0]?.[0] as Record<
@@ -504,6 +525,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     const payload = vi.mocked(interaction.reply).mock.calls[0]?.[0] as Record<
@@ -524,6 +546,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(interaction.showModal).not.toHaveBeenCalled();
@@ -547,6 +570,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     expect(interaction.showModal).not.toHaveBeenCalled();
@@ -567,6 +591,7 @@ describe("handleSetupInteraction draft editor", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator: mockOrchestrator(),
     });
     const payload = vi.mocked(interaction.editReply).mock.calls[0]?.[0] as Record<
@@ -588,6 +613,7 @@ describe("handleSetupInteraction create/update commands", () => {
       await handleSetupInteraction({
         interaction: interaction as unknown as Interaction,
         store,
+        config,
         orchestrator: mockOrchestrator(),
       });
       expect(interaction.showModal).toHaveBeenCalledTimes(1);
@@ -626,13 +652,21 @@ describe("handleSetupInteraction wizard modal", () => {
         branch: "main",
         skills: "https://example.com/skill.md",
       },
+      selects: { model: ["anthropic/claude-sonnet-4-5"] },
     });
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator,
     });
     expect(store.getProfile).not.toHaveBeenCalled();
+    expect(orchestrator.startSetup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "anthropic/claude-sonnet-4-5",
+        update: false,
+      }),
+    );
     expect(patchEnvironmentWhileRunning).toHaveBeenCalledWith("profile-1", {
       skills: ["https://example.com/skill.md"],
     });
@@ -668,6 +702,7 @@ describe("handleSetupInteraction wizard modal", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator,
     });
     expect(store.getProfile).toHaveBeenCalledWith("owner/repo", "main");
@@ -713,6 +748,7 @@ describe("handleSetupInteraction wizard modal", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator,
     });
     expect(callOrder.slice(0, 2)).toEqual(["deferReply", "getProfile"]);
@@ -743,6 +779,7 @@ describe("handleSetupInteraction wizard modal", () => {
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
       store,
+      config,
       orchestrator,
     });
     expect(interaction.deferReply).toHaveBeenCalled();

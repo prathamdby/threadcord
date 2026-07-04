@@ -1,13 +1,13 @@
-import {
-  LabelBuilder,
-  ModalBuilder,
-  StringSelectMenuBuilder,
-} from "discord.js";
+import { LabelBuilder, ModalBuilder, StringSelectMenuBuilder } from "discord.js";
 import {
   buildCustomId,
   modalRow,
   parseCustomId,
 } from "../discord/ui/index.js";
+import {
+  buildModelSelectMenu,
+  MODEL_SELECT_MAX,
+} from "../discord/ui/model-select.js";
 import type { SetupProfile } from "../setup/profile.js";
 
 export const TASK_PROFILE_SELECT_MAX = 25;
@@ -31,7 +31,7 @@ export function parseTaskCreateModalCustomId(
   return userId ? { userId } : undefined;
 }
 
-export const TASK_MODEL_SELECT_MAX = 25;
+export const TASK_MODEL_SELECT_MAX = MODEL_SELECT_MAX;
 
 export function buildTaskCreateModal(input: {
   userId: string;
@@ -51,23 +51,7 @@ export function buildTaskCreateModal(input: {
       })),
     );
 
-  // Prepend the default model and dedupe so it is always the first option
-  // and is never silently sliced out when the list exceeds 25 entries. This
-  // also guarantees at least one option even if a caller forgets to include
-  // the default in allowedModels.
-  const uniqueModels = [
-    ...new Set([defaultModel, ...allowedModels]),
-  ].filter(Boolean);
-  const modelSelect = new StringSelectMenuBuilder()
-    .setCustomId("model")
-    .setPlaceholder("Choose a model (provider/model-id)")
-    .addOptions(
-      uniqueModels.slice(0, TASK_MODEL_SELECT_MAX).map((modelId) => ({
-        label: truncate(modelId, 100),
-        value: modelId,
-        ...(modelId === defaultModel ? { default: true } : {}),
-      })),
-    );
+  const modelSelect = buildModelSelectMenu({ allowedModels, defaultModel });
 
   return new ModalBuilder()
     .setCustomId(taskCreateModalCustomId(userId))
