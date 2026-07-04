@@ -3,6 +3,7 @@ import {
   buildCustomId,
   modalRow,
   parseCustomId,
+  truncate,
 } from "../discord/ui/index.js";
 import {
   buildModelSelectMenu,
@@ -72,8 +73,4 @@ export function buildTaskCreateModal(input: {
 
 function profileLabel(profile: SetupProfile): string {
   return `${profile.repo} @ ${profile.branch}`;
-}
-
-function truncate(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
