@@ -1,5 +1,5 @@
 import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { SKILL_DIRS, SKILL_NAME } from "../setup/skills.js";
 
 export type SkillScope = "global" | "project";
@@ -69,10 +69,14 @@ export function extractSkillSummary(skillMdPath: string): string {
   return firstHeading ?? "";
 }
 
-function isDirectoryOrSymlink(fullPath: string): boolean {
+/**
+ * Returns true when `fullPath` resolves to a directory (following symlinks).
+ * `statSync` follows symlinks, so `stat.isSymbolicLink()` is never true here;
+ * a symlinked directory is reported via `stat.isDirectory()`.
+ */
+function resolvesToDirectory(fullPath: string): boolean {
   try {
-    const stat = statSync(fullPath);
-    return stat.isDirectory() || stat.isSymbolicLink();
+    return statSync(fullPath).isDirectory();
   } catch {
     return false;
   }
@@ -94,7 +98,7 @@ function scanScope(baseDir: string, scope: SkillScope): DiscoveredSkill[] {
         SKILL_NAME.test(entry.name)
       ) {
         const skillPath = join(skillsRoot, entry.name);
-        if (!isDirectoryOrSymlink(skillPath)) continue;
+        if (!resolvesToDirectory(skillPath)) continue;
         found.push({
           name: entry.name,
           scope,
@@ -130,23 +134,35 @@ export function discoverSkills(
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Finds a single skill by name, preferring the global copy over a project one. */
+/**
+ * Finds a single skill by name, preferring the global copy over a project one.
+ *
+ * Validates `name` against the skill-name grammar before joining it into any
+ * path, so a caller-supplied traversal string (e.g. `"../etc"`) cannot escape
+ * the skill roots. Only the requested skill's directory is stat-checked and
+ * its `SKILL.md` read — no full scan of every installed skill.
+ */
 export function findSkill(
   name: string,
   homeDir: string,
   projectDir: string,
 ): DiscoveredSkill | undefined {
-  return discoverSkills(homeDir, projectDir).find(
-    (skill) => skill.name === name,
-  );
-}
-
-/** Human-readable relative label for a skill path within its scope root. */
-export function relativeSkillPath(skill: DiscoveredSkill): string {
-  if (skill.scope === "global") return skill.path;
-  try {
-    return relative(join(), skill.path) || skill.path;
-  } catch {
-    return skill.path;
+  if (!SKILL_NAME.test(name)) return undefined;
+  for (const [baseDir, scope] of [
+    [homeDir, "global"],
+    [projectDir, "project"],
+  ] as const) {
+    for (const rel of SKILL_DIRS) {
+      const skillPath = join(baseDir, rel, name);
+      if (resolvesToDirectory(skillPath)) {
+        return {
+          name,
+          scope,
+          path: skillPath,
+          summary: extractSkillSummary(join(skillPath, "SKILL.md")),
+        };
+      }
+    }
   }
+  return undefined;
 }

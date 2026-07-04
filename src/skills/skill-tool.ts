@@ -1,5 +1,11 @@
-import { type Dirent, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import {
+  type Dirent,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { defineTool } from "@flue/runtime";
 import * as v from "valibot";
 import { discoverSkills, findSkill } from "./discover.js";
@@ -126,7 +132,18 @@ interface SkillFile {
 
 /** Collects every readable text file under a skill directory, sorted by path. */
 function collectFiles(skillDir: string): SkillFile[] {
+  let realSkillDir: string;
+  try {
+    realSkillDir = realpathSync(skillDir);
+  } catch {
+    return [];
+  }
+
   const results: SkillFile[] = [];
+  // Real paths already recursed into — prevents circular symlinks from
+  // blowing the stack.
+  const visited = new Set<string>([realSkillDir]);
+
   const walk = (dir: string): void => {
     let entries: Dirent[];
     try {
@@ -138,17 +155,40 @@ function collectFiles(skillDir: string): SkillFile[] {
       const fullPath = join(dir, entry.name);
       let stat: ReturnType<typeof statSync>;
       try {
+        // statSync follows symlinks, so isDirectory() is true for symlinked
+        // directories and isSymbolicLink() is never true — see below.
         stat = statSync(fullPath);
       } catch {
         continue;
       }
-      if (stat.isDirectory() || stat.isSymbolicLink()) {
+      if (stat.isDirectory()) {
         // Skip VCS and dependency dirs inside skills, just in case.
         if (entry.name === ".git" || entry.name === "node_modules") continue;
+
+        // Resolve the real target and refuse to leave the skill directory or
+        // re-enter a visited dir (handles circular symlinks and traversal).
+        let realPath: string;
+        try {
+          realPath = realpathSync(fullPath);
+        } catch {
+          continue;
+        }
+        if (visited.has(realPath) || !isWithinSkill(realSkillDir, realPath)) {
+          continue;
+        }
+        visited.add(realPath);
         walk(fullPath);
         continue;
       }
       if (!stat.isFile()) continue;
+      // Skip symlinked files whose real target escapes the skill directory.
+      let realFile: string;
+      try {
+        realFile = realpathSync(fullPath);
+      } catch {
+        continue;
+      }
+      if (!isWithinSkill(realSkillDir, realFile)) continue;
       try {
         const content = readFileSync(fullPath, "utf8");
         results.push({ path: fullPath, content });
@@ -167,4 +207,10 @@ function collectFiles(skillDir: string): SkillFile[] {
     return ar.localeCompare(br);
   });
   return results;
+}
+
+/** True when `target` is `ancestor` itself or lives strictly beneath it. */
+function isWithinSkill(ancestor: string, target: string): boolean {
+  const rel = relative(ancestor, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
