@@ -120,6 +120,13 @@ describe("composePrompt coding prompt-consistency invariants", () => {
     expect(prompt).not.toContain("edit_file");
   });
 
+  it("documents skill tool in TOOL ARGUMENTS", () => {
+    expect(prompt).toContain("skill (`action`");
+    expect(prompt).toContain("`list` or `read`");
+    expect(prompt).toContain("bare skill id");
+    expect(prompt).toContain("25 skills per page");
+  });
+
   it("allows multi-line bash when the command inherently needs it", () => {
     expect(prompt).toContain("Multi-line bash is allowed");
     expect(prompt).not.toContain("One-liners only");

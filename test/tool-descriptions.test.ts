@@ -92,8 +92,9 @@ describe("tool descriptions", () => {
     expect(tools.map((tool) => tool.name)).toEqual(["skill"]);
     expect(SKILL_DESCRIPTION).toContain("list");
     expect(SKILL_DESCRIPTION).toContain("read");
-    expect(SKILL_DESCRIPTION).toContain("FULL contents of EVERY file");
-    expect(SKILL_DESCRIPTION).toContain("/prath-mode");
+    expect(SKILL_DESCRIPTION).toContain("FULL contents of every file");
+    expect(SKILL_DESCRIPTION).toContain("paginated");
+    expect(SKILL_DESCRIPTION).toContain("bare skill id");
     expect(SKILL_DESCRIPTION).toContain("GIT WORKFLOW");
   });
 });

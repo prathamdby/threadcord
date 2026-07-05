@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createSkillTools,
+  LIST_PAGE_SIZE,
   SKILL_DESCRIPTION,
 } from "../src/skills/skill-tool.js";
 import {
   discoverSkills,
   extractSkillSummary,
   findSkill,
+  normalizeSkillLookupName,
 } from "../src/skills/discover.js";
 
 function makeSkill(
@@ -29,7 +31,7 @@ function makeSkill(
 async function callSkill(
   homeDir: string,
   projectDir: string,
-  args: { action: "list" | "read"; name?: string },
+  args: { action: "list" | "read"; name?: string; page?: number },
 ): Promise<string> {
   const tools = createSkillTools(homeDir, projectDir);
   const tool = tools.find((t) => t.name === "skill")!;
@@ -79,7 +81,7 @@ describe("skill tool — list", () => {
         "---\ntitle: tdd\n---\n\n## TDD\n\nRed, green, refactor.",
     });
     const out = await callSkill(home, project, { action: "list" });
-    expect(out).toContain("Available skills (2)");
+    expect(out).toContain("page 1 of 1 (2 total)");
     expect(out).toContain("- commit [global] — Walks through staging");
     expect(out).toContain("- tdd [project] — Red, green, refactor.");
   });
@@ -275,5 +277,57 @@ describe("findSkill — name validation", () => {
     expect(skill?.scope).toBe("global");
     expect(skill?.summary).toBe("Stage and commit.");
     rmSync(home, { recursive: true, force: true });
+  });
+
+  it("normalizeSkillLookupName strips a leading slash", () => {
+    expect(normalizeSkillLookupName("/prath-mode")).toBe("prath-mode");
+    expect(normalizeSkillLookupName("commit")).toBe("commit");
+  });
+
+  it("findSkill resolves slash-prefixed user names", () => {
+    const home = join(tmpdir(), `threadcord-skill-slash-${Date.now()}-${Math.random()}`);
+    mkdirSync(join(home, ".agents", "skills", "prath-mode"), { recursive: true });
+    writeFileSync(
+      join(home, ".agents", "skills", "prath-mode", "SKILL.md"),
+      "# prath-mode",
+    );
+    expect(findSkill("/prath-mode", home, "/nonexistent")?.name).toBe("prath-mode");
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe("skill tool — list pagination", () => {
+  let home: string;
+  let project: string;
+
+  beforeEach(() => {
+    home = join(tmpdir(), `threadcord-skill-page-${Date.now()}-${Math.random()}`);
+    project = join(
+      tmpdir(),
+      `threadcord-skill-page-p-${Date.now()}-${Math.random()}`,
+    );
+    mkdirSync(join(home, ".agents", "skills"), { recursive: true });
+    mkdirSync(join(project, ".agents", "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  it("paginates list output and hints for the next page", async () => {
+    for (let i = 0; i < LIST_PAGE_SIZE + 3; i++) {
+      const name = `skill-${String(i).padStart(2, "0")}`;
+      makeSkill(home, ".agents/skills", name, { "SKILL.md": `# ${name}` });
+    }
+    const page1 = await callSkill(home, project, { action: "list", page: 1 });
+    expect(page1).toContain(`page 1 of 2 (${LIST_PAGE_SIZE + 3} total)`);
+    expect(page1).toContain(`page ${2}`);
+    expect(page1).toContain("- skill-00");
+    expect(page1).not.toContain("- skill-99");
+
+    const page2 = await callSkill(home, project, { action: "list", page: 2 });
+    expect(page2).toContain("page 2 of 2");
+    expect(page2).toContain("- skill-25");
   });
 });

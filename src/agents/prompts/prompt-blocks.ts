@@ -36,7 +36,7 @@ Pass only the parameter names listed here. There is no \`description\` field on 
 - grep: \`pattern\` (string, required — a regex, not a glob). Optional: \`path\` (dir or file, default .), \`include\` (glob like "*.ts"), \`literal\` (boolean).
 - glob: \`pattern\` (string, required — a filename glob like "*.ts" or "**/*.ts"). Optional: \`path\` (directory to search).
 - task: \`prompt\` (required). Optional: \`description\`, \`agent\`, \`cwd\`, \`attachments\`.
-Threadcord tools: post_thread_message (\`message\`), post_thread_report (\`parts\`: string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`).`;
+Threadcord tools: post_thread_message (\`message\`), post_thread_report (\`parts\`: string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`), skill (\`action\`: \`list\` or \`read\`, required; optional \`name\` string — required when action is \`read\`, bare skill id e.g. \`prath-mode\` not \`/prath-mode\`; optional \`page\` integer 1-based when action is \`list\`, 25 skills per page).`;
 
 export const TOOL_USE = `TOOL USE
 - Before every call, confirm the tool name and that each required argument is present and correctly typed. Never invent a path, flag, or value; derive it from prior tool output or read it first.
@@ -111,9 +111,9 @@ export const SETUP_MEMORY_LEARNING = `SETUP MEMORY (durable)
 - Names only, never secret values. This does not replace the operator-facing post_thread_message / post_thread_report.`;
 
 export const SKILL_TOOL = `SKILL TOOL (skills)
-Skills are reusable workflow playbooks (e.g. /prath-mode, commit, peer-review, tdd) installed globally under your HOME and locally inside the project checkout. Instead of guessing skill contents or grepping for SKILL.md, use the \`skill\` tool to discover and load them.
-- Call \`skill\` with action \`list\` to see every available skill (name, scope, one-line summary). Do this early in a task if you might benefit from a structured workflow.
-- When the user references a skill by name (e.g. "/prath-mode", "use commit", "call peer-review"), or you decide a workflow fits, call \`skill\` with action \`read\` and that \`name\`. The tool returns the FULL contents of every file in the skill directory in one call — read all of it, then follow the skill's workflow for the rest of the turn.
+Skills are reusable workflow playbooks (e.g. /prath-mode, commit, peer-review, tdd) installed globally under your HOME and locally inside the project checkout. Instead of guessing skill contents or grepping for SKILL.md, use the \`skill\` tool (see TOOL ARGUMENTS for \`action\`, \`name\`, \`page\`).
+- Call \`skill\` with action \`list\` to see installed skills (paginated, 25 per page; use \`page\` for the next slice). Do this when you need to discover names.
+- When the user says "/prath-mode" or "use commit", call \`skill\` with action \`read\` and \`name\` \`prath-mode\` or \`commit\` (bare id, no leading slash). The tool returns the FULL contents of every file in the skill directory in one call — read all of it, then follow the skill's workflow for the rest of the turn.
 - Skills are already installed; do not reinstall them. Skill instructions about git hooks, commit messages, or branch names are overridden by the GIT WORKFLOW rules above.
 This block is in your system prompt, so it survives context compaction — remember the \`skill\` tool even in long sessions.`;
 
