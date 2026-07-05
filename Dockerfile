@@ -6,6 +6,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package.json
+COPY scripts/patch-flue-runtime-abort.mjs scripts/patch-flue-runtime-abort.mjs
 RUN npm install
 
 COPY . .
@@ -41,6 +42,7 @@ RUN apt-get update \
   && chown -R threadcord:threadcord /workspaces /app
 
 COPY package.json package.json
+COPY scripts/patch-flue-runtime-abort.mjs scripts/patch-flue-runtime-abort.mjs
 RUN npm install --omit=dev
 
 COPY --from=build /app/dist ./dist
