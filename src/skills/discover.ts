@@ -134,20 +134,20 @@ export function discoverSkills(
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/**
- * Finds a single skill by name, preferring the global copy over a project one.
- *
- * Validates `name` against the skill-name grammar before joining it into any
- * path, so a caller-supplied traversal string (e.g. `"../etc"`) cannot escape
- * the skill roots. Only the requested skill's directory is stat-checked and
- * its `SKILL.md` read — no full scan of every installed skill.
- */
+/** Strips a leading slash from user-facing skill references (e.g. `/prath-mode`). */
+export function normalizeSkillLookupName(name: string): string {
+  const trimmed = name.trim();
+  return trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
+}
+
 export function findSkill(
   name: string,
   homeDir: string,
   projectDir: string,
 ): DiscoveredSkill | undefined {
-  if (!SKILL_NAME.test(name)) return undefined;
+  const lookup = normalizeSkillLookupName(name);
+  if (!SKILL_NAME.test(lookup)) return undefined;
+  name = lookup;
   for (const [baseDir, scope] of [
     [homeDir, "global"],
     [projectDir, "project"],

@@ -17,12 +17,17 @@ import { discoverSkills, findSkill } from "./discover.js";
  */
 const READ_TOTAL_MAX_BYTES = 120_000;
 
+/** Skills per page for action "list" (keeps large catalogs readable). */
+export const LIST_PAGE_SIZE = 25;
+
+const MISS_ERROR_NAME_SAMPLE = 12;
+
 const SKILL_DESCRIPTION = `Discover and load installed agent skills (workflow playbooks like /prath-mode, commit, peer-review, tdd, etc.).
 
 Use this instead of hunting for SKILL.md files with read/glob. It does two things:
 
-- action "list": returns every available skill (global under the agent HOME, and local inside the project checkout) with its name, scope, and a one-line summary. Call this first when you are unsure which skills exist.
-- action "read": pass a skill \`name\` to load that skill. This reads and returns the FULL contents of EVERY file in the skill directory (SKILL.md plus any companion files) in one call — there is no partial read. When the user references a skill by name (e.g. "/prath-mode", "use commit", "call peer-review") or you need a structured workflow, call this with that name, then follow the loaded workflow.
+- action "list": returns installed skills (global under HOME, project under the checkout) with name, scope, and one-line summary. Results are paginated (${LIST_PAGE_SIZE} per page); the output states page number and total. Optional \`page\` (integer, 1-based) selects a page; omit \`page\` for page 1.
+- action "read": pass \`name\` (bare skill id, e.g. \`prath-mode\` — not \`/prath-mode\`) to load that skill. Returns the FULL contents of every file in the skill directory in one call. When the user says "/prath-mode" or "use commit", call read with \`name\` \`prath-mode\` or \`commit\`, then follow the loaded workflow.
 
 Skills are already installed; do not reinstall them. Skill instructions about git hooks, commit messages, or branch names are overridden by the GIT WORKFLOW rules in your system prompt.`;
 
@@ -36,10 +41,11 @@ export function createSkillTools(homeDir: string, projectDir: string) {
       parameters: v.object({
         action: SkillAction,
         name: v.optional(v.pipe(v.string(), v.minLength(1))),
+        page: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
       }),
       async execute(input) {
         if (input.action === "list") {
-          return formatSkillList(homeDir, projectDir);
+          return formatSkillList(homeDir, projectDir, input.page ?? 1);
         }
         if (!input.name) {
           throw new Error(
@@ -49,9 +55,8 @@ export function createSkillTools(homeDir: string, projectDir: string) {
         const skill = findSkill(input.name, homeDir, projectDir);
         if (!skill) {
           const available = discoverSkills(homeDir, projectDir);
-          const names = available.map((s) => s.name).join(", ") || "(none)";
           throw new Error(
-            `No skill named "${input.name}". Available skills: ${names}`,
+            formatSkillMissMessage(input.name, available.map((s) => s.name)),
           );
         }
         return formatSkillContents(skill);
@@ -62,21 +67,54 @@ export function createSkillTools(homeDir: string, projectDir: string) {
 
 export { SKILL_DESCRIPTION };
 
-function formatSkillList(homeDir: string, projectDir: string): string {
+function formatSkillList(
+  homeDir: string,
+  projectDir: string,
+  page: number,
+): string {
   const skills = discoverSkills(homeDir, projectDir);
   if (skills.length === 0) {
     return "No skills installed. Global skills live under ~/.agents/skills/ (HOME) and project skills under .agents/skills/ in the checkout.";
   }
-  const lines = skills.map((skill) => {
+  const totalPages = Math.max(1, Math.ceil(skills.length / LIST_PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * LIST_PAGE_SIZE;
+  const pageSkills = skills.slice(start, start + LIST_PAGE_SIZE);
+  const lines = pageSkills.map((skill) => {
     const summary = skill.summary ? ` — ${skill.summary}` : "";
     return `- ${skill.name} [${skill.scope}]${summary}`;
   });
-  return [
-    `Available skills (${skills.length}):`,
-    ...lines,
+  const footer: string[] = [
     "",
-    'Call skill with action "read" and a name to load a skill\'s full workflow.',
+    'Call skill with action "read" and a bare `name` (no leading slash) to load a skill\'s full workflow.',
+  ];
+  if (totalPages > 1) {
+    footer.push(
+      "",
+      `Pagination: showing page ${safePage} of ${totalPages} (${LIST_PAGE_SIZE} skills per page, ${skills.length} total).`,
+      safePage < totalPages
+        ? `More skills on later pages — call skill with action "list" and page ${safePage + 1}.`
+        : "",
+    );
+  }
+  return [
+    `Available skills — page ${safePage} of ${totalPages} (${skills.length} total):`,
+    ...lines,
+    ...footer.filter(Boolean),
   ].join("\n");
+}
+
+function formatSkillMissMessage(
+  requestedName: string,
+  availableNames: string[],
+): string {
+  const sample = availableNames.slice(0, MISS_ERROR_NAME_SAMPLE);
+  const extra = availableNames.length - sample.length;
+  const list =
+    sample.length === 0
+      ? "(none)"
+      : `${sample.join(", ")}${extra > 0 ? ` (+${extra} more; use action "list" with page)` : ""}`;
+  return `No skill named "${requestedName}". Use bare ids (e.g. prath-mode, not /prath-mode). Sample installed: ${list}.`;
 }
 
 function formatSkillContents(skill: {

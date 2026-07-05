@@ -33,7 +33,7 @@ Pass only the parameter names listed here. There is no \`description\` field on 
 - grep: \`pattern\` (string, required — a regex, not a glob). Optional: \`path\` (dir or file, default .), \`include\` (glob like "*.ts"), \`literal\` (boolean).
 - glob: \`pattern\` (string, required — a filename glob like "*.ts" or "**/*.ts"). Optional: \`path\` (directory to search).
 - task: \`prompt\` (required). Optional: \`description\`, \`agent\`, \`cwd\`, \`attachments\`.
-Threadcord tools: post_thread_message (\`message\`), post_thread_report (\`parts\`: string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`).`;
+Threadcord tools: post_thread_message (\`message\`), post_thread_report (\`parts\`: string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`), skill (\`action\`: \`list\` or \`read\`, required; optional \`name\` string — required when action is \`read\`, bare skill id e.g. \`prath-mode\` not \`/prath-mode\`; optional \`page\` integer 1-based when action is \`list\`, 25 skills per page).`;
 
 export const TOOL_USE = `TOOL USE
 - Tool-specific args only: never \`path\` on bash; never \`command\` on read/write/edit/grep/glob.
@@ -99,7 +99,10 @@ Setup profile memory in INSTRUCTION is the repo cheat sheet (admitted revision f
 After verified gotchas/flaky-check fixes/stable facts: \`append_threadcord_setup_memory\` (one tight block). Skip trivia and duplicates already in memory. Names only.`;
 
 export const SKILL_TOOL = `SKILL TOOL (skills)
-Workflow playbooks under HOME and project checkout. Use \`skill\` with \`action: list\` or \`action: read\` + \`name\` — returns full skill dir contents. User-named skills (e.g. /prath-mode) → read then follow. GIT WORKFLOW overrides skill git rules. Installed already — do not reinstall.`;
+Workflow playbooks under HOME and project checkout. Use \`skill\` per TOOL ARGUMENTS (\`action\`, \`name\`, optional \`page\`).
+- \`list\`: paginated (25 per page); output shows page/total — use \`page\` for the next slice.
+- \`read\`: bare \`name\` (e.g. \`prath-mode\`, not \`/prath-mode\`) when user says "/prath-mode" or "use commit"; returns full skill dir contents — follow the workflow.
+GIT WORKFLOW overrides skill git rules. Installed already — do not reinstall. Survives compaction — use \`skill\` instead of grepping SKILL.md.`;
 
 export const NEVER_CODING = `NEVER
 - Commit unless this turn's instruction explicitly asks.

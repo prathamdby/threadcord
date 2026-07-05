@@ -88,8 +88,9 @@ describe("composePrompt coding invariants", () => {
     "cwd = /workspaces/task-1/web",
     "Repo = acme/web",
     "SKILL TOOL",
-    "action: list",
-    "action: read",
+    "paginated (25 per page)",
+    "bare `name`",
+    "TOOL ARGUMENTS",
   ])("contains %s", (token) => {
     expect(prompt).toContain(token);
   });
@@ -114,6 +115,13 @@ describe("composePrompt coding prompt-consistency invariants", () => {
     expect(prompt).toContain("glob: `pattern`");
     expect(prompt).toContain("no `description` field on built-in tools");
     expect(prompt).not.toContain("edit_file");
+  });
+
+  it("documents skill tool in TOOL ARGUMENTS", () => {
+    expect(prompt).toContain("skill (`action`");
+    expect(prompt).toContain("`list` or `read`");
+    expect(prompt).toContain("bare skill id");
+    expect(prompt).toContain("25 skills per page");
   });
 
   it("allows multi-line bash when the command inherently needs it", () => {
