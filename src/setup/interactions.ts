@@ -455,7 +455,7 @@ async function handleSetupModal(
         mode: "create",
         repo: key.value.repo,
         branch: key.value.branch,
-        skillsRaw,
+        skillsRaw: interaction.fields.getTextInputValue("skills"),
         model,
       });
       await interaction.deferReply();
@@ -492,7 +492,6 @@ async function handleSetupModal(
       mode: "update",
       repo: key.value.repo,
       branch: key.value.branch,
-      skillsRaw,
       install,
       checksRaw: checks,
       model,
