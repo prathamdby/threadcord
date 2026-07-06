@@ -536,6 +536,31 @@ describe("handleSetupInteraction draft editor", () => {
     );
   });
 
+  it("delete profile select disables confirm when profile is running", async () => {
+    const store = mockStore({
+      getProfileById: vi.fn().mockResolvedValue({
+        ...baseProfile,
+        status: "running",
+      }),
+    });
+    const interaction = mockSelect({
+      customId: profileSelectCustomId("delete", "user-1"),
+      values: ["profile-1"],
+    });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      config,
+      orchestrator: mockOrchestrator(),
+    });
+    const payload = vi.mocked(interaction.editReply).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(payload)).toContain('"disabled":true');
+    expect(store.deleteProfile).not.toHaveBeenCalled();
+  });
+
   it("delete profile select shows confirm dialog", async () => {
     const store = mockStore();
     const interaction = mockSelect({
