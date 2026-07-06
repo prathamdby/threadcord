@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseSetupWizardCustomId,
   pendingFromRunModal,
+  SETUP_RUN_MODAL_MAX_LABELS,
   setupCreateRunModal,
 } from "../src/setup/create-flow.js";
 import { validateSetupEnvironment } from "../src/setup/profile.js";
@@ -82,7 +83,7 @@ describe("setup create flow", () => {
       .toBe(true);
   });
 
-  it("update modal asks for model, install, and checks within the 5-label cap", () => {
+  it("update modal omits skills field and stays within Discord 5-label cap", () => {
     const modal = setupCreateRunModal(
       "user-1",
       "update",
@@ -95,11 +96,11 @@ describe("setup create flow", () => {
     expect(modalComponentCustomIds(modal)).toEqual([
       "repo",
       "branch",
-      "skills",
       "model",
       "install",
       "checks",
     ]);
+    expect(modal.toJSON().components).toHaveLength(SETUP_RUN_MODAL_MAX_LABELS);
   });
 
   it("update pending wizard carries the selected model", () => {

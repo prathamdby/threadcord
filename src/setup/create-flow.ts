@@ -4,6 +4,9 @@ import { buildModelSelectMenu } from "../discord/ui/model-select.js";
 import type { SetupEnvironment } from "./profile.js";
 import { parseSkillLinksInput } from "./skills.js";
 
+/** Discord modals allow at most five label components (action rows). */
+export const SETUP_RUN_MODAL_MAX_LABELS = 5;
+
 export interface PendingSetupWizard {
   repo: string;
   branch: string;
@@ -45,11 +48,15 @@ export function setupCreateRunModal(
       style: "short",
       maxLength: 100,
     }),
-    modalRow("skills", "Skills (URLs, one per line)", {
-      value: skillsDefault,
-      style: "paragraph",
-    }),
   ];
+  if (mode === "create") {
+    rows.push(
+      modalRow("skills", "Skills (URLs, one per line)", {
+        value: skillsDefault,
+        style: "paragraph",
+      }),
+    );
+  }
   const modelSelect = new LabelBuilder()
     .setLabel("Model")
     .setStringSelectMenuComponent(
@@ -71,6 +78,11 @@ export function setupCreateRunModal(
       }),
     );
   }
+  if (rows.length > SETUP_RUN_MODAL_MAX_LABELS) {
+    throw new Error(
+      `Setup ${mode} modal has ${rows.length} label components; Discord allows at most ${SETUP_RUN_MODAL_MAX_LABELS}.`,
+    );
+  }
   return new ModalBuilder()
     .setCustomId(buildCustomId("setup", "create-run", mode, userId))
     .setTitle(mode === "create" ? "Setup create" : "Setup update")
@@ -81,7 +93,7 @@ export function pendingFromRunModal(input: {
   mode: "create" | "update";
   repo: string;
   branch: string;
-  skillsRaw: string;
+  skillsRaw?: string;
   install?: string;
   checksRaw?: string;
   model?: string;
@@ -89,7 +101,7 @@ export function pendingFromRunModal(input: {
   const pending: PendingSetupWizard = {
     repo: input.repo,
     branch: input.branch,
-    skills: parseSkillLinksInput(input.skillsRaw),
+    skills: parseSkillLinksInput(input.skillsRaw ?? ""),
     update: input.mode === "update",
     createdAt: Date.now(),
   };

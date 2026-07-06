@@ -436,7 +436,10 @@ async function handleSetupModal(
     }
     const repo = interaction.fields.getTextInputValue("repo").trim();
     const branch = interaction.fields.getTextInputValue("branch").trim();
-    const skillsRaw = interaction.fields.getTextInputValue("skills");
+    const skillsRaw =
+      wizard.mode === "create"
+        ? interaction.fields.getTextInputValue("skills")
+        : undefined;
     const key = parseSetupProfileKey(repo, branch);
     if (!key.ok) {
       await replyWithError(interaction, "validation", key.message);
@@ -515,13 +518,17 @@ async function handleSetupModal(
       );
       return;
     }
+    const skillsForEnv =
+      pending.skills.length > 0
+        ? pending.skills
+        : (existingProfile.environment.skills ?? []);
     const envCheck = validateSetupEnvironment({
       install: pending.install,
       start: existingProfile.environment.start ?? pending.start ?? "",
       checks: pending.checks ?? {},
       requiredEnv: existingProfile.environment.requiredEnv ?? [],
       requiredServices: existingProfile.environment.requiredServices ?? [],
-      ...(pending.skills.length > 0 ? { skills: pending.skills } : {}),
+      ...(skillsForEnv.length > 0 ? { skills: skillsForEnv } : {}),
     });
     if (!envCheck.ok) {
       await replyWithError(interaction, "validation", envCheck.message);
