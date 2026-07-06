@@ -41,6 +41,13 @@ export function buildSetupCommandJson(): ReturnType<
     )
     .addSubcommand((subcommand) =>
       subcommand
+        .setName("delete")
+        .setDescription(
+          "Delete a setup profile after confirmation (pick from a list).",
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
         .setName("import")
         .setDescription(
           "Import environment JSON or memory Markdown as a draft.",

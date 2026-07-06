@@ -9,13 +9,19 @@ import type { SetupProfile } from "./profile.js";
 
 export const SETUP_PROFILE_SELECT_MAX = 25;
 
-export type SetupProfileAction = "status" | "view" | "edit" | "export";
+export type SetupProfileAction =
+  | "status"
+  | "view"
+  | "edit"
+  | "export"
+  | "delete";
 
 const ACTION_TITLES: Record<SetupProfileAction, string> = {
   status: "Setup status",
   view: "View setup profile",
   edit: "Edit setup profile",
   export: "Export setup profile",
+  delete: "Delete setup profile",
 };
 
 const ACTION_PROMPTS: Record<SetupProfileAction, string> = {
@@ -23,6 +29,8 @@ const ACTION_PROMPTS: Record<SetupProfileAction, string> = {
   view: "Choose a repository and branch to view the active profile.",
   edit: "Choose a repository and branch to open the draft editor.",
   export: "Choose a repository and branch to export environment and memory files.",
+  delete:
+    "Choose a repository and branch to delete. You will confirm before anything is removed.",
 };
 
 export function profileSelectCustomId(
@@ -43,11 +51,12 @@ export function parseProfileSelectCustomId(
     action !== "status" &&
     action !== "view" &&
     action !== "edit" &&
-    action !== "export"
+    action !== "export" &&
+    action !== "delete"
   ) {
     return null;
   }
-  return { action, userId };
+  return { action: action as SetupProfileAction, userId };
 }
 
 export function profileOptions(profiles: SetupProfile[]): SelectMenuOption[] {

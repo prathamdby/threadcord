@@ -42,6 +42,11 @@ import {
 } from "./draft-ui.js";
 import { openSetupRunThread } from "./discord-session.js";
 import {
+  parseDeleteButtonCustomId,
+  renderDeleteCancelledPicker,
+  renderDeleteConfirmView,
+} from "./delete-ui.js";
+import {
   buildProfilePickerView,
   parseProfileSelectCustomId,
   SETUP_PROFILE_SELECT_MAX,
@@ -77,6 +82,11 @@ export async function handleSetupInteraction(input: {
     interaction.isButton() &&
     interaction.customId.startsWith("setup:")
   ) {
+    const deleteButton = parseDeleteButtonCustomId(interaction.customId);
+    if (deleteButton) {
+      await handleSetupDeleteButton(interaction, store, deleteButton);
+      return true;
+    }
     await handleSetupButton(interaction, store);
     return true;
   }
@@ -116,7 +126,8 @@ async function handleSetupCommand(
       subcommand === "status" ||
       subcommand === "view" ||
       subcommand === "edit" ||
-      subcommand === "export"
+      subcommand === "export" ||
+      subcommand === "delete"
     ) {
       await showProfilePicker(interaction, store, subcommand);
       return;
@@ -216,6 +227,10 @@ async function handleSetupProfileSelect(
       await respondWithExport(interaction, bundle);
       return;
     }
+    if (parsed.action === "delete") {
+      await respond(interaction, renderDeleteConfirmView(profile, parsed.userId));
+      return;
+    }
     await replyWithError(interaction, "validation", "Unknown setup action.");
   } catch (error) {
     await replyWithError(interaction, "internal", summarizeError(error));
@@ -272,6 +287,42 @@ async function handleImportCommand(
   } catch (error) {
     await replyWithError(interaction, "validation", summarizeError(error));
   }
+}
+
+async function handleSetupDeleteButton(
+  interaction: ButtonInteraction,
+  store: SetupStore,
+  parsed: { step: "confirm" | "cancel"; profileId: string; userId: string },
+): Promise<void> {
+  if (interaction.user.id !== parsed.userId) {
+    await replyWithError(
+      interaction,
+      "rejection",
+      "This confirmation belongs to another user.",
+    );
+    return;
+  }
+  if (parsed.step === "cancel") {
+    await interaction.deferUpdate();
+    const profiles = await store.listProfiles(SETUP_PROFILE_SELECT_MAX);
+    await interaction.editReply(
+      renderDeleteCancelledPicker(parsed.userId, profiles),
+    );
+    return;
+  }
+  await interaction.deferUpdate();
+  const result = await store.deleteProfile(parsed.profileId);
+  if (!result.ok) {
+    await replyWithError(interaction, "rejection", result.message);
+    return;
+  }
+  const { profile } = result;
+  await interaction.editReply(
+    infoView(
+      "Setup profile deleted",
+      `Removed **${profile.repo}** @ **${profile.branch}** (revision ${profile.revision}).`,
+    ),
+  );
 }
 
 async function handleSetupButton(

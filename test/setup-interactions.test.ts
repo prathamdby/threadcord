@@ -69,6 +69,7 @@ function mockStore(
     })),
     applyDraft: vi.fn().mockResolvedValue({ ok: true, profile: baseProfile }),
     discardDraft: vi.fn().mockResolvedValue(true),
+    deleteProfile: vi.fn().mockResolvedValue({ ok: true, profile: baseProfile }),
     patchEnvironmentWhileRunning: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as SetupStore;
@@ -515,6 +516,79 @@ describe("handleSetupInteraction draft editor", () => {
     >;
     expectComponentsV2Reply(payload);
     expect(JSON.stringify(payload)).toContain("Action not allowed");
+  });
+
+  it("delete subcommand shows profile picker", async () => {
+    const store = mockStore();
+    const interaction = mockChatCommand({ subcommand: "delete" });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      config,
+      orchestrator: mockOrchestrator(),
+    });
+    const payload = vi.mocked(interaction.editReply).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(payload)).toContain(
+      profileSelectCustomId("delete", "user-1"),
+    );
+  });
+
+  it("delete profile select shows confirm dialog", async () => {
+    const store = mockStore();
+    const interaction = mockSelect({
+      customId: profileSelectCustomId("delete", "user-1"),
+      values: ["profile-1"],
+    });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      config,
+      orchestrator: mockOrchestrator(),
+    });
+    const payload = vi.mocked(interaction.editReply).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(payload)).toContain("setup:del:confirm:profile-1:user-1");
+    expect(JSON.stringify(payload)).toContain("setup:del:cancel:profile-1:user-1");
+    expect(store.deleteProfile).not.toHaveBeenCalled();
+  });
+
+  it("delete confirm removes profile", async () => {
+    const store = mockStore();
+    const interaction = mockButton({
+      customId: "setup:del:confirm:profile-1:user-1",
+    });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      config,
+      orchestrator: mockOrchestrator(),
+    });
+    expect(store.deleteProfile).toHaveBeenCalledWith("profile-1");
+    const payload = vi.mocked(interaction.editReply).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(payload)).toContain("Setup profile deleted");
+  });
+
+  it("delete confirm rejects wrong user", async () => {
+    const store = mockStore();
+    const interaction = mockButton({
+      customId: "setup:del:confirm:profile-1:user-1",
+      userId: "other-user",
+    });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      config,
+      orchestrator: mockOrchestrator(),
+    });
+    expect(store.deleteProfile).not.toHaveBeenCalled();
   });
 
   it("replies with validation error for unknown setup buttons", async () => {

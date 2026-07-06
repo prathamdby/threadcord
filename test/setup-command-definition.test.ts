@@ -15,7 +15,7 @@ function subcommandOptions(
 
 describe("setup command definition", () => {
   it("does not require repo/branch on profile-picker subcommands", () => {
-    for (const name of ["status", "view", "edit", "export"]) {
+    for (const name of ["status", "view", "edit", "export", "delete"]) {
       expect(subcommandOptions(name)).toEqual([]);
     }
   });

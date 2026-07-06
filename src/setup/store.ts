@@ -598,6 +598,44 @@ export class SetupStore {
     return (result.rowCount ?? 0) > 0;
   }
 
+  async deleteProfile(profileId: string): Promise<
+    | { ok: true; profile: SetupProfile }
+    | {
+        ok: false;
+        reason: "missing" | "running";
+        message: string;
+      }
+  > {
+    const profile = await this.getProfileById(profileId);
+    if (!profile) {
+      return {
+        ok: false,
+        reason: "missing",
+        message: "Setup profile is missing.",
+      };
+    }
+    if (profile.status === "running" || profile.status === "updating") {
+      return {
+        ok: false,
+        reason: "running",
+        message:
+          "Cannot delete while setup is running or updating. Wait for it to finish.",
+      };
+    }
+    const result = await this.pool.query(
+      "DELETE FROM setup_profiles WHERE id = $1",
+      [profileId],
+    );
+    if ((result.rowCount ?? 0) === 0) {
+      return {
+        ok: false,
+        reason: "missing",
+        message: "Setup profile is missing.",
+      };
+    }
+    return { ok: true, profile };
+  }
+
   async appendReadyProfileMemory(input: {
     repo: string;
     branch: string;
