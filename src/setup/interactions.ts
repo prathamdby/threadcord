@@ -436,7 +436,10 @@ async function handleSetupModal(
     }
     const repo = interaction.fields.getTextInputValue("repo").trim();
     const branch = interaction.fields.getTextInputValue("branch").trim();
-    const skillsRaw = interaction.fields.getTextInputValue("skills");
+    const skillsRaw =
+      wizard.mode === "create"
+        ? interaction.fields.getTextInputValue("skills")
+        : undefined;
     const key = parseSetupProfileKey(repo, branch);
     if (!key.ok) {
       await replyWithError(interaction, "validation", key.message);
@@ -452,7 +455,7 @@ async function handleSetupModal(
         mode: "create",
         repo: key.value.repo,
         branch: key.value.branch,
-        skillsRaw,
+        skillsRaw: interaction.fields.getTextInputValue("skills"),
         model,
       });
       await interaction.deferReply();
@@ -478,15 +481,20 @@ async function handleSetupModal(
       }
       return;
     }
+    const model = interaction.fields.getStringSelectValues("model")[0];
+    if (!model) {
+      await replyWithError(interaction, "validation", "Select a model.");
+      return;
+    }
     const install = interaction.fields.getTextInputValue("install");
     const checks = interaction.fields.getTextInputValue("checks");
     const pending = pendingFromRunModal({
       mode: "update",
       repo: key.value.repo,
       branch: key.value.branch,
-      skillsRaw,
       install,
       checksRaw: checks,
+      model,
     });
     if (!pending.install?.trim()) {
       await replyWithError(
@@ -509,13 +517,17 @@ async function handleSetupModal(
       );
       return;
     }
+    const skillsForEnv =
+      pending.skills.length > 0
+        ? pending.skills
+        : (existingProfile.environment.skills ?? []);
     const envCheck = validateSetupEnvironment({
       install: pending.install,
       start: existingProfile.environment.start ?? pending.start ?? "",
       checks: pending.checks ?? {},
       requiredEnv: existingProfile.environment.requiredEnv ?? [],
       requiredServices: existingProfile.environment.requiredServices ?? [],
-      ...(pending.skills.length > 0 ? { skills: pending.skills } : {}),
+      ...(skillsForEnv.length > 0 ? { skills: skillsForEnv } : {}),
     });
     if (!envCheck.ok) {
       await replyWithError(interaction, "validation", envCheck.message);

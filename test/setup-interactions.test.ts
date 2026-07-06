@@ -698,6 +698,7 @@ describe("handleSetupInteraction wizard modal", () => {
         install: "npm ci",
         checks: "test=npm test",
       },
+      selects: { model: ["openai/gpt-4o"] },
     });
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
@@ -706,10 +707,62 @@ describe("handleSetupInteraction wizard modal", () => {
       orchestrator,
     });
     expect(store.getProfile).toHaveBeenCalledWith("owner/repo", "main");
+    expect(orchestrator.startSetup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "openai/gpt-4o",
+        update: true,
+      }),
+    );
     expect(patchEnvironmentWhileRunning).toHaveBeenCalledWith("profile-1", {
       install: "npm ci",
       checks: { test: "npm test" },
       skills: [],
+    });
+  });
+
+  it("update wizard keeps profile skills when modal has no skills field", async () => {
+    const patchEnvironmentWhileRunning = vi.fn().mockResolvedValue(undefined);
+    const profileWithSkills: SetupProfile = {
+      ...baseProfile,
+      environment: {
+        ...baseProfile.environment,
+        skills: ["https://example.com/skill-repo"],
+      },
+    };
+    const store = mockStore({
+      getProfile: vi.fn().mockResolvedValue(profileWithSkills),
+      patchEnvironmentWhileRunning,
+    });
+    const orchestrator = {
+      startSetup: vi.fn().mockResolvedValue({
+        profileId: "profile-1",
+        runId: "run-2",
+        repo: "owner/repo",
+        branch: "main",
+      }),
+      registerSetupThread: vi.fn(),
+      dispatchSetupAgent: vi.fn(),
+    } as unknown as SetupOrchestrator;
+    const interaction = mockModal({
+      customId: "setup:create-run:update:user-1",
+      fields: {
+        repo: "owner/repo",
+        branch: "main",
+        install: "npm ci",
+        checks: "test=npm test",
+      },
+      selects: { model: ["anthropic/claude-sonnet-4-5"] },
+    });
+    await handleSetupInteraction({
+      interaction: interaction as unknown as Interaction,
+      store,
+      config,
+      orchestrator,
+    });
+    expect(patchEnvironmentWhileRunning).toHaveBeenCalledWith("profile-1", {
+      install: "npm ci",
+      checks: { test: "npm test" },
+      skills: ["https://example.com/skill-repo"],
     });
   });
 
@@ -740,6 +793,7 @@ describe("handleSetupInteraction wizard modal", () => {
         install: "npm ci",
         checks: "test=npm test",
       },
+      selects: { model: ["anthropic/claude-sonnet-4-5"] },
     });
     vi.mocked(interaction.deferReply).mockImplementation(async () => {
       callOrder.push("deferReply");
@@ -775,6 +829,7 @@ describe("handleSetupInteraction wizard modal", () => {
         install: "npm ci",
         checks: "test=npm test",
       },
+      selects: { model: ["anthropic/claude-sonnet-4-5"] },
     });
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,

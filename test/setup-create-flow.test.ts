@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseSetupWizardCustomId,
   pendingFromRunModal,
+  SETUP_RUN_MODAL_MAX_LABELS,
   setupCreateRunModal,
 } from "../src/setup/create-flow.js";
 import { validateSetupEnvironment } from "../src/setup/profile.js";
@@ -82,7 +83,7 @@ describe("setup create flow", () => {
       .toBe(true);
   });
 
-  it("update modal still asks for install and checks and no model picker", () => {
+  it("update modal omits skills field and stays within Discord 5-label cap", () => {
     const modal = setupCreateRunModal(
       "user-1",
       "update",
@@ -95,10 +96,24 @@ describe("setup create flow", () => {
     expect(modalComponentCustomIds(modal)).toEqual([
       "repo",
       "branch",
-      "skills",
+      "model",
       "install",
       "checks",
     ]);
+    expect(modal.toJSON().components).toHaveLength(SETUP_RUN_MODAL_MAX_LABELS);
+  });
+
+  it("update pending wizard carries the selected model", () => {
+    const pending = pendingFromRunModal({
+      mode: "update",
+      repo: "owner/repo",
+      branch: "main",
+      skillsRaw: "",
+      install: "npm ci",
+      checksRaw: "test=npm test",
+      model: "openai/gpt-4o",
+    });
+    expect(pending.model).toBe("openai/gpt-4o");
   });
 
   it("parses create-run modal custom id", () => {
