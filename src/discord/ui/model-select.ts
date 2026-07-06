@@ -12,9 +12,9 @@ export interface BuildModelSelectMenuInput {
 }
 
 /**
- * Builds the shared "model" `StringSelectMenu` used by the `/task create` and
- * `/setup create` dialogs so both flows pick the model from the exact same
- * component.
+ * Builds the shared "model" `StringSelectMenu` used by `/task create`,
+ * `/setup create`, and `/setup update` so those flows pick the model from the
+ * exact same component.
  *
  * The default model is prepended and the list is deduplicated so it is always
  * the first option and is never silently sliced out when the list exceeds 25

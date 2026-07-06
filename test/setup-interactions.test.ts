@@ -698,6 +698,7 @@ describe("handleSetupInteraction wizard modal", () => {
         install: "npm ci",
         checks: "test=npm test",
       },
+      selects: { model: ["openai/gpt-4o"] },
     });
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,
@@ -706,6 +707,12 @@ describe("handleSetupInteraction wizard modal", () => {
       orchestrator,
     });
     expect(store.getProfile).toHaveBeenCalledWith("owner/repo", "main");
+    expect(orchestrator.startSetup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "openai/gpt-4o",
+        update: true,
+      }),
+    );
     expect(patchEnvironmentWhileRunning).toHaveBeenCalledWith("profile-1", {
       install: "npm ci",
       checks: { test: "npm test" },
@@ -740,6 +747,7 @@ describe("handleSetupInteraction wizard modal", () => {
         install: "npm ci",
         checks: "test=npm test",
       },
+      selects: { model: ["anthropic/claude-sonnet-4-5"] },
     });
     vi.mocked(interaction.deferReply).mockImplementation(async () => {
       callOrder.push("deferReply");
@@ -775,6 +783,7 @@ describe("handleSetupInteraction wizard modal", () => {
         install: "npm ci",
         checks: "test=npm test",
       },
+      selects: { model: ["anthropic/claude-sonnet-4-5"] },
     });
     await handleSetupInteraction({
       interaction: interaction as unknown as Interaction,

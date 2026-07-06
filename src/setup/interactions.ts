@@ -478,6 +478,11 @@ async function handleSetupModal(
       }
       return;
     }
+    const model = interaction.fields.getStringSelectValues("model")[0];
+    if (!model) {
+      await replyWithError(interaction, "validation", "Select a model.");
+      return;
+    }
     const install = interaction.fields.getTextInputValue("install");
     const checks = interaction.fields.getTextInputValue("checks");
     const pending = pendingFromRunModal({
@@ -487,6 +492,7 @@ async function handleSetupModal(
       skillsRaw,
       install,
       checksRaw: checks,
+      model,
     });
     if (!pending.install?.trim()) {
       await replyWithError(

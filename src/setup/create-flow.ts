@@ -50,20 +50,17 @@ export function setupCreateRunModal(
       style: "paragraph",
     }),
   ];
-  // `/setup create` and `/task create` share the same model picker. The update
-  // wizard is skipped here: it already has 5 text-input rows and Discord caps a
-  // modal at 5 label components, so the run keeps the existing profile's model.
-  if (mode === "create") {
-    rows.push(
-      new LabelBuilder()
-        .setLabel("Model")
-        .setStringSelectMenuComponent(
-          buildModelSelectMenu({ allowedModels, defaultModel }),
-        ),
+  const modelSelect = new LabelBuilder()
+    .setLabel("Model")
+    .setStringSelectMenuComponent(
+      buildModelSelectMenu({ allowedModels, defaultModel }),
     );
+  if (mode === "create") {
+    rows.push(modelSelect);
   }
   if (mode === "update") {
     rows.push(
+      modelSelect,
       modalRow("install", "Install command", {
         value: existing?.install?.trim() || "npm ci",
         required: true,
@@ -96,10 +93,8 @@ export function pendingFromRunModal(input: {
     update: input.mode === "update",
     createdAt: Date.now(),
   };
-  if (input.mode === "create") {
-    const model = input.model?.trim();
-    if (model) pending.model = model;
-  }
+  const model = input.model?.trim();
+  if (model) pending.model = model;
   if (input.mode === "update") {
     pending.install = input.install?.trim() ?? "";
     pending.start = "";

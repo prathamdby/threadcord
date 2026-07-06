@@ -82,7 +82,7 @@ describe("setup create flow", () => {
       .toBe(true);
   });
 
-  it("update modal still asks for install and checks and no model picker", () => {
+  it("update modal asks for model, install, and checks within the 5-label cap", () => {
     const modal = setupCreateRunModal(
       "user-1",
       "update",
@@ -96,9 +96,23 @@ describe("setup create flow", () => {
       "repo",
       "branch",
       "skills",
+      "model",
       "install",
       "checks",
     ]);
+  });
+
+  it("update pending wizard carries the selected model", () => {
+    const pending = pendingFromRunModal({
+      mode: "update",
+      repo: "owner/repo",
+      branch: "main",
+      skillsRaw: "",
+      install: "npm ci",
+      checksRaw: "test=npm test",
+      model: "openai/gpt-4o",
+    });
+    expect(pending.model).toBe("openai/gpt-4o");
   });
 
   it("parses create-run modal custom id", () => {
