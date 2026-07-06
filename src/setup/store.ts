@@ -598,6 +598,66 @@ export class SetupStore {
     return (result.rowCount ?? 0) > 0;
   }
 
+  async deleteProfile(profileId: string): Promise<
+    | { ok: true; profile: SetupProfile }
+    | {
+        ok: false;
+        reason: "missing" | "running";
+        message: string;
+      }
+  > {
+    const runningMessage =
+      "Cannot delete while setup is running or updating. Wait for it to finish.";
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const locked = await client.query(
+        "SELECT * FROM setup_profiles WHERE id = $1 FOR UPDATE",
+        [profileId],
+      );
+      if (!locked.rows[0]) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          reason: "missing",
+          message: "Setup profile is missing.",
+        };
+      }
+      const profile = rowToProfile(locked.rows[0]);
+      if (profile.status === "running" || profile.status === "updating") {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          reason: "running",
+          message: runningMessage,
+        };
+      }
+      const deleted = await client.query(
+        `
+          DELETE FROM setup_profiles
+          WHERE id = $1 AND status NOT IN ('running', 'updating')
+          RETURNING *
+        `,
+        [profileId],
+      );
+      if (!deleted.rows[0]) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          reason: "running",
+          message: runningMessage,
+        };
+      }
+      await client.query("COMMIT");
+      return { ok: true, profile: rowToProfile(deleted.rows[0]) };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async appendReadyProfileMemory(input: {
     repo: string;
     branch: string;

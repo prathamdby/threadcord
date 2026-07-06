@@ -179,7 +179,7 @@ Promotion happens when the setup agent calls `save_threadcord_setup_profile`. Th
 
 Threadcord scopes each setup and task workspace with its own `HOME`, npm global prefix, and cache directory. Commands such as `npm install -g <tool>` install into that workspace and put the workspace-local `bin` directory on `PATH`. Deleting the workspace deletes those globals.
 
-Setup commands (Discord slash command `/setup` with subcommands; `status`, `view`, `edit`, and `export` use a profile picker instead of repo/branch args; `import` still takes repo, branch, and attachments):
+Setup commands (Discord slash command `/setup` with subcommands; `status`, `view`, `edit`, `export`, and `delete` use a profile picker instead of repo/branch args; `import` still takes repo, branch, and attachments):
 
 | Subcommand | Purpose                                                                                                                                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -189,6 +189,7 @@ Setup commands (Discord slash command `/setup` with subcommands; `status`, `view
 | `view`     | Pick a profile, then view the active profile environment and memory (ephemeral).                                                                                                                              |
 | `edit`     | Pick a profile, then open a private draft editor with buttons and modals.                                                                                                                                     |
 | `export`   | Pick a profile, then export environment JSON and memory Markdown as ephemeral attachments.                                                                                                                    |
+| `delete`   | Pick a profile, confirm in a dialog, then remove the profile and its runs/drafts (not allowed while `running` or `updating`).                                                                                 |
 | `import`   | Import environment and/or memory attachments into a draft (`repo` and `branch` required).                                                                                                                     |
 
 Repository names are normalized to lowercase `owner/repo`. Coding tasks require a profile in `ready` status.
