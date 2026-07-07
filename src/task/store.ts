@@ -571,7 +571,7 @@ export function progressMessageIdsFromRow(row: QueryResultRow): {
   return {};
 }
 
-function rowToTask(row: QueryResultRow): TaskRecord {
+export function rowToTask(row: QueryResultRow): TaskRecord {
   return {
     id: String(row.id),
     discordMessageId: String(row.discord_message_id),

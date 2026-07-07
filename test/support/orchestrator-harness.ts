@@ -37,6 +37,14 @@ export const config: AppConfig = {
   AGENT_SUBMISSION_MAX_ATTEMPTS: 2,
   PORT: 3583,
   WORKSPACE_TTL_DAYS: 14,
+  QUEUE_RETRY_LIMIT: 3,
+  QUEUE_RETRY_DELAY_SECONDS: 30,
+  QUEUE_RETRY_DELAY_MAX_SECONDS: 300,
+  QUEUE_EXPIRE_IN_SECONDS: 3600,
+  QUEUE_HEARTBEAT_SECONDS: 60,
+  QUEUE_RETENTION_SECONDS: 1_209_600,
+  QUEUE_DELETE_AFTER_SECONDS: 604_800,
+  QUEUE_POLLING_INTERVAL_SECONDS: 0.5,
   ANTHROPIC_API_KEY: "anthropic-key",
   anthropicModels: ["claude-sonnet-4-5"],
   openaiModels: [],
@@ -428,6 +436,7 @@ export class World {
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
       fakeSetupStore,
+      undefined,
       overrides.dispatch ??
         (async (instanceId: string) => {
           this.dispatched.push(instanceId);

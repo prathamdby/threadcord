@@ -4,6 +4,7 @@ import {
   DEFAULT_AGENT_MAX_VALIDATION_FAILURES,
   DEFAULT_AGENT_SUBMISSION_MAX_ATTEMPTS,
 } from "./flue/agent-guardrails.js";
+import type { TaskQueueConfig } from "./task/queue/boss.js";
 import type { ParsedTaskRequest, TaskRequest } from "./types.js";
 
 const optionalNonEmptyString = z.preprocess(
@@ -45,6 +46,29 @@ const EnvSchema = z
     PORT: z.coerce.number().int().positive().default(3583),
     THREADCORD_HTTP_BEARER: optionalNonEmptyString,
     WORKSPACE_TTL_DAYS: z.coerce.number().int().positive().default(14),
+    QUEUE_RETRY_LIMIT: z.coerce.number().int().nonnegative().default(3),
+    QUEUE_RETRY_DELAY_SECONDS: z.coerce.number().int().positive().default(30),
+    QUEUE_RETRY_DELAY_MAX_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(300),
+    QUEUE_EXPIRE_IN_SECONDS: z.coerce.number().int().positive().default(3600),
+    QUEUE_HEARTBEAT_SECONDS: z.coerce.number().int().positive().default(60),
+    QUEUE_RETENTION_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(1_209_600),
+    QUEUE_DELETE_AFTER_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(604_800),
+    QUEUE_POLLING_INTERVAL_SECONDS: z.coerce
+      .number()
+      .min(0.5)
+      .default(0.5),
     ANTHROPIC_API_KEY: optionalNonEmptyString,
     ANTHROPIC_MODELS: optionalCsvString,
     OPENAI_API_KEY: optionalNonEmptyString,
@@ -266,6 +290,20 @@ function optionalEnv(value: string | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function taskQueueConfig(config: AppConfig): TaskQueueConfig {
+  return {
+    queueRetryLimit: config.QUEUE_RETRY_LIMIT,
+    queueRetryDelaySeconds: config.QUEUE_RETRY_DELAY_SECONDS,
+    queueRetryDelayMaxSeconds: config.QUEUE_RETRY_DELAY_MAX_SECONDS,
+    queueExpireInSeconds: config.QUEUE_EXPIRE_IN_SECONDS,
+    queueHeartbeatSeconds: config.QUEUE_HEARTBEAT_SECONDS,
+    queueRetentionSeconds: config.QUEUE_RETENTION_SECONDS,
+    queueDeleteAfterSeconds: config.QUEUE_DELETE_AFTER_SECONDS,
+    queuePollingIntervalSeconds: config.QUEUE_POLLING_INTERVAL_SECONDS,
+    taskTurnConcurrency: config.MAX_CONCURRENT_TASKS,
+  };
 }
 
 function splitCsv(value?: string): string[] {

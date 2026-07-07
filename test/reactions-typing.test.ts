@@ -164,6 +164,7 @@ describe("persistent typing indicator", () => {
       config,
       store as never,
       fakeSetupStore,
+      undefined,
       async (instanceId) => {
         dispatched.push(instanceId);
       },

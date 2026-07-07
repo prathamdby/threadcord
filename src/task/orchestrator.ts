@@ -27,6 +27,9 @@ import type { BootstrapMode } from "./bootstrap.js";
 import type { PendingTaskCreate } from "./create-flow.js";
 import { parseTaskMessage } from "./parser.js";
 import { validateTaskPolicy } from "./policy.js";
+import type { TaskTurnScheduler } from "./queue/scheduler.js";
+import type { TaskTurnJobData } from "./queue/types.js";
+import type { Job } from "pg-boss";
 import type { TaskStore } from "./store.js";
 import type { SetupEnvironment } from "../setup/profile.js";
 import type { SetupStore } from "../setup/store.js";
@@ -165,6 +168,7 @@ export class TaskOrchestrator {
     private readonly config: AppConfig,
     private readonly store: TaskStore,
     private readonly setupStore: SetupStore,
+    private readonly turnScheduler?: TaskTurnScheduler,
     private readonly dispatchTurn: DispatchTurn = defaultDispatchTurn,
     private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
     private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
@@ -210,7 +214,7 @@ export class TaskOrchestrator {
       }
     }
     await this.store.failAbandonedDrafts();
-    await this.fillConcurrencySlots();
+    await this.drainTurnQueue();
   }
 
   async startTaskFromSlash(
@@ -398,9 +402,9 @@ export class TaskOrchestrator {
     input.recordInitiator(attached.id);
     await input.onAdmitted?.();
 
-    const claimed = await this.store.claimNextTurn(attached.id);
+    const claimed = await this.enqueueNextTurn(attached.id);
     if (claimed) {
-      void this.runTurn(claimed);
+      if (!this.turnScheduler) void this.runTurn(claimed);
       return { ok: true, threadId: thread.id, startedImmediately: true };
     }
     await this.refreshHeader(attached.id);
@@ -480,8 +484,8 @@ export class TaskOrchestrator {
     void this.reactSafely(message, EYES);
 
     if (task.status === "waiting") {
-      const claimed = await this.store.claimNextTurn(task.id);
-      if (claimed) void this.runTurn(claimed);
+      const claimed = await this.enqueueNextTurn(task.id);
+      if (claimed && !this.turnScheduler) void this.runTurn(claimed);
     }
   }
 
@@ -541,7 +545,7 @@ export class TaskOrchestrator {
           deleteTaskThread: (id) => {
             this.taskThreads.delete(id);
           },
-          fillConcurrencySlots: () => this.fillConcurrencySlots(),
+          fillConcurrencySlots: () => this.drainTurnQueue(),
         },
         { abortInFlight: command === "abort" },
       );
@@ -589,7 +593,7 @@ export class TaskOrchestrator {
         // and this transition; its own handler did the cleanup and slot fill.
         clearPendingUserTurnMessage(instanceId);
         this.clearInFlight(instanceId);
-        await this.fillConcurrencySlots();
+        await this.drainTurnQueue();
         return;
       }
       const userMessages = takePendingUserTurnMessages(instanceId);
@@ -608,7 +612,7 @@ export class TaskOrchestrator {
     clearPendingUserTurnMessage(instanceId);
     this.clearInFlight(instanceId);
     if (task.status === "cancelled" || task.status === "failed") {
-      await this.fillConcurrencySlots();
+      await this.drainTurnQueue();
     }
   }
 
@@ -642,24 +646,54 @@ export class TaskOrchestrator {
     await this.flipReaction(turn?.initiator, CROSS);
     await this.disposeInitiators(task.id, CROSS);
     this.taskThreads.delete(instanceId);
-    await this.fillConcurrencySlots();
+    await this.drainTurnQueue();
   }
 
-  private async scheduleAfterTurn(taskId: string): Promise<void> {
-    const claimed = await this.store.claimNextTurn(taskId);
-    if (claimed) {
-      void this.runTurn(claimed);
+  async executeTurnJob(job: Job<TaskTurnJobData>): Promise<void> {
+    const data = job.data;
+    const task = await this.store.getById(data.taskId);
+    if (!task) {
+      throw new Error(`Task ${data.taskId} not found for turn job`);
+    }
+    if (task.status !== "running") {
       return;
     }
-    await this.fillConcurrencySlots();
+    await this.runTurn({
+      task,
+      instruction: data.instruction,
+      source: data.source,
+      initiatorMessageId: data.initiatorMessageId,
+    });
   }
 
-  private async fillConcurrencySlots(): Promise<void> {
+  private async enqueueNextTurn(
+    preferTaskId?: string,
+  ): Promise<ClaimedTurn | undefined> {
+    if (this.turnScheduler) {
+      return this.turnScheduler.claimAndEnqueueNextTurn(preferTaskId);
+    }
+    return this.store.claimNextTurn(preferTaskId);
+  }
+
+  private async drainTurnQueue(): Promise<void> {
+    if (this.turnScheduler) {
+      await this.turnScheduler.fillConcurrencySlots();
+      return;
+    }
     for (;;) {
       const claimed = await this.store.claimNextTurn();
       if (!claimed) break;
       void this.runTurn(claimed);
     }
+  }
+
+  private async scheduleAfterTurn(taskId: string): Promise<void> {
+    const claimed = await this.enqueueNextTurn(taskId);
+    if (claimed) {
+      if (!this.turnScheduler) void this.runTurn(claimed);
+      return;
+    }
+    await this.drainTurnQueue();
   }
 
   private async runTurn(claimed: ClaimedTurn): Promise<void> {
@@ -762,7 +796,7 @@ export class TaskOrchestrator {
       await this.flipReaction(turn?.initiator, CROSS);
       await this.disposeInitiators(task.id, CROSS);
       this.taskThreads.delete(task.flueInstanceId);
-      await this.fillConcurrencySlots();
+      await this.drainTurnQueue();
     }
   }
 

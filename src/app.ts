@@ -3,7 +3,7 @@ import { flue } from "@flue/runtime/routing";
 import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 import type { AppConfig } from "./config.js";
-import { cacheConfig, loadConfig } from "./config.js";
+import { cacheConfig, loadConfig, taskQueueConfig } from "./config.js";
 import { initializeDatabase } from "./db.js";
 import { closeMcpPool, warmMcpPool, type McpServerConfig } from "./flue/mcp.js";
 import type { McpTransport } from "@flue/runtime";
@@ -15,6 +15,13 @@ import { DiscordPublisher } from "./discord/publisher.js";
 import { SetupOrchestrator } from "./setup/orchestrator.js";
 import { SetupStore } from "./setup/store.js";
 import { startWorkspaceJanitor } from "./task/janitor.js";
+import {
+  createStartedBoss,
+  ensureTaskTurnQueues,
+  stopBoss,
+} from "./task/queue/boss.js";
+import { TaskTurnScheduler } from "./task/queue/scheduler.js";
+import { registerTaskTurnWorker } from "./task/queue/worker.js";
 import { TaskOrchestrator } from "./task/orchestrator.js";
 import { TaskStore } from "./task/store.js";
 
@@ -40,7 +47,21 @@ export async function createApp(): Promise<{
   const mcpServers = await mcpStore.listServers();
   warmMcpPool(mcpServers.map(rowToMcpConfig));
 
-  const orchestrator = new TaskOrchestrator(config, store, setupStore);
+  const queueCfg = taskQueueConfig(config);
+  const boss = await createStartedBoss(config.DATABASE_URL);
+  await ensureTaskTurnQueues(boss, queueCfg);
+  const turnScheduler = new TaskTurnScheduler(
+    pool,
+    boss,
+    config.MAX_CONCURRENT_TASKS,
+  );
+  const orchestrator = new TaskOrchestrator(
+    config,
+    store,
+    setupStore,
+    turnScheduler,
+  );
+  await registerTaskTurnWorker(boss, queueCfg, orchestrator);
   const setupOrchestrator = new SetupOrchestrator(config, setupStore);
   const discordClient = startDiscordGateway(
     config.DISCORD_BOT_TOKEN,
@@ -133,6 +154,7 @@ export async function createApp(): Promise<{
     shutdown: async () => {
       clearInterval(janitor);
       await closeMcpPool();
+      await stopBoss(boss, 30_000);
       await pool.end();
     },
   };
