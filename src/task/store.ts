@@ -111,6 +111,29 @@ export class TaskStore {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS task_turns (
+        id UUID PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        source TEXT NOT NULL CHECK (source IN ('initial', 'followup')),
+        instruction TEXT NOT NULL,
+        discord_message_id TEXT UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'cancelled', 'completed', 'failed')),
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        cancel_requested_at TIMESTAMPTZ,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS task_turns_task_status_idx ON task_turns(task_id, status)
+    `);
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS task_turns_retention_idx ON task_turns(status, updated_at)
+    `);
   }
 
   async createDraft(

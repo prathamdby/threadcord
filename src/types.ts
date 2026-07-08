@@ -52,6 +52,31 @@ export interface NewTaskRecord extends TaskRequest {
   setupProfileRevision: number;
 }
 
+export const TURN_STATUSES = [
+  "queued",
+  "running",
+  "cancelled",
+  "completed",
+  "failed",
+] as const;
+export type TurnStatus = (typeof TURN_STATUSES)[number];
+
+export interface TaskTurnRecord {
+  id: string; // uuid generated with crypto.randomUUID()
+  taskId: string;
+  source: "initial" | "followup";
+  instruction: string;
+  discordMessageId?: string; // conditionally spread, exactOptionalPropertyTypes
+  status: TurnStatus;
+  attemptCount: number;
+  cancelRequestedAt?: Date;
+  lastError?: string;
+  createdAt: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+  updatedAt: Date;
+}
+
 export interface ChannelMessage {
   id: string;
   content: string;
