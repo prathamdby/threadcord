@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { coerceToolArgs } from "../src/tools/coerce-tool-args.js";
 import { createSkillTools } from "../src/skills/skill-tool.js";
@@ -8,7 +10,10 @@ describe("coerceToolArgs", () => {
       text: "## Summary\\n\\nDone work here with enough body.",
     });
     expect(result.value.message).toBeDefined();
+    expect(typeof result.value.message).toBe("string");
+    expect(result.value.message as string).toContain("\n");
     expect(result.coercions).toContain("alias_text_to_message");
+    expect(result.coercions).toContain("double_escape_fix");
   });
 
   it("wraps parts string into a one-element array", () => {
@@ -58,12 +63,35 @@ describe("coerceToolArgs", () => {
     expect(result.coercions).toEqual([]);
   });
 
-  it("prefers canonical message over text alias", () => {
+  it("prefers canonical message over text alias and drops alias key", () => {
     const result = coerceToolArgs("post_thread_message", {
       message: "a",
       text: "b",
     });
     expect(result.value.message).toBe("a");
+    expect(result.value).not.toHaveProperty("text");
+  });
+
+  it("does not unwrap envelope when canonical key already present", () => {
+    const result = coerceToolArgs("skill", {
+      action: "list",
+      data: { page: "2" },
+    });
+    expect(result.value.action).toBe("list");
+    expect(result.coercions).not.toContain("unwrap_data");
+    // page stays nested; do not invent page at top level
+    expect(result.value.page).toBeUndefined();
+  });
+
+  it("does not unwrap post_thread_message when message sits beside payload", () => {
+    const result = coerceToolArgs("post_thread_message", {
+      message: "## Summary\n\nCanonical body with enough detail.",
+      payload: { text: "junk" },
+    });
+    expect(result.value.message).toBe(
+      "## Summary\n\nCanonical body with enough detail.",
+    );
+    expect(result.coercions).not.toContain("unwrap_payload");
   });
 
   it("aliases append_threadcord_setup_memory text to markdown", () => {
@@ -120,5 +148,23 @@ describe("defineResilientTool prepareArguments", () => {
       mode: "list",
     });
     expect(prepared).toMatchObject({ action: "list" });
+  });
+});
+
+describe("flue prepareArguments postinstall patch", () => {
+  it("forwards prepareArguments from createCustomTools in @flue/runtime dist", () => {
+    const dist = join(process.cwd(), "node_modules", "@flue", "runtime", "dist");
+    const marker = "prepareArguments: typeof toolDef.prepareArguments";
+    const createCustom = "createCustomTools(tools, builtinTools)";
+    let foundMarker = false;
+    let foundCreate = false;
+    for (const file of readdirSync(dist)) {
+      if (!file.endsWith(".mjs")) continue;
+      const source = readFileSync(join(dist, file), "utf8");
+      if (source.includes(createCustom)) foundCreate = true;
+      if (source.includes(marker)) foundMarker = true;
+    }
+    expect(foundCreate).toBe(true);
+    expect(foundMarker).toBe(true);
   });
 });

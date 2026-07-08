@@ -1,6 +1,10 @@
 /**
  * Best-effort fix for double-escaped strings (literal \n, \t, etc.) that
  * weaker models sometimes emit inside JSON string fields.
+ *
+ * Conservative: whole JSON-quoted blobs always parse; manual unescape skips
+ * Windows/UNC path-like content so sequences like C:\new\folder are not
+ * rewritten as newlines.
  */
 export function fixDoubleEscapedString(value: string): {
   text: string;
@@ -24,6 +28,10 @@ export function fixDoubleEscapedString(value: string): {
     } catch {
       // fall through to manual unescape
     }
+  }
+
+  if (looksLikeFilesystemPath(value)) {
+    return { text: value, fixed: false };
   }
 
   if (!/\\[nrt"'\\]/.test(value)) {
@@ -51,4 +59,13 @@ export function fixDoubleEscapedString(value: string): {
     }
   });
   return { text, fixed };
+}
+
+/** Drive-letter paths, UNC shares, or clear path segments with backslashes. */
+function looksLikeFilesystemPath(value: string): boolean {
+  if (/^[A-Za-z]:\\/.test(value)) return true;
+  if (value.startsWith("\\\\")) return true;
+  // e.g. "... C:\new\folder ..." or path-only fragments with backslash dirs
+  if (/(?:^|[\s"'`=(])[A-Za-z]:\\[^\s"'`]+/.test(value)) return true;
+  return false;
 }

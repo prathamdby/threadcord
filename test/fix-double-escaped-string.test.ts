@@ -14,4 +14,18 @@ describe("fixDoubleEscapedString", () => {
     expect(result.fixed).toBe(false);
     expect(result.text).toBe("plain");
   });
+
+  it("does not rewrite Windows path-like backslash-n sequences", () => {
+    const path = "C:\\new\\folder";
+    const result = fixDoubleEscapedString(path);
+    expect(result.fixed).toBe(false);
+    expect(result.text).toBe(path);
+  });
+
+  it("does not rewrite path-like content inside a longer message", () => {
+    const msg = "See C:\\new\\folder for logs";
+    const result = fixDoubleEscapedString(msg);
+    expect(result.fixed).toBe(false);
+    expect(result.text).toBe(msg);
+  });
 });

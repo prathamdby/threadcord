@@ -1,4 +1,5 @@
 import {
+  ENVELOPE_KEYS,
   aliasKeys,
   coercePositiveInt,
   stripWholeStringCodeFence,
@@ -15,8 +16,11 @@ function cloneRecord(raw: Record<string, unknown>): Record<string, unknown> {
 function applyUnwrap(
   obj: Record<string, unknown>,
   coercions: string[],
+  preserveIfKeysPresent: readonly string[],
 ): void {
-  const unwrapped = unwrapEnvelope(obj);
+  const unwrapped = unwrapEnvelope(obj, ENVELOPE_KEYS, {
+    preserveIfKeysPresent,
+  });
   if (!unwrapped.label) return;
   for (const key of Object.keys(obj)) {
     delete obj[key];
@@ -56,7 +60,7 @@ function improveStringField(
 
 function coercePostThreadMessage(obj: Record<string, unknown>): string[] {
   const coercions: string[] = [];
-  applyUnwrap(obj, coercions);
+  applyUnwrap(obj, coercions, ["message"]);
   coercions.push(
     ...aliasKeys(obj, [
       ["text", "message"],
@@ -70,7 +74,7 @@ function coercePostThreadMessage(obj: Record<string, unknown>): string[] {
 
 function coercePostThreadReport(obj: Record<string, unknown>): string[] {
   const coercions: string[] = [];
-  applyUnwrap(obj, coercions);
+  applyUnwrap(obj, coercions, ["parts"]);
   coercions.push(
     ...aliasKeys(obj, [
       ["messages", "parts"],
@@ -103,7 +107,7 @@ function coercePostThreadReport(obj: Record<string, unknown>): string[] {
 
 function coerceSkill(obj: Record<string, unknown>): string[] {
   const coercions: string[] = [];
-  applyUnwrap(obj, coercions);
+  applyUnwrap(obj, coercions, ["action", "name"]);
   coercions.push(
     ...aliasKeys(obj, [
       ["skill", "name"],
@@ -146,7 +150,7 @@ function coerceCreateGithubPullRequest(
   obj: Record<string, unknown>,
 ): string[] {
   const coercions: string[] = [];
-  applyUnwrap(obj, coercions);
+  applyUnwrap(obj, coercions, ["owner", "repo", "title", "head", "base", "body"]);
   coercions.push(
     ...aliasKeys(obj, [
       ["branch", "head"],
@@ -175,7 +179,7 @@ function coerceCreateGithubPullRequest(
 
 function coerceAppendSetupMemory(obj: Record<string, unknown>): string[] {
   const coercions: string[] = [];
-  applyUnwrap(obj, coercions);
+  applyUnwrap(obj, coercions, ["markdown"]);
   coercions.push(
     ...aliasKeys(obj, [
       ["text", "markdown"],
@@ -189,7 +193,7 @@ function coerceAppendSetupMemory(obj: Record<string, unknown>): string[] {
 
 function coerceSaveSetupProfile(obj: Record<string, unknown>): string[] {
   const coercions: string[] = [];
-  applyUnwrap(obj, coercions);
+  applyUnwrap(obj, coercions, ["environment", "memoryMarkdown"]);
   coercions.push(...aliasKeys(obj, [["memory_markdown", "memoryMarkdown"]]));
   if (
     obj.environment !== null &&

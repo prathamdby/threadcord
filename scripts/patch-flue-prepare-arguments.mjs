@@ -67,19 +67,18 @@ if (paramsIdx < 0) {
 
 const afterParams = region.slice(paramsIdx + PARAMETERS_NEEDLE.length);
 // Match indentation of the next line (async execute)
-const indentMatch = afterParams.match(/^(\t*)async execute\(_toolCallId/);
-if (!indentMatch) {
-  // try without requiring immediate adjacency — allow whitespace only
-  const loose = afterParams.match(/^(\s*)async execute\(_toolCallId/);
-  if (!loose || !afterParams.trimStart().startsWith("async execute(_toolCallId")) {
+const tabIndent = afterParams.match(new RegExp(`^(\\t*)${escapeRegExp(EXECUTE_AFTER)}`));
+const spaceIndent = afterParams.match(new RegExp(`^(\\s*)${escapeRegExp(EXECUTE_AFTER)}`));
+if (!tabIndent) {
+  if (!spaceIndent || !afterParams.trimStart().startsWith(EXECUTE_AFTER)) {
     console.error(
-      "[patch-flue-prepare-arguments] parameters anchor not followed by async execute(_toolCallId.",
+      `[patch-flue-prepare-arguments] parameters anchor not followed by ${EXECUTE_AFTER}.`,
     );
     process.exit(1);
   }
 }
 
-const indent = (indentMatch ?? afterParams.match(/^(\s*)async execute\(_toolCallId/))[1];
+const indent = (tabIndent ?? spaceIndent)[1];
 const absoluteParamsEnd = createIdx + paramsIdx + PARAMETERS_NEEDLE.length;
 const insertion = `${indent}${INSERT}`;
 // Insert right after parameters line
@@ -97,3 +96,7 @@ writeFileSync(target, source);
 console.log(
   `[patch-flue-prepare-arguments] Patched prepareArguments forward in ${target}`,
 );
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

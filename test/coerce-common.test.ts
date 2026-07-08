@@ -7,7 +7,7 @@ import {
 } from "../src/tools/coerce-common.js";
 
 describe("unwrapEnvelope", () => {
-  it("unwraps payload objects", () => {
+  it("unwraps payload objects when sole top-level key", () => {
     const result = unwrapEnvelope({ payload: { message: "hi" } });
     expect(result.label).toBe("unwrap_payload");
     expect(result.value).toEqual({ message: "hi" });
@@ -19,6 +19,25 @@ describe("unwrapEnvelope", () => {
     expect(result.label).toBeUndefined();
     expect(result.value).toBe(raw);
   });
+
+  it("does not unwrap when a preserved canonical key sits beside the envelope", () => {
+    const raw = { action: "list", data: { page: "2" } };
+    const result = unwrapEnvelope(raw, undefined, {
+      preserveIfKeysPresent: ["action", "name"],
+    });
+    expect(result.label).toBeUndefined();
+    expect(result.value).toBe(raw);
+  });
+
+  it("unwraps when no preserved keys are present even with junk siblings", () => {
+    const result = unwrapEnvelope(
+      { payload: { message: "hi" }, junk: 1 },
+      undefined,
+      { preserveIfKeysPresent: ["message"] },
+    );
+    expect(result.label).toBe("unwrap_payload");
+    expect(result.value).toEqual({ message: "hi" });
+  });
 });
 
 describe("aliasKeys", () => {
@@ -29,10 +48,11 @@ describe("aliasKeys", () => {
     expect(labels).toEqual(["alias_text_to_message"]);
   });
 
-  it("prefers canonical when both present", () => {
+  it("prefers canonical when both present and drops the alias key", () => {
     const obj: Record<string, unknown> = { message: "a", text: "b" };
     const labels = aliasKeys(obj, [["text", "message"]]);
-    expect(obj).toEqual({ message: "a", text: "b" });
+    expect(obj).toEqual({ message: "a" });
+    expect(obj).not.toHaveProperty("text");
     expect(labels).toEqual([]);
   });
 });

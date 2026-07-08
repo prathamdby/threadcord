@@ -1,29 +1,54 @@
 const ENVELOPE_KEYS = ["payload", "data", "result", "args"] as const;
 
+export { ENVELOPE_KEYS };
+
+/**
+ * Unwrap a model envelope only when safe:
+ * - sole top-level key is an envelope key whose value is a non-array object, or
+ * - `preserveIfKeysPresent` is set and none of those keys exist at the top level
+ *   (so nested-only args can unwrap even with junk siblings).
+ * Never unwrap when a preserved canonical key is already present alongside an envelope.
+ */
 export function unwrapEnvelope(
   raw: Record<string, unknown>,
-  keys: readonly string[] = ENVELOPE_KEYS,
+  keys: readonly string[] | undefined = ENVELOPE_KEYS,
+  options?: { preserveIfKeysPresent?: readonly string[] },
 ): { value: Record<string, unknown>; label?: string } {
-  for (const key of keys) {
+  const topKeys = Object.keys(raw);
+  const preserve = options?.preserveIfKeysPresent;
+  const keyList = keys ?? ENVELOPE_KEYS;
+
+  for (const key of keyList) {
     if (!(key in raw)) continue;
     const inner = raw[key];
     if (
-      inner !== null &&
-      typeof inner === "object" &&
-      !Array.isArray(inner)
+      inner === null ||
+      typeof inner !== "object" ||
+      Array.isArray(inner)
     ) {
-      return {
-        value: { ...(inner as Record<string, unknown>) },
-        label: `unwrap_${key}`,
-      };
+      continue;
     }
+
+    const soleKey = topKeys.length === 1 && topKeys[0] === key;
+    const noPreserved =
+      preserve !== undefined &&
+      preserve.every(
+        (k) => !Object.prototype.hasOwnProperty.call(raw, k),
+      );
+
+    if (!soleKey && !noPreserved) continue;
+
+    return {
+      value: { ...(inner as Record<string, unknown>) },
+      label: `unwrap_${key}`,
+    };
   }
   return { value: raw };
 }
 
 /**
  * For each [from, to], if `to` is missing and `from` is present, copy and delete `from`.
- * Prefer canonical: never overwrite an existing `to`.
+ * Prefer canonical: never overwrite an existing `to`, but still delete the alias key.
  */
 export function aliasKeys(
   obj: Record<string, unknown>,
@@ -31,7 +56,12 @@ export function aliasKeys(
 ): string[] {
   const labels: string[] = [];
   for (const [from, to] of map) {
-    if (Object.prototype.hasOwnProperty.call(obj, to)) continue;
+    if (Object.prototype.hasOwnProperty.call(obj, to)) {
+      if (Object.prototype.hasOwnProperty.call(obj, from)) {
+        delete obj[from];
+      }
+      continue;
+    }
     if (!Object.prototype.hasOwnProperty.call(obj, from)) continue;
     obj[to] = obj[from];
     delete obj[from];
