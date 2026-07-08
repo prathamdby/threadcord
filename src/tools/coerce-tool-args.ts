@@ -205,8 +205,9 @@ function coerceSaveSetupProfile(obj: Record<string, unknown>): string[] {
       ["required_env", "requiredEnv"],
       ["required_services", "requiredServices"],
     ]);
+    // Always write back: prefer-canonical strip deletes aliases without labels.
+    obj.environment = env;
     if (envLabels.length > 0) {
-      obj.environment = env;
       coercions.push(...envLabels);
     }
   }

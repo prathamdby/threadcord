@@ -117,6 +117,24 @@ describe("coerceToolArgs", () => {
     expect(env.requiredServices).toEqual(["postgres"]);
   });
 
+  it("drops nested environment alias keys when canonical already present", () => {
+    const result = coerceToolArgs("save_threadcord_setup_profile", {
+      environment: {
+        install: "npm i",
+        requiredEnv: ["A"],
+        required_env: ["B"],
+        requiredServices: ["postgres"],
+        required_services: ["redis"],
+      },
+      memoryMarkdown: "notes",
+    });
+    const env = result.value.environment as Record<string, unknown>;
+    expect(env.requiredEnv).toEqual(["A"]);
+    expect(env.requiredServices).toEqual(["postgres"]);
+    expect(env).not.toHaveProperty("required_env");
+    expect(env).not.toHaveProperty("required_services");
+  });
+
   it("returns clone with no transforms for unknown tools", () => {
     const result = coerceToolArgs("bash", { command: "ls" });
     expect(result.value).toEqual({ command: "ls" });
