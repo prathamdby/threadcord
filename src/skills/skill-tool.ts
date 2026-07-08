@@ -6,7 +6,7 @@ import {
   statSync,
 } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
-import { defineTool } from "@flue/runtime";
+import { defineResilientTool } from "../tools/resilient-tool.js";
 import * as v from "valibot";
 import { discoverSkills, findSkill } from "./discover.js";
 
@@ -35,7 +35,7 @@ const SkillAction = v.picklist(["list", "read"], "action must be 'list' or 'read
 
 export function createSkillTools(homeDir: string, projectDir: string) {
   return [
-    defineTool({
+    defineResilientTool({
       name: "skill",
       description: SKILL_DESCRIPTION,
       parameters: v.object({

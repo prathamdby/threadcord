@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { defineTool } from "@flue/runtime";
+import { defineResilientTool } from "../tools/resilient-tool.js";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
 import * as v from "valibot";
@@ -66,7 +66,7 @@ export function createGitHubTools(token: string) {
   });
 
   return [
-    defineTool({
+    defineResilientTool({
       name: "create_github_pull_request",
       description:
         "Open a GitHub pull request. Call only after the branch was already-pushed successfully. Required: owner (GitHub org/user), repo (repo name only, no slash), title (plain English derived from the branch diff, not commit messages, <=72 chars), head (the pushed branch name; usually threadcord/<type>/<name>), base (the task base branch). Optional body (Markdown; group changes by area, link to relevant issues, do not paste GITHUB_TOKEN or env values). Returns JSON with the PR number, URL, and state. Do not call twice for the same head/base; if a PR already exists, post its URL via post_thread_message instead.",

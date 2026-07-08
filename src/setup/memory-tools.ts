@@ -1,4 +1,4 @@
-import { defineTool } from "@flue/runtime";
+import { defineResilientTool } from "../tools/resilient-tool.js";
 import * as v from "valibot";
 import { getPool } from "../db.js";
 import { SETUP_MEMORY_APPEND_MAX_CHARS } from "./profile.js";
@@ -9,7 +9,7 @@ export const APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION =
 
 export function createSetupMemoryTools(repo: string, branch: string) {
   return [
-    defineTool({
+    defineResilientTool({
       name: "append_threadcord_setup_memory",
       description: APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION,
       parameters: v.object({

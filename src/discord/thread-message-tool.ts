@@ -1,4 +1,4 @@
-import { defineTool } from "@flue/runtime";
+import { defineResilientTool } from "../tools/resilient-tool.js";
 import * as v from "valibot";
 import { isOperatorAborted } from "../flue/agent-work-abort.js";
 import {
@@ -15,7 +15,7 @@ const POST_THREAD_REPORT_DESCRIPTION =
   "Queue a multi-part report for this Discord thread. Each part posts as its own message in order, after the turn ends. Use for investigations, explanations, design write-ups, or any final output >1900 chars. Markdown renders per part: ## headers, fenced code, blockquotes, links. Each part must contain at least one ## section header with substantive body text (at least 20 chars of concrete detail). Thin parts like '## Summary\\nDone.' are rejected. Structure investigations as: tl;dr -> Root cause -> Evidence -> Impact -> Fix sketch -> Open questions. Structure code-change turns as: Summary -> Changes -> Verification -> PR. Call this OR post_thread_message, never both in the same turn.";
 
 export function createPostThreadMessageTool(instanceId: string) {
-  return defineTool({
+  return defineResilientTool({
     name: "post_thread_message",
     description: POST_THREAD_MESSAGE_DESCRIPTION,
     parameters: v.object({
@@ -51,7 +51,7 @@ export function createPostThreadMessageTool(instanceId: string) {
 }
 
 export function createPostThreadReportTool(instanceId: string) {
-  return defineTool({
+  return defineResilientTool({
     name: "post_thread_report",
     description: POST_THREAD_REPORT_DESCRIPTION,
     parameters: v.object({

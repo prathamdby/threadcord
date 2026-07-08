@@ -9,7 +9,7 @@
     "start": "node dist/server.mjs",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "postinstall": "node scripts/patch-flue-runtime-abort.mjs"
+    "postinstall": "node scripts/patch-flue-runtime-abort.mjs && node scripts/patch-flue-prepare-arguments.mjs"
   },
   "dependencies": {
     "@flue/postgres": "1.0.0-beta.1",
