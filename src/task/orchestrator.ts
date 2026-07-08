@@ -163,6 +163,7 @@ export class TaskOrchestrator {
   private readonly initiatorMessages = new Map<string, ReactionTarget>();
   private readonly pendingInitiatorIds = new Map<string, Set<string>>();
   private readonly inFlightTurns = new Map<string, InFlightTurn>();
+  private draining = false;
 
   constructor(
     private readonly config: AppConfig,
@@ -191,6 +192,10 @@ export class TaskOrchestrator {
 
   setThreadRenamer(renameDiscordThread: RenameDiscordThread): void {
     this.renameDiscordThread = renameDiscordThread;
+  }
+
+  beginShutdown(): void {
+    this.draining = true;
   }
 
   async resumeAfterRestart(

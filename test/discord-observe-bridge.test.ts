@@ -1269,6 +1269,49 @@ describe("TaskOrchestrator.handleAgentFailure", () => {
   });
 });
 
+describe("TaskOrchestrator.executeTurnJob", () => {
+  it("no-ops when task is not running", async () => {
+    const store = new InMemoryStore(1);
+    const dispatched: string[] = [];
+    const orchestrator = new TaskOrchestrator(
+      config,
+      store as never,
+      fakeSetupStore,
+      undefined,
+      async (instanceId) => {
+        dispatched.push(instanceId);
+      },
+    );
+    store.seedTask({
+      id: "task-w",
+      discordMessageId: "m-w",
+      discordThreadId: "thread-w",
+      flueInstanceId: toFlueInstanceId("thread-w"),
+      workspacePath: "/workspaces/task-w",
+      repo: "acme/web",
+      branch: "main",
+      model: config.defaultModel,
+      instruction: "wait",
+      setupProfileRevision: 2,
+      status: "waiting",
+      initialTurnStarted: true,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    });
+    await orchestrator.executeTurnJob({
+      id: "job-1",
+      name: "threadcord-task-turn",
+      data: {
+        taskId: "task-w",
+        instruction: "follow",
+        source: "followup",
+        initiatorMessageId: "msg-f",
+      },
+    } as never);
+    expect(dispatched).toHaveLength(0);
+  });
+});
+
 describe("observe bridge + validation guard integration", () => {
   it("stops schema-error spirals with a single generic failure path", async () => {
     vi.useFakeTimers();

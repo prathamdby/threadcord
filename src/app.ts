@@ -153,6 +153,7 @@ export async function createApp(): Promise<{
     config,
     shutdown: async () => {
       clearInterval(janitor);
+      orchestrator.beginShutdown();
       await closeMcpPool();
       await stopBoss(boss, 30_000);
       await pool.end();
