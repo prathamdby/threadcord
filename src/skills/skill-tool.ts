@@ -6,7 +6,8 @@ import {
   statSync,
 } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
-import { defineTool } from "@flue/runtime";
+import { defineResilientTool } from "../tools/resilient-tool.js";
+import { formatToolValidationError } from "../tools/format-validation-error.js";
 import * as v from "valibot";
 import { discoverSkills, findSkill } from "./discover.js";
 
@@ -35,7 +36,7 @@ const SkillAction = v.picklist(["list", "read"], "action must be 'list' or 'read
 
 export function createSkillTools(homeDir: string, projectDir: string) {
   return [
-    defineTool({
+    defineResilientTool({
       name: "skill",
       description: SKILL_DESCRIPTION,
       parameters: v.object({
@@ -49,7 +50,18 @@ export function createSkillTools(homeDir: string, projectDir: string) {
         }
         if (!input.name) {
           throw new Error(
-            "skill 'read' requires a `name`. Call action 'list' first to see available skills.",
+            formatToolValidationError({
+              toolName: "skill",
+              issues: [
+                {
+                  path: ["name"],
+                  message:
+                    "Required when action is 'read'. Call action 'list' first to see available skills.",
+                },
+              ],
+              requiredReminder:
+                "Required: action ('list' | 'read'); name (bare skill id) when action is 'read'; optional page (positive integer) when action is 'list'.",
+            }),
           );
         }
         const skill = findSkill(input.name, homeDir, projectDir);

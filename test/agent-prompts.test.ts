@@ -148,6 +148,14 @@ describe("composePrompt coding prompt-consistency invariants", () => {
     expect(prompt).toContain("never `command` on read/write/edit/grep/glob");
     expect(prompt).toContain("must have required properties");
   });
+
+  it("documents common wrong keys and both validation error shapes", () => {
+    expect(prompt).toContain("Common wrong keys that fail");
+    expect(prompt).toContain("not text/content/body");
+    expect(prompt).toContain("parts` as string[]");
+    expect(prompt).toContain("Arguments for tool");
+    expect(prompt).toContain("do not match the required schema");
+  });
 });
 
 describe("composePrompt setup invariants", () => {
@@ -166,6 +174,12 @@ describe("composePrompt setup invariants", () => {
     "acme/web@main",
   ])("contains %s", (token) => {
     expect(prompt).toContain(token);
+  });
+
+  it("documents SETUP TOOL ARGUMENTS with memoryMarkdown", () => {
+    expect(prompt).toContain("SETUP TOOL ARGUMENTS");
+    expect(prompt).toContain("memoryMarkdown");
+    expect(prompt).toContain("save_threadcord_setup_profile");
   });
 });
 

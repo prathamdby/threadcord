@@ -275,4 +275,27 @@ describe("tool failure guard — validation-specific threshold", () => {
     );
     expect(trip).toBeUndefined();
   });
+
+  it("counts semantic skill validation messages as validation failures", async () => {
+    const id = "discord:thread:val-semantic";
+    const msg =
+      "skill validation failed:\n- name: Required when action is 'read'.";
+    for (let i = 0; i < 2; i++) {
+      const trip = await maybeAbortOnToolFailures(
+        validationErrorEvent("skill", id, msg),
+        id,
+        10,
+        3,
+      );
+      expect(trip).toBeUndefined();
+    }
+    const trip = await maybeAbortOnToolFailures(
+      validationErrorEvent("skill", id, msg),
+      id,
+      10,
+      3,
+    );
+    expect(trip).toMatch(/3 consecutive validation tool failures/);
+  });
 });
+

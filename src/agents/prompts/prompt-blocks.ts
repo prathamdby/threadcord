@@ -33,13 +33,14 @@ Pass only the parameter names listed here. There is no \`description\` field on 
 - grep: \`pattern\` (string, required — a regex, not a glob). Optional: \`path\` (dir or file, default .), \`include\` (glob like "*.ts"), \`literal\` (boolean).
 - glob: \`pattern\` (string, required — a filename glob like "*.ts" or "**/*.ts"). Optional: \`path\` (directory to search).
 - task: \`prompt\` (required). Optional: \`description\`, \`agent\`, \`cwd\`, \`attachments\`.
-Threadcord tools: post_thread_message (\`message\`), post_thread_report (\`parts\`: string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`), skill (\`action\`: \`list\` or \`read\`, required; optional \`name\` string — required when action is \`read\`, bare skill id e.g. \`prath-mode\` not \`/prath-mode\`; optional \`page\` integer 1-based when action is \`list\`, 25 skills per page).`;
+Threadcord tools: post_thread_message (\`message\`), post_thread_report (\`parts\`: string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`), skill (\`action\`: \`list\` or \`read\`, required; optional \`name\` string — required when action is \`read\`, bare skill id e.g. \`prath-mode\` not \`/prath-mode\`; optional \`page\` integer 1-based when action is \`list\`, 25 skills per page).
+Common wrong keys that fail: post_thread_message needs \`message\` (not text/content/body); post_thread_report needs \`parts\` as string[] (not one string); bash needs \`command\` (not cmd/path); skill read needs bare \`name\` (slash optional at runtime but prefer bare).`;
 
 export const TOOL_USE = `TOOL USE
 - Tool-specific args only: never \`path\` on bash; never \`command\` on read/write/edit/grep/glob.
 - grep = regex; glob = filename glob — never \`**/foo*\` on grep.
 - Batch independent reads/searches; sequence dependent work.
-- On "Validation failed" / "must have required properties": fix keys per TOOL ARGUMENTS and retry once — never resend the same rejected payload.
+- On "Validation failed for tool" / "Arguments for tool" / "do not match the required schema" / "must have required properties": fix keys per TOOL ARGUMENTS and retry once — never resend the same rejected payload. Read each path/message line in the error.
 - Import only libraries already in the manifest.`;
 
 export const READ_BEFORE_EDIT = `READ BEFORE EDIT
@@ -130,6 +131,12 @@ SetupEnvironment JSON:
 - checks: name → bash one-liner (names /^[a-zA-Z][a-zA-Z0-9_-]*$/); include build/test/lint/typecheck when present
 - requiredEnv: UPPER_SNAKE names
 - requiredServices: e.g. postgres`;
+
+export const SETUP_TOOL_ARGUMENTS = `SETUP TOOL ARGUMENTS
+Call \`save_threadcord_setup_profile\` with exactly:
+- environment: object with install (required non-empty bash one-liner), optional start, checks, requiredEnv, requiredServices, skills
+- memoryMarkdown: string (names only for secrets; no token values)
+Wrong keys (memory_markdown, payload wrapping) fail validation. Save only after install and every proposed check already passed in this workspace.`;
 
 export const SETUP_SAVE_CONTRACT = `CONTRACT
 - Run install in checkout; exit 0.

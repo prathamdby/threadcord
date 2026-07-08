@@ -120,7 +120,10 @@ describe("skill tool — read", () => {
 
   it("requires a name for read", async () => {
     await expect(callSkill(home, project, { action: "read" })).rejects.toThrow(
-      "requires a `name`",
+      /skill validation failed/,
+    );
+    await expect(callSkill(home, project, { action: "read" })).rejects.toThrow(
+      /name: Required/,
     );
   });
 
