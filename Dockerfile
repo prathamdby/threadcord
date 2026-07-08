@@ -7,6 +7,7 @@ RUN apt-get update \
 
 COPY package.json package.json
 COPY scripts/patch-flue-runtime-abort.mjs scripts/patch-flue-runtime-abort.mjs
+COPY scripts/patch-flue-prepare-arguments.mjs scripts/patch-flue-prepare-arguments.mjs
 RUN npm install
 
 COPY . .
@@ -43,6 +44,7 @@ RUN apt-get update \
 
 COPY package.json package.json
 COPY scripts/patch-flue-runtime-abort.mjs scripts/patch-flue-runtime-abort.mjs
+COPY scripts/patch-flue-prepare-arguments.mjs scripts/patch-flue-prepare-arguments.mjs
 RUN npm install --omit=dev
 
 COPY --from=build /app/dist ./dist
