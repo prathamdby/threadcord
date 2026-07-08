@@ -47,7 +47,6 @@ if (source.includes(MARKER)) {
   process.exit(0);
 }
 
-// Locate the createCustomTools return object: parameters then async execute
 const createIdx = source.indexOf(CREATE_CUSTOM_TOOLS);
 if (createIdx < 0) {
   console.error(
@@ -66,22 +65,22 @@ if (paramsIdx < 0) {
 }
 
 const afterParams = region.slice(paramsIdx + PARAMETERS_NEEDLE.length);
-// Match indentation of the next line (async execute)
-const tabIndent = afterParams.match(new RegExp(`^(\\t*)${escapeRegExp(EXECUTE_AFTER)}`));
-const spaceIndent = afterParams.match(new RegExp(`^(\\s*)${escapeRegExp(EXECUTE_AFTER)}`));
-if (!tabIndent) {
-  if (!spaceIndent || !afterParams.trimStart().startsWith(EXECUTE_AFTER)) {
-    console.error(
-      `[patch-flue-prepare-arguments] parameters anchor not followed by ${EXECUTE_AFTER}.`,
-    );
-    process.exit(1);
-  }
+const tabIndent = afterParams.match(
+  new RegExp(`^(\\t*)${escapeRegExp(EXECUTE_AFTER)}`),
+);
+const spaceIndent = afterParams.match(
+  new RegExp(`^(\\s*)${escapeRegExp(EXECUTE_AFTER)}`),
+);
+if (!tabIndent && !spaceIndent) {
+  console.error(
+    `[patch-flue-prepare-arguments] parameters anchor not followed by ${EXECUTE_AFTER}.`,
+  );
+  process.exit(1);
 }
 
 const indent = (tabIndent ?? spaceIndent)[1];
 const absoluteParamsEnd = createIdx + paramsIdx + PARAMETERS_NEEDLE.length;
 const insertion = `${indent}${INSERT}`;
-// Insert right after parameters line
 source =
   source.slice(0, absoluteParamsEnd) + insertion + source.slice(absoluteParamsEnd);
 

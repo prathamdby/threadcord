@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { defineResilientTool } from "../tools/resilient-tool.js";
+import { formatToolValidationError } from "../tools/format-validation-error.js";
 import * as v from "valibot";
 import { getPool } from "../db.js";
 import { validateSetupProfilePayload } from "./profile.js";
@@ -31,12 +32,12 @@ export function createSetupTools(runId: string) {
         });
         if (!parsed.ok) {
           throw new Error(
-            [
-              "save_threadcord_setup_profile validation failed:",
-              `- (root): ${parsed.message}`,
-              "Required: environment.install (non-empty), memoryMarkdown.",
-              "Fix the fields above and call save_threadcord_setup_profile again. Do not resend the same payload.",
-            ].join("\n"),
+            formatToolValidationError({
+              toolName: "save_threadcord_setup_profile",
+              issues: [{ path: [], message: parsed.message }],
+              requiredReminder:
+                "Required: environment.install (non-empty), memoryMarkdown.",
+            }),
           );
         }
         const store = new SetupStore(getPool());

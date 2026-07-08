@@ -6,7 +6,7 @@ export function defineResilientTool(
   def: Parameters<typeof defineTool>[0],
 ): ReturnType<typeof defineTool> {
   const toolName = def.name;
-  const withPrepare = {
+  return defineTool({
     ...def,
     prepareArguments: (args: unknown) => {
       const { value, coercions } = coerceToolArgs(toolName, args);
@@ -18,8 +18,5 @@ export function defineResilientTool(
       }
       return value;
     },
-  };
-  return defineTool(
-    withPrepare as unknown as Parameters<typeof defineTool>[0],
-  );
+  } as unknown as Parameters<typeof defineTool>[0]);
 }

@@ -1,6 +1,4 @@
-const ENVELOPE_KEYS = ["payload", "data", "result", "args"] as const;
-
-export { ENVELOPE_KEYS };
+export const ENVELOPE_KEYS = ["payload", "data", "result", "args"] as const;
 
 /**
  * Unwrap a model envelope only when safe:
@@ -11,14 +9,13 @@ export { ENVELOPE_KEYS };
  */
 export function unwrapEnvelope(
   raw: Record<string, unknown>,
-  keys: readonly string[] | undefined = ENVELOPE_KEYS,
+  keys: readonly string[] = ENVELOPE_KEYS,
   options?: { preserveIfKeysPresent?: readonly string[] },
 ): { value: Record<string, unknown>; label?: string } {
   const topKeys = Object.keys(raw);
   const preserve = options?.preserveIfKeysPresent;
-  const keyList = keys ?? ENVELOPE_KEYS;
 
-  for (const key of keyList) {
+  for (const key of keys) {
     if (!(key in raw)) continue;
     const inner = raw[key];
     if (
@@ -32,9 +29,7 @@ export function unwrapEnvelope(
     const soleKey = topKeys.length === 1 && topKeys[0] === key;
     const noPreserved =
       preserve !== undefined &&
-      preserve.every(
-        (k) => !Object.prototype.hasOwnProperty.call(raw, k),
-      );
+      preserve.every((k) => !Object.hasOwn(raw, k));
 
     if (!soleKey && !noPreserved) continue;
 
@@ -56,13 +51,13 @@ export function aliasKeys(
 ): string[] {
   const labels: string[] = [];
   for (const [from, to] of map) {
-    if (Object.prototype.hasOwnProperty.call(obj, to)) {
-      if (Object.prototype.hasOwnProperty.call(obj, from)) {
+    if (Object.hasOwn(obj, to)) {
+      if (Object.hasOwn(obj, from)) {
         delete obj[from];
       }
       continue;
     }
-    if (!Object.prototype.hasOwnProperty.call(obj, from)) continue;
+    if (!Object.hasOwn(obj, from)) continue;
     obj[to] = obj[from];
     delete obj[from];
     labels.push(`alias_${from}_to_${to}`);

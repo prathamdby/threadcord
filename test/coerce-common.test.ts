@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ENVELOPE_KEYS,
   aliasKeys,
   coercePositiveInt,
   stripWholeStringCodeFence,
@@ -22,7 +23,7 @@ describe("unwrapEnvelope", () => {
 
   it("does not unwrap when a preserved canonical key sits beside the envelope", () => {
     const raw = { action: "list", data: { page: "2" } };
-    const result = unwrapEnvelope(raw, undefined, {
+    const result = unwrapEnvelope(raw, ENVELOPE_KEYS, {
       preserveIfKeysPresent: ["action", "name"],
     });
     expect(result.label).toBeUndefined();
@@ -32,7 +33,7 @@ describe("unwrapEnvelope", () => {
   it("unwraps when no preserved keys are present even with junk siblings", () => {
     const result = unwrapEnvelope(
       { payload: { message: "hi" }, junk: 1 },
-      undefined,
+      ENVELOPE_KEYS,
       { preserveIfKeysPresent: ["message"] },
     );
     expect(result.label).toBe("unwrap_payload");

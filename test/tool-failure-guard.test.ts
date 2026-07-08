@@ -276,7 +276,6 @@ describe("tool failure guard — validation-specific threshold", () => {
     expect(trip).toBeUndefined();
   });
 
-
   it("counts semantic skill validation messages as validation failures", async () => {
     const id = "discord:thread:val-semantic";
     const msg =

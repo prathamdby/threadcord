@@ -10,7 +10,6 @@ export function fixDoubleEscapedString(value: string): {
   text: string;
   fixed: boolean;
 } {
-  // Whole value is a JSON-encoded string (quoted).
   if (
     value.length >= 2 &&
     ((value.startsWith('"') && value.endsWith('"')) ||
@@ -26,7 +25,7 @@ export function fixDoubleEscapedString(value: string): {
         return { text: parsed, fixed: true };
       }
     } catch {
-      // fall through to manual unescape
+      // manual unescape below
     }
   }
 

@@ -9,10 +9,6 @@ import {
 import { fixDoubleEscapedString } from "./fix-double-escaped-string.js";
 import type { CoerceResult } from "./types.js";
 
-function cloneRecord(raw: Record<string, unknown>): Record<string, unknown> {
-  return { ...raw };
-}
-
 function applyUnwrap(
   obj: Record<string, unknown>,
   coercions: string[],
@@ -222,7 +218,7 @@ export function coerceToolArgs(
     return { value: {}, coercions: [] };
   }
 
-  const value = cloneRecord(raw as Record<string, unknown>);
+  const value = { ...(raw as Record<string, unknown>) };
   let coercions: string[];
 
   switch (toolName) {
