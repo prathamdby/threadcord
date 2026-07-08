@@ -17,6 +17,7 @@ import { SetupStore } from "./setup/store.js";
 import { startWorkspaceJanitor } from "./task/janitor.js";
 import { TaskOrchestrator } from "./task/orchestrator.js";
 import { TaskStore } from "./task/store.js";
+import { createStartedBoss, ensureTaskQueues, stopBoss } from "./task/boss.js";
 
 export async function createApp(): Promise<{
   app: Hono;
@@ -36,6 +37,9 @@ export async function createApp(): Promise<{
     setupStore.migrate(),
     mcpStore.migrate(),
   ]);
+
+  const boss = await createStartedBoss(config);
+  await ensureTaskQueues(boss, config);
 
   const mcpServers = await mcpStore.listServers();
   warmMcpPool(mcpServers.map(rowToMcpConfig));
@@ -133,6 +137,7 @@ export async function createApp(): Promise<{
     shutdown: async () => {
       clearInterval(janitor);
       await closeMcpPool();
+      await stopBoss(boss);
       await pool.end();
     },
   };

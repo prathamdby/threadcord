@@ -11,7 +11,7 @@ update your row when done.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001  | Add pg-boss foundation (queues, config, lifecycle) | P1 | M | — | TODO |
+| 001  | Add pg-boss foundation (queues, config, lifecycle) | P1 | M | — | DONE |
 | 002  | `task_turns` durable work-item table + repository | P1 | M | — | TODO |
 | 003  | Switchover: transactional intake, turn executor, Flue completion bridge | P1 | L | 001, 002 | TODO |
 | 004  | Cancellation, restart recovery, retention, legacy removal | P1 | L | 003 | TODO |

@@ -27,6 +27,16 @@ const EnvSchema = z
     GITHUB_TOKEN: z.string().min(1),
     WORKSPACE_ROOT: z.string().min(1).default("/workspaces"),
     MAX_CONCURRENT_TASKS: z.coerce.number().int().positive().default(3),
+    QUEUE_RETRY_LIMIT: z.coerce.number().int().positive().default(3),
+    QUEUE_RETRY_DELAY_SECONDS: z.coerce.number().int().positive().default(30),
+    QUEUE_RETRY_DELAY_MAX_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(300),
+    QUEUE_EXPIRE_IN_SECONDS: z.coerce.number().int().positive().default(7200),
+    QUEUE_HEARTBEAT_SECONDS: z.coerce.number().int().positive().default(60),
+    TURN_RETENTION_DAYS: z.coerce.number().int().positive().default(14),
     AGENT_MAX_TOOL_FAILURES: z.coerce
       .number()
       .int()
