@@ -299,11 +299,12 @@ export class TurnStore {
     const result = await this.pool.query(
       `
         DELETE FROM task_turns
-         WHERE id IN (
-           SELECT id FROM task_turns
+         WHERE ctid IN (
+           SELECT ctid FROM task_turns
            WHERE status IN ('completed', 'failed', 'cancelled')
              AND updated_at < now() - ($1::text || ' days')::interval
            LIMIT $2
+           FOR UPDATE SKIP LOCKED
          )
       `,
       [String(retentionDays), batchSize],

@@ -548,7 +548,7 @@ export class TaskOrchestrator {
       if (jobId === null) throw new Error("boss.send returned null for initial turn");
     });
     await this.refreshHeader(attached.id);
-    return { ok: true, threadId: thread.id, startedImmediately: true };
+    return { ok: true, threadId: thread.id, startedImmediately: false };
   }
 
   async handleThreadMessage(message: TaskThreadMessage): Promise<void> {
@@ -755,6 +755,12 @@ export class TaskOrchestrator {
     return { view: controlOutcomeView(command, true), refreshHeader: true };
   }
 
+  /**
+   * Resolve the turn outcome for an agent-end event. This is safe to call even
+   * when no turn waiter is registered for the instanceId (e.g. setup agents,
+   * or late events after an abort already resolved the outcome) because
+   * `resolveTurnOutcome` is a no-op when no waiter exists.
+   */
   async handleAgentEnd(instanceId: string): Promise<void> {
     resolveTurnOutcome(instanceId, { kind: "completed" });
   }

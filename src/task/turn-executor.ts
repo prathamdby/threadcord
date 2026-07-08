@@ -113,7 +113,11 @@ export async function executeTurnJob(
   }
 
   // Resume path: check Flue liveness. If the agent is still running, skip
-  // re-dispatch and go straight to awaiting the outcome.
+  // re-dispatch and go straight to awaiting the outcome. There is a short
+  // race between the liveness check and the outcome await (Flue could finish
+  // in between), but this is safe: Promise settlement is synchronous within
+  // the same microtask tick, so the waiter registered below will capture the
+  // outcome even if the agent completes immediately after this check.
   const skipDispatch =
     isResume && (await isFlueInstanceRunning(flueInstanceId));
 
