@@ -25,6 +25,30 @@ function applyUnwrap(
   coercions.push(unwrapped.label);
 }
 
+/** Fence-strip → double-escape fix → trim. Labels listed once per call. */
+function cleanStringContent(
+  s: string,
+): { text: string; labels: string[] } {
+  let current = s;
+  const labels: string[] = [];
+  const fenced = stripWholeStringCodeFence(current);
+  if (fenced.stripped) {
+    current = fenced.text;
+    labels.push("fence_strip");
+  }
+  const unescaped = fixDoubleEscapedString(current);
+  if (unescaped.fixed) {
+    current = unescaped.text;
+    labels.push("double_escape_fix");
+  }
+  const trimmed = trimString(current);
+  if (trimmed.trimmed) {
+    current = trimmed.text;
+    labels.push("trim");
+  }
+  return { text: current, labels };
+}
+
 function improveStringField(
   obj: Record<string, unknown>,
   key: string,
@@ -33,24 +57,10 @@ function improveStringField(
   const value = obj[key];
   if (typeof value !== "string") return;
 
-  let current = value;
-  const fenced = stripWholeStringCodeFence(current);
-  if (fenced.stripped) {
-    current = fenced.text;
-    coercions.push("fence_strip");
-  }
-  const unescaped = fixDoubleEscapedString(current);
-  if (unescaped.fixed) {
-    current = unescaped.text;
-    coercions.push("double_escape_fix");
-  }
-  const trimmed = trimString(current);
-  if (trimmed.trimmed) {
-    current = trimmed.text;
-    coercions.push("trim");
-  }
-  if (current !== value) {
-    obj[key] = current;
+  const { text, labels } = cleanStringContent(value);
+  coercions.push(...labels);
+  if (text !== value) {
+    obj[key] = text;
   }
 }
 
@@ -82,20 +92,17 @@ function coercePostThreadReport(obj: Record<string, unknown>): string[] {
     coercions.push("parts_string_to_array");
   }
   if (Array.isArray(obj.parts)) {
+    const seenLabels = new Set<string>();
     obj.parts = obj.parts.map((part) => {
       if (typeof part !== "string") return part;
-      let current = part;
-      const fenced = stripWholeStringCodeFence(current);
-      if (fenced.stripped) {
-        current = fenced.text;
-        coercions.push("fence_strip");
+      const { text, labels } = cleanStringContent(part);
+      for (const label of labels) {
+        if (!seenLabels.has(label)) {
+          seenLabels.add(label);
+          coercions.push(label);
+        }
       }
-      const trimmed = trimString(current);
-      if (trimmed.trimmed) {
-        current = trimmed.text;
-        coercions.push("trim");
-      }
-      return current;
+      return text;
     });
   }
   return coercions;
@@ -121,12 +128,14 @@ function coerceSkill(obj: Record<string, unknown>): string[] {
   }
   if (typeof obj.name === "string") {
     const original = obj.name;
-    let name = original.trim();
+    const trimmed = original.trim();
+    if (trimmed !== original) {
+      coercions.push("trim");
+    }
+    let name = trimmed;
     if (name.startsWith("/")) {
       name = name.slice(1);
       coercions.push("skill_name_slash_strip");
-    } else if (name !== original) {
-      coercions.push("trim");
     }
     if (name !== original) {
       obj.name = name;

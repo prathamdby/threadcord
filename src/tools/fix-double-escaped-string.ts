@@ -2,25 +2,18 @@
  * Best-effort fix for double-escaped strings (literal \n, \t, etc.) that
  * weaker models sometimes emit inside JSON string fields.
  *
- * Conservative: whole JSON-quoted blobs always parse; manual unescape skips
- * Windows/UNC path-like content so sequences like C:\new\folder are not
- * rewritten as newlines.
+ * Conservative: whole double-quoted JSON string blobs may parse; manual
+ * unescape skips Windows/UNC path-like content so sequences like C:\new\folder
+ * are not rewritten as newlines. Single-quoted wrapping is not valid JSON and
+ * falls through to the regex-based unescape path.
  */
 export function fixDoubleEscapedString(value: string): {
   text: string;
   fixed: boolean;
 } {
-  if (
-    value.length >= 2 &&
-    ((value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'")))
-  ) {
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
     try {
-      const parsed = JSON.parse(
-        value.startsWith("'")
-          ? `"${value.slice(1, -1).replace(/"/g, '\\"')}"`
-          : value,
-      );
+      const parsed: unknown = JSON.parse(value);
       if (typeof parsed === "string" && parsed !== value) {
         return { text: parsed, fixed: true };
       }

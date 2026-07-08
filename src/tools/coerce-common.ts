@@ -1,4 +1,4 @@
-export const ENVELOPE_KEYS = ["payload", "data", "result", "args"] as const;
+export const ENVELOPE_KEYS = ["payload", "data", "result"] as const;
 
 /**
  * Unwrap a model envelope only when safe:

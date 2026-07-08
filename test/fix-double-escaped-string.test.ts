@@ -29,3 +29,14 @@ describe("fixDoubleEscapedString", () => {
     expect(result.text).toBe(msg);
   });
 });
+
+  it("does not treat single-quoted wrapping as a JSON string blob", () => {
+    // Double-quoted JSON blob would parse to a string without surrounding quotes.
+    const doubleQuoted = fixDoubleEscapedString('"hello"');
+    expect(doubleQuoted.fixed).toBe(true);
+    expect(doubleQuoted.text).toBe("hello");
+
+    // Single-quoted is not valid JSON; leave quotes and do not use the JSON path.
+    const singleQuoted = fixDoubleEscapedString("'hello'");
+    expect(singleQuoted.text).toBe("'hello'");
+  });

@@ -11,13 +11,14 @@ const runtimeRoot = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
   "node_modules",
-  "@flue/runtime",
+  "@flue",
+  "runtime",
   "dist",
 );
 
 const MARKER = "prepareArguments: typeof toolDef.prepareArguments";
 const CREATE_CUSTOM_TOOLS = "createCustomTools(tools, builtinTools)";
-const PARAMETERS_NEEDLE = "parameters: toolDef.parameters,\n";
+const PARAMETERS_RE = /parameters:\s*toolDef\.parameters,/;
 const EXECUTE_AFTER = "async execute(_toolCallId";
 const INSERT =
   "prepareArguments: typeof toolDef.prepareArguments === \"function\" ? toolDef.prepareArguments : undefined,\n";
@@ -56,15 +57,25 @@ if (createIdx < 0) {
 }
 
 const region = source.slice(createIdx);
-const paramsIdx = region.indexOf(PARAMETERS_NEEDLE);
-if (paramsIdx < 0) {
+const paramsMatch = PARAMETERS_RE.exec(region);
+if (!paramsMatch) {
   console.error(
     "[patch-flue-prepare-arguments] Could not find parameters: toolDef.parameters anchor.",
   );
   process.exit(1);
 }
 
-const afterParams = region.slice(paramsIdx + PARAMETERS_NEEDLE.length);
+const paramsIdx = paramsMatch.index;
+const paramsLen = paramsMatch[0].length;
+const afterParams = region.slice(paramsIdx + paramsLen);
+const window = afterParams.slice(0, 200);
+if (!window.includes(EXECUTE_AFTER)) {
+  console.error(
+    `[patch-flue-prepare-arguments] ${EXECUTE_AFTER} not within 200 chars after parameters anchor.`,
+  );
+  process.exit(1);
+}
+
 const tabIndent = afterParams.match(
   new RegExp(`^(\\t*)${escapeRegExp(EXECUTE_AFTER)}`),
 );
@@ -79,7 +90,7 @@ if (!tabIndent && !spaceIndent) {
 }
 
 const indent = (tabIndent ?? spaceIndent)[1];
-const absoluteParamsEnd = createIdx + paramsIdx + PARAMETERS_NEEDLE.length;
+const absoluteParamsEnd = createIdx + paramsIdx + paramsLen;
 const insertion = `${indent}${INSERT}`;
 source =
   source.slice(0, absoluteParamsEnd) + insertion + source.slice(absoluteParamsEnd);

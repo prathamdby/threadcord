@@ -112,6 +112,24 @@ describe("coerceToolArgs", () => {
     expect(result.coercions).toContain("alias_id_to_name");
   });
 
+  it("reports trim and slash-strip labels separately for skill name", () => {
+    const result = coerceToolArgs("skill", {
+      action: "read",
+      name: "  /prath-mode  ",
+    });
+    expect(result.value.name).toBe("prath-mode");
+    expect(result.coercions).toContain("trim");
+    expect(result.coercions).toContain("skill_name_slash_strip");
+  });
+
+  it("double-escapes parts elements in post_thread_report", () => {
+    const result = coerceToolArgs("post_thread_report", {
+      parts: ["## A\\n\\nbody with enough concrete detail here."],
+    });
+    expect((result.value.parts as string[])[0]).toContain("\n");
+    expect(result.coercions).toContain("double_escape_fix");
+  });
+
   it("aliases PR branch fields", () => {
     const result = coerceToolArgs("create_github_pull_request", {
       owner: "acme",
