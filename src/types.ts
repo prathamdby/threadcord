@@ -33,7 +33,6 @@ export interface TaskRecord extends Omit<TaskRequest, "model"> {
   workspacePath: string;
   model: string;
   status: TaskStatus;
-  initialTurnStarted: boolean;
   progressMessageIds?: string[];
   statusMessageId?: string;
   headerMessageId?: string;
@@ -147,13 +146,4 @@ export interface DispatchAgentInput {
   repo: string;
   baseBranch: string;
   instruction: string;
-}
-
-export interface ClaimedTurn {
-  task: TaskRecord;
-  instruction: string;
-  source: "initial" | "followup";
-  // id (not the live handle) so the postgres TaskStore can populate it; the
-  // orchestrator re-resolves the reaction handle from its own in-memory map.
-  initiatorMessageId: string;
 }

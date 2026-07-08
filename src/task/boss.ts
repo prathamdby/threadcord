@@ -62,6 +62,27 @@ export async function ensureTaskQueues(
 }
 
 /**
+ * Release the singleton key for a task by cancelling every non-terminal pg-boss
+ * job on the task-turn queue that shares the task id as its singleton key.
+ * pg-boss has no cancel-by-key API, so we find the jobs and cancel each one.
+ * Terminal jobs (cancelled/completed/failed) are skipped — cancelling them is
+ * a no-op and would only clutter the audit trail.
+ */
+export async function releaseTaskSingleton(
+  boss: PgBoss,
+  taskId: string,
+): Promise<void> {
+  const jobs = await boss.findJobs(TASK_TURN_QUEUE, { key: taskId });
+  for (const job of jobs) {
+    const state = job.state as string;
+    if (state === "cancelled" || state === "completed" || state === "failed") {
+      continue;
+    }
+    await boss.cancel(TASK_TURN_QUEUE, job.id);
+  }
+}
+
+/**
  * Drain pg-boss gracefully before the shared pg pool is closed. Stopping the
  * boss first avoids maintenance queries hitting a closed pool during shutdown.
  */

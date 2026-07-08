@@ -181,7 +181,6 @@ describe("persistent typing indicator", () => {
       instruction: "Do the work",
       setupProfileRevision: 2,
       status: "waiting",
-      initialTurnStarted: true,
       progressMessageIds: ["status-1"],
       headerMessageId: "header-1",
       createdAt: new Date(0),

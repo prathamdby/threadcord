@@ -1,13 +1,10 @@
-import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type { Pool, QueryResultRow } from "pg";
 import type {
-  ClaimedTurn,
   NewTaskRecord,
   TaskRecord,
   TaskStatus,
 } from "../types.js";
 import { TASK_STATUSES } from "../types.js";
-
-const SCHEDULER_LOCK_KEY = 8675309;
 
 export class TaskStore {
   constructor(
@@ -321,50 +318,6 @@ export class TaskStore {
       : fallbackModel;
   }
 
-  async claimNextTurn(preferTaskId?: string): Promise<ClaimedTurn | undefined> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock($1)", [
-        SCHEDULER_LOCK_KEY,
-      ]);
-
-      const running = await client.query(
-        "SELECT COUNT(*)::int AS count FROM tasks WHERE status = 'running'",
-      );
-      if (Number(singleRow(running.rows).count) >= this.maxConcurrentTasks) {
-        await client.query("ROLLBACK");
-        return undefined;
-      }
-
-      const claimed = await this.claimFollowupTurn(client, preferTaskId);
-      if (claimed) {
-        await client.query("COMMIT");
-        return claimed;
-      }
-
-      const initial = await this.claimInitialTurn(client, preferTaskId);
-      if (initial) {
-        await client.query("COMMIT");
-        return initial;
-      }
-
-      const globalFollowup = await this.claimFollowupTurn(client);
-      if (globalFollowup) {
-        await client.query("COMMIT");
-        return globalFollowup;
-      }
-
-      await client.query("ROLLBACK");
-      return undefined;
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
   async queueSnapshot(
     taskId: string,
   ): Promise<{ position: number; depth: number }> {
@@ -434,47 +387,6 @@ export class TaskStore {
     }
   }
 
-  async releaseRunningAfterRestart(): Promise<TaskRecord[]> {
-    const result = await this.pool.query(
-      `
-        UPDATE tasks
-        SET status = 'waiting', updated_at = now()
-        WHERE status = 'running'
-        RETURNING *
-      `,
-    );
-    return result.rows.map(rowToTask);
-  }
-
-  async enqueueFollowup(
-    taskId: string,
-    discordMessageId: string,
-    instruction: string,
-  ): Promise<number> {
-    const insert = await this.pool.query(
-      `
-        INSERT INTO task_followups (task_id, discord_message_id, instruction)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (discord_message_id) DO NOTHING
-        RETURNING id
-      `,
-      [taskId, discordMessageId, instruction],
-    );
-    const result = await this.pool.query(
-      `
-        SELECT COUNT(*)::int AS position
-        FROM task_followups
-        WHERE task_id = $1
-          AND id <= COALESCE($2::bigint, (
-            SELECT id FROM task_followups
-            WHERE task_id = $1 AND discord_message_id = $3
-          ))
-      `,
-      [taskId, insert.rows[0]?.id ?? null, discordMessageId],
-    );
-    return Number(singleRow(result.rows).position);
-  }
-
   async listExpiredWorkspacePaths(ttlDays: number): Promise<string[]> {
     const result = await this.pool.query(
       `
@@ -493,84 +405,6 @@ export class TaskStore {
   async health(): Promise<boolean> {
     await this.pool.query("SELECT 1");
     return true;
-  }
-
-  private async claimInitialTurn(
-    client: PoolClient,
-    preferTaskId?: string,
-  ): Promise<ClaimedTurn | undefined> {
-    const result = await client.query(
-      `
-        UPDATE tasks
-        SET status = 'running',
-            initial_turn_started = true,
-            updated_at = now()
-        WHERE id = (
-          SELECT id FROM tasks
-          WHERE status = 'queued'
-            AND ($1::text IS NULL OR id = $1)
-          ORDER BY created_at, id
-          FOR UPDATE SKIP LOCKED
-          LIMIT 1
-        )
-        RETURNING *
-      `,
-      [preferTaskId ?? null],
-    );
-    const row = result.rows[0];
-    if (!row) return undefined;
-    const task = rowToTask(row);
-    return {
-      task,
-      instruction: task.instruction,
-      source: "initial",
-      initiatorMessageId: task.discordMessageId,
-    };
-  }
-
-  private async claimFollowupTurn(
-    client: PoolClient,
-    preferTaskId?: string,
-  ): Promise<ClaimedTurn | undefined> {
-    const result = await client.query(
-      `
-        WITH candidate AS (
-          SELECT f.id AS followup_id, f.instruction, t.id AS task_id
-          FROM task_followups f
-          JOIN tasks t ON t.id = f.task_id
-          WHERE t.status = 'waiting'
-            AND t.initial_turn_started = true
-            AND ($1::text IS NULL OR t.id = $1)
-          ORDER BY f.created_at, f.id
-          FOR UPDATE OF f, t SKIP LOCKED
-          LIMIT 1
-        ),
-        deleted AS (
-          DELETE FROM task_followups
-          WHERE id = (SELECT followup_id FROM candidate)
-          RETURNING instruction, discord_message_id
-        ),
-        updated AS (
-          UPDATE tasks
-          SET status = 'running', updated_at = now()
-          WHERE id = (SELECT task_id FROM candidate)
-          RETURNING *
-        )
-        SELECT updated.*, deleted.instruction AS run_instruction, deleted.discord_message_id AS run_initiator_message_id
-        FROM updated
-        JOIN deleted ON true
-      `,
-      [preferTaskId ?? null],
-    );
-    const row = result.rows[0];
-    if (!row || typeof row.run_instruction !== "string") return undefined;
-    const task = rowToTask(row);
-    return {
-      task,
-      instruction: row.run_instruction,
-      source: "followup",
-      initiatorMessageId: String(row.run_initiator_message_id),
-    };
   }
 }
 
@@ -622,7 +456,6 @@ function rowToTask(row: QueryResultRow): TaskRecord {
       ? { pushOverride: row.push_override }
       : {}),
     status: parseTaskStatus(row.status),
-    initialTurnStarted: Boolean(row.initial_turn_started),
     ...progressMessageIdsFromRow(row),
     ...(typeof row.header_message_id === "string"
       ? { headerMessageId: row.header_message_id }

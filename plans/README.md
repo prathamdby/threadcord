@@ -14,7 +14,7 @@ update your row when done.
 | 001  | Add pg-boss foundation (queues, config, lifecycle) | P1 | M | — | DONE |
 | 002  | `task_turns` durable work-item table + repository | P1 | M | — | DONE |
 | 003  | Switchover: transactional intake, turn executor, Flue completion bridge | P1 | L | 001, 002 | DONE |
-| 004  | Cancellation, restart recovery, retention, legacy removal | P1 | L | 003 | TODO |
+| 004  | Cancellation, restart recovery, retention, legacy removal | P1 | L | 003 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 

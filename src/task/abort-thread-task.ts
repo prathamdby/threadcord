@@ -1,6 +1,10 @@
 import { clearPendingUserTurnMessage } from "../discord/user-turn-message.js";
 import { abortAgentWorkForInstance } from "../flue/agent-work-abort.js";
+import { releaseTaskSingleton } from "./boss.js";
+import { resolveTurnOutcome } from "./turn-completion.js";
 import type { TaskStore } from "./store.js";
+import type { TurnStore } from "./turn-store.js";
+import type { PgBoss } from "pg-boss";
 import type { TaskRecord } from "../types.js";
 
 type ReactionTarget = {
@@ -10,6 +14,8 @@ type ReactionTarget = {
 
 export interface AbortThreadTaskDeps {
   store: TaskStore;
+  turnStore: TurnStore;
+  boss: PgBoss;
   clearInFlight: (
     instanceId: string,
   ) => { initiator?: ReactionTarget | undefined } | undefined;
@@ -19,7 +25,6 @@ export interface AbortThreadTaskDeps {
   ) => Promise<void>;
   disposeInitiators: (taskId: string, emoji: string) => Promise<void>;
   deleteTaskThread: (instanceId: string) => void;
-  fillConcurrencySlots: () => Promise<void>;
 }
 
 export interface StopTaskWorkOptions {
@@ -37,20 +42,37 @@ export async function stopTaskWork(
     return { cancelled: false, alreadyTerminal: true };
   }
 
-  clearPendingUserTurnMessage(task.flueInstanceId);
+  // Gate the turn rows: request cancel on any running turn and cancel queued
+  // turns so they cannot fire after this point.
+  const runningTurns = await deps.turnStore.listRunningTurns();
+  for (const turn of runningTurns) {
+    if (turn.taskId === task.id) {
+      await deps.turnStore.requestCancel(turn.id);
+    }
+  }
+  await deps.turnStore.cancelPendingTurnsForTask(task.id);
+
+  // Cancel the queued/active pg-boss jobs for this task's singleton key.
+  await releaseTaskSingleton(deps.boss, task.id);
+
+  // Abort the Flue submission FIRST, then resolve the turn outcome cancelled.
+  // Order matters: abort kills the Flue submission so its late agent_end is
+  // suppressed; resolving first would let the executor settle while Flue
+  // still runs.
   if (options.abortInFlight) {
     try {
       await abortAgentWorkForInstance(task.flueInstanceId);
     } catch (error) {
       console.error("[threadcord] failed to abort agent work", error);
     }
+    resolveTurnOutcome(task.flueInstanceId, { kind: "cancelled" });
   }
 
+  clearPendingUserTurnMessage(task.flueInstanceId);
   const turn = deps.clearInFlight(task.flueInstanceId);
   await deps.flipReaction(turn?.initiator, "❌");
   await deps.disposeInitiators(task.id, "❌");
   deps.deleteTaskThread(task.flueInstanceId);
-  await deps.fillConcurrencySlots();
 
   return { cancelled: true, alreadyTerminal: false };
 }

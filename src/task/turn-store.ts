@@ -248,6 +248,47 @@ export class TurnStore {
   }
 
   /**
+   * List every turn currently in `running` status. Used at boot to find turns
+   * interrupted by a crash so they can be requeued (plan 004 restart recovery).
+   */
+  async listRunningTurns(): Promise<TaskTurnRecord[]> {
+    const result = await this.pool.query(
+      "SELECT * FROM task_turns WHERE status = 'running' ORDER BY created_at, id",
+    );
+    return result.rows.map(rowToTurn);
+  }
+
+  /**
+   * List every turn currently in `queued` status. Used at boot to find turns
+   * that have no pg-boss job (backfilled follow-ups) so a fresh job can be
+   * sent (plan 004 restart recovery).
+   */
+  async listQueuedTurns(): Promise<TaskTurnRecord[]> {
+    const result = await this.pool.query(
+      "SELECT * FROM task_turns WHERE status = 'queued' ORDER BY created_at, id",
+    );
+    return result.rows.map(rowToTurn);
+  }
+
+  /**
+   * Reset a single interrupted turn from `running` back to `queued` so a fresh
+   * pg-boss job can pick it up. `attempt_count` is intentionally preserved —
+   * the original claim already counted the attempt. Returns false on a lost
+   * race (turn no longer running).
+   */
+  async requeueInterruptedTurn(turnId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        UPDATE task_turns
+           SET status = 'queued', updated_at = now()
+         WHERE id = $1 AND status = 'running'
+      `,
+      [turnId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
    * Delete terminal turns older than `retentionDays`, in batches of
    * `batchSize`. Returns the number of rows deleted; plan 004 loops until 0.
    */

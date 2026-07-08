@@ -109,6 +109,8 @@ export async function createApp(): Promise<{
   const janitor = startWorkspaceJanitor({
     store,
     workspaceTtlDays: config.WORKSPACE_TTL_DAYS,
+    turnStore,
+    turnRetentionDays: config.TURN_RETENTION_DAYS,
   });
 
   void orchestrator

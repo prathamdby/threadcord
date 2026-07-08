@@ -17,7 +17,6 @@ const task: TaskRecord = {
   model: "anthropic/claude-sonnet-4-5",
   instruction: "Fix it",
   status: "running",
-  initialTurnStarted: true,
   setupProfileRevision: 1,
   createdAt: new Date(),
   updatedAt: new Date(),

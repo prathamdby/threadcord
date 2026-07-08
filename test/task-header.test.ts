@@ -19,7 +19,6 @@ const baseTask: TaskRecord = {
   model: "anthropic/claude-sonnet-4-5",
   instruction: "Do the work",
   status: "queued",
-  initialTurnStarted: false,
   setupProfileRevision: 2,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:01:00Z"),
@@ -47,7 +46,7 @@ describe("renderTaskHeader", () => {
 
   it("renders running turns", () => {
     const entries = taskHeaderEntries(
-      { ...baseTask, status: "running", initialTurnStarted: true },
+      { ...baseTask, status: "running" },
       { now, runningTurn: "follow-up" },
     );
     expect(entries).toContainEqual(["Turn", "follow-up"]);
@@ -55,7 +54,7 @@ describe("renderTaskHeader", () => {
 
   it("renders waiting as ready for a follow-up", () => {
     const entries = taskHeaderEntries(
-      { ...baseTask, status: "waiting", initialTurnStarted: true },
+      { ...baseTask, status: "waiting" },
       { now },
     );
     expect(entries).toContainEqual(["State", "ready for a follow-up"]);

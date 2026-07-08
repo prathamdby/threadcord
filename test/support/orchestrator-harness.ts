@@ -16,7 +16,6 @@ import type { ViewPayload } from "../../src/discord/ui/index.js";
 import { buildCustomId } from "../../src/discord/ui/index.js";
 import type { TaskThreadRef } from "../../src/task/discord-thread.js";
 import type {
-  ClaimedTurn,
   NewTaskRecord,
   TaskRecord,
   TaskStatus,
@@ -164,7 +163,6 @@ export class InMemoryStore {
       setupProfileRevision: task.setupProfileRevision,
       ...(task.pushOverride ? { pushOverride: task.pushOverride } : {}),
       status: "draft",
-      initialTurnStarted: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -230,19 +228,6 @@ export class InMemoryStore {
     return failed;
   }
 
-  async claimNextTurn(preferTaskId?: string): Promise<ClaimedTurn | undefined> {
-    const active = [...this.tasks.values()].filter(
-      (t) => t.status === "running",
-    ).length;
-    if (active >= this.maxConcurrent) return undefined;
-
-    return (
-      this.claimFollowup(preferTaskId) ??
-      this.claimInitial(preferTaskId) ??
-      this.claimFollowup(undefined)
-    );
-  }
-
   async queueSnapshot(
     taskId: string,
   ): Promise<{ position: number; depth: number }> {
@@ -286,81 +271,6 @@ export class InMemoryStore {
     this.followups = this.followups.filter((f) => f.taskId !== taskId);
     return clone(task);
   }
-
-  async releaseRunningAfterRestart(): Promise<TaskRecord[]> {
-    const resumed: TaskRecord[] = [];
-    for (const task of this.tasks.values()) {
-      if (task.status !== "running") continue;
-      task.status = "waiting";
-      resumed.push(clone(task));
-    }
-    return resumed;
-  }
-
-  async enqueueFollowup(
-    taskId: string,
-    discordMessageId: string,
-    instruction: string,
-  ): Promise<number> {
-    const task = this.tasks.get(taskId);
-    if (!task) throw new Error(`No task ${taskId}`);
-    if (!this.followups.some((f) => f.discordMessageId === discordMessageId)) {
-      this.followups.push({
-        seq: this.seq++,
-        taskId,
-        discordMessageId,
-        instruction,
-      });
-    }
-    const target = this.followups.find(
-      (f) => f.discordMessageId === discordMessageId,
-    );
-    return this.followups.filter(
-      (f) => f.taskId === taskId && target && f.seq <= target.seq,
-    ).length;
-  }
-
-  private claimInitial(preferTaskId?: string): ClaimedTurn | undefined {
-    const candidate = [...this.tasks.values()]
-      .filter(
-        (t) =>
-          t.status === "queued" &&
-          (preferTaskId === undefined || t.id === preferTaskId),
-      )
-      .sort(byCreatedThenId)[0];
-    if (!candidate) return undefined;
-    candidate.status = "running";
-    candidate.initialTurnStarted = true;
-    return {
-      task: clone(candidate),
-      instruction: candidate.instruction,
-      source: "initial",
-      initiatorMessageId: candidate.discordMessageId,
-    };
-  }
-
-  private claimFollowup(preferTaskId?: string): ClaimedTurn | undefined {
-    const followup = this.followups
-      .filter((f) => {
-        const task = this.tasks.get(f.taskId);
-        return (
-          task?.status === "waiting" &&
-          task.initialTurnStarted &&
-          (preferTaskId === undefined || task.id === preferTaskId)
-        );
-      })
-      .sort((a, b) => a.seq - b.seq)[0];
-    if (!followup) return undefined;
-    this.followups = this.followups.filter((f) => f.seq !== followup.seq);
-    const task = this.tasks.get(followup.taskId)!;
-    task.status = "running";
-    return {
-      task: clone(task),
-      instruction: followup.instruction,
-      source: "followup",
-      initiatorMessageId: followup.discordMessageId,
-    };
-  }
 }
 
 function clone<T extends TaskRecord | undefined>(task: T): T {
@@ -370,11 +280,6 @@ function clone<T extends TaskRecord | undefined>(task: T): T {
       ? { ...task, progressMessageIds: [task.statusMessageId] }
       : { ...task };
   return normalized as T;
-}
-
-function byCreatedThenId(a: TaskRecord, b: TaskRecord): number {
-  const byTime = a.createdAt.getTime() - b.createdAt.getTime();
-  return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -556,8 +461,47 @@ export class InMemoryTurnStore {
     return turn ? this.toRecord(turn) : undefined;
   }
 
-  async deleteAgedTerminalTurns(): Promise<number> {
-    return 0;
+  async listRunningTurns(): Promise<TaskTurnRecord[]> {
+    return [...this.turns.values()]
+      .filter((t) => t.status === "running")
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((t) => this.toRecord(t));
+  }
+
+  async listQueuedTurns(): Promise<TaskTurnRecord[]> {
+    return [...this.turns.values()]
+      .filter((t) => t.status === "queued")
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((t) => this.toRecord(t));
+  }
+
+  async requeueInterruptedTurn(turnId: string): Promise<boolean> {
+    const turn = this.turns.get(turnId);
+    if (!turn || turn.status !== "running") return false;
+    turn.status = "queued";
+    turn.updatedAt = new Date();
+    return true;
+  }
+
+  async deleteAgedTerminalTurns(
+    retentionDays: number,
+    batchSize: number,
+  ): Promise<number> {
+    const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
+    const terminal = [...this.turns.values()]
+      .filter(
+        (t) =>
+          (t.status === "completed" ||
+            t.status === "failed" ||
+            t.status === "cancelled") &&
+          t.updatedAt < cutoff,
+      )
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .slice(0, batchSize);
+    for (const turn of terminal) {
+      this.turns.delete(turn.id);
+    }
+    return terminal.length;
   }
 
   /** Test helper: seed a turn directly. */
@@ -605,6 +549,7 @@ interface RecordedJob {
   options: Record<string, unknown>;
   retryCount: number;
   retryLimit: number;
+  state: "created" | "retry" | "active" | "completed" | "cancelled" | "failed";
 }
 
 export class FakeBoss {
@@ -613,7 +558,7 @@ export class FakeBoss {
   private workHandler?:
     | ((jobs: JobWithMetadata<TurnJobData>[]) => Promise<void>)
     | undefined;
-  readonly cancelCalls: unknown[] = [];
+  readonly cancelCalls: Array<[string, string | string[]]> = [];
   readonly rethrownJobs: { jobId: string; error: unknown }[] = [];
   /** When true, the next send() returns null (intake atomicity test). */
   nullOnNextSend = false;
@@ -638,6 +583,7 @@ export class FakeBoss {
       options,
       retryCount: 0,
       retryLimit,
+      state: "created",
     });
     return id;
   }
@@ -650,8 +596,37 @@ export class FakeBoss {
     this.workHandler = handler;
   }
 
-  async cancel(...args: unknown[]): Promise<void> {
-    this.cancelCalls.push(args);
+  async cancel(queue: string, id: string | string[]): Promise<void> {
+    this.cancelCalls.push([queue, id]);
+    const ids = Array.isArray(id) ? id : [id];
+    for (const jobId of ids) {
+      const job = this.jobs.find((j) => j.id === jobId);
+      if (job && job.state !== "completed" && job.state !== "failed") {
+        job.state = "cancelled";
+      }
+    }
+  }
+
+  async findJobs<T = TurnJobData>(
+    queue: string,
+    options: { key?: string; id?: string; queued?: boolean } = {},
+  ): Promise<JobWithMetadata<T>[]> {
+    return this.jobs
+      .filter((j) => {
+        if (j.queue !== queue) return false;
+        if (options.id && j.id !== options.id) return false;
+        if (options.key && j.options.singletonKey !== options.key) return false;
+        if (options.queued && j.state >= "active") return false;
+        return true;
+      })
+      .map((j) => ({
+        id: j.id,
+        name: j.queue,
+        data: j.data as T,
+        state: j.state,
+        retryCount: j.retryCount,
+        retryLimit: j.retryLimit,
+      })) as JobWithMetadata<T>[];
   }
 
   get sentJobs(): readonly RecordedJob[] {
