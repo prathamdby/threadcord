@@ -30,7 +30,14 @@ export function createSetupTools(runId: string) {
           memoryMarkdown: input.memoryMarkdown,
         });
         if (!parsed.ok) {
-          throw new Error(parsed.message);
+          throw new Error(
+            [
+              "save_threadcord_setup_profile validation failed:",
+              `- (root): ${parsed.message}`,
+              "Required: environment.install (non-empty), memoryMarkdown.",
+              "Fix the fields above and call save_threadcord_setup_profile again. Do not resend the same payload.",
+            ].join("\n"),
+          );
         }
         const store = new SetupStore(getPool());
         const run = await store.getRunByInstanceId(`setup:${runId}`);
