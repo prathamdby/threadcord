@@ -8,7 +8,7 @@
 
 </div>
 
-> `/task create` opens a public thread on your reply, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state, follow-ups, and concurrency slots. After a restart, tasks that were `running` are moved to `waiting` so follow-ups can continue.
+> `/task create` opens a public thread on your reply, clones the requested GitHub repo into `/workspaces`, and runs a Flue agent turn. Postgres holds task state and durable turn rows; pg-boss delivers turns with per-task FIFO ordering, retries, and concurrency caps. After a restart, interrupted running turns are requeued automatically.
 
 Threadcord is a Discord bot plus a small Hono server. Use `/task create` to pick a setup profile, model, and instruction in one modal. The bot opens a thread on the command reply, clones the repo, and dispatches work to a Flue coding agent. Thread messages handle follow-ups; thread commands handle status, cancel, abort, and done.
 
@@ -78,7 +78,7 @@ npm run test
 npm run build
 ```
 
-`npm run dev` runs `flue dev --target node`. Flue generates the Node server (`dist/server.mjs` after build) and dispatch wiring. `npm start` runs the built server only.
+`npm run dev` runs `flue dev --target node`. Flue generates the Node server (`dist/server.mjs` after build) and dispatch wiring. `npm start` runs the built server only and does not load `.env` — export variables or use Docker Compose.
 
 ## Configure model providers
 
@@ -126,6 +126,21 @@ PROVIDER_AGENT_ROUTER_HEADERS={"User-Agent":"Threadcord"}
 Inside Docker Compose, `localhost` in a provider URL points at the container, not your host. Use `host.docker.internal`, a Compose service name, or host networking.
 
 Allowed models are derived at startup from these provider blocks. The create modal requires a model; it is pre-filled with the default (first configured model).
+
+## Message format
+
+When `DISCORD_CHANNEL_ID` is set, plain messages in that control channel can create tasks in addition to `/task create`. Put the instruction first, then keyed metadata lines at the end:
+
+```text
+Fix the login bug
+
+repo: owner/repo
+branch: main
+model: anthropic/claude-sonnet-4-5
+push: threadcord/feat/login-fix
+```
+
+`repo` and `branch` are required. `model` and `push` are optional. Attachments can supply content when the instruction prose is empty. Omit `DISCORD_CHANNEL_ID` to allow only `/task create`.
 
 ## Creating tasks
 
@@ -220,7 +235,7 @@ Each control-channel message gets its own public thread. Status updates and foll
 
 ### Concurrency and follow-ups
 
-`MAX_CONCURRENT_TASKS` caps parallel agent runs. Extra tasks queue. Follow-up messages in a thread queue behind the current turn. On each task’s **initial** turn only, Threadcord runs the profile’s `install` command in the task workspace before dispatching the coding agent (follow-up turns reuse the checkout without re-running install).
+`MAX_CONCURRENT_TASKS` caps parallel agent turns across the process (pg-boss `localConcurrency`). Extra tasks and follow-ups queue as durable `task_turns` rows delivered by pg-boss with per-task FIFO ordering (`key_strict_fifo`). Follow-up messages in a thread queue behind the current turn for that task. On each task’s **initial** turn only, Threadcord runs the profile’s `install` command in the task workspace before dispatching the coding agent (follow-up turns reuse the checkout without re-running install).
 
 ### You run the stack
 
@@ -231,7 +246,7 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 | Capability | Where           | What happens                                                                  |
 | ---------- | --------------- | ----------------------------------------------------------------------------- |
 | New task   | Control channel | Thread created, repo cloned, first turn queued (requires ready setup profile) |
-| Follow-up  | Task thread     | Instruction queued; runs when task is `waiting`                               |
+| Follow-up  | Task thread     | Turn row + pg-boss job queued; runs after prior turn for that task finishes   |
 | `status`   | Task thread     | Replies with a jump link to the pinned task header                         |
 | `abort`    | Task thread     | Confirms, then stops in-flight agent work and cancels the task (`/abort` or `abort`) |
 | `cancel`   | Task thread     | Confirms, then cancels task; current turn may finish; no further dispatches |
@@ -247,19 +262,22 @@ Postgres, workspace volumes, and API keys stay on your machine or VPS.
 flowchart TD
   discord["Discord messages"] --> gateway["gateway.ts"]
   gateway --> orchestrator["TaskOrchestrator"]
-  orchestrator --> store["Postgres TaskStore"]
-  orchestrator --> bootstrap["git clone and checkout"]
-  orchestrator --> flue["Flue coding agent"]
+  orchestrator --> intake["task_turns row + pg-boss send"]
+  intake --> worker["pg-boss worker"]
+  worker --> executor["turn-executor.ts"]
+  executor --> bootstrap["git clone and checkout"]
+  executor --> flue["Flue coding agent"]
   flue --> githubApi["GitHub API"]
   flue --> observe["observe-bridge.ts"]
   observe --> thread["Discord thread progress"]
 ```
 
 1. [`gateway.ts`](src/discord/gateway.ts) routes channel messages to task creation and thread messages to follow-ups.
-2. [`orchestrator.ts`](src/task/orchestrator.ts) parses the message, creates the thread, bootstraps the workspace, calls `dispatch`.
-3. [`store.ts`](src/task/store.ts) persists state and claims turns under a Postgres advisory lock.
-4. [`agents/coding.ts`](src/agents/coding.ts) runs the Flue agent with git/bash tools and the GitHub PR tool.
-5. [`observe-bridge.ts`](src/discord/observe-bridge.ts) streams agent progress lines into the thread. [`TaskOrchestrator`](src/task/orchestrator.ts) refreshes the pinned Components-v2 task header for live state.
+2. [`orchestrator.ts`](src/task/orchestrator.ts) admits tasks and follow-ups in a Postgres transaction: insert a `task_turns` row and `boss.send` atomically.
+3. pg-boss delivers `task-turn` jobs to [`turn-executor.ts`](src/task/turn-executor.ts), which claims the turn, bootstraps the workspace, dispatches the Flue agent, and awaits an in-process completion bridge.
+4. [`store.ts`](src/task/store.ts) and [`turn-store.ts`](src/task/turn-store.ts) persist task and turn state; [`boss.ts`](src/task/boss.ts) owns queue delivery, retries, and per-task FIFO.
+5. [`agents/coding.ts`](src/agents/coding.ts) runs the Flue agent with git/bash tools and the GitHub PR tool.
+6. [`observe-bridge.ts`](src/discord/observe-bridge.ts) streams agent progress into the thread and resolves turn outcomes on agent end/failure. [`TaskOrchestrator`](src/task/orchestrator.ts) refreshes the pinned Components-v2 task header for live state.
 
 ## Data privacy
 
@@ -285,9 +303,9 @@ Clone, push, and PR creation use your `GITHUB_TOKEN`. Repo access is bounded by 
 
 The bot needs the **Manage Messages** permission to pin the task header message. Without it, pinning fails silently (logged server-side) and the task continues normally. The header is still posted and editable — only the pin is missing.
 
-### Restart leaves tasks in `waiting`
+### Restart requeues interrupted turns
 
-After a restart, tasks that were `running` are moved to `waiting`. If a Discord thread is no longer accessible (archived, deleted, or permissions changed), the restart notification for that task is logged and skipped. Other tasks and scheduler slots are unaffected.
+After a restart, turns stuck in `running` are reset to `queued`, their pg-boss jobs are re-sent, and the task moves back to `queued` until the turn runs again. Orphaned queued turns without a pg-boss job are enqueued on boot. If a Discord thread is no longer accessible (archived, deleted, or permissions changed), the restart notification for that task is logged and skipped. Other tasks and queue slots are unaffected.
 
 ### Agent turns end with generic failure
 
