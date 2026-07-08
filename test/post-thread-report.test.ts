@@ -9,7 +9,7 @@ import {
   setPendingUserTurnMessage,
   takePendingUserTurnMessages,
 } from "../src/discord/user-turn-message.js";
-import { World, flush } from "./support/orchestrator-harness.js";
+import { config, World, flush } from "./support/orchestrator-harness.js";
 
 const VALID_PART = "## Summary\nFixed the login redirect loop in auth.ts.";
 const VALID_PART_2 = "## Evidence\nConsole log shows token=null at redirect.";
@@ -68,8 +68,12 @@ describe("post_thread_report delivery", () => {
     world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
       posts.push(content);
     });
-    const result = await world.submitRaw("m-report-fail");
+    const result = await world.submitRaw("m-report-fail", {}, {
+      autoDeliver: false,
+    });
     const task = result.task!;
+    await world.deliver({ retryCount: config.QUEUE_RETRY_LIMIT });
+    await flush();
 
     queuePendingUserTurnMessages(task.flueInstanceId, ["Should not post"]);
     await world.orchestrator.handleAgentFailure(

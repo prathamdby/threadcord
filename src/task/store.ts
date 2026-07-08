@@ -134,6 +134,19 @@ export class TaskStore {
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS task_turns_retention_idx ON task_turns(status, updated_at)
     `);
+    // One-time backfill: copy pending followups from the legacy
+    // task_followups table into task_turns for tasks still in a non-terminal
+    // state. Backfilled turns have rows but no pg-boss jobs; plan 004's boot
+    // reconciliation enqueues jobs for orphaned queued turns. Idempotent via
+    // ON CONFLICT DO NOTHING.
+    await this.pool.query(`
+      INSERT INTO task_turns (id, task_id, source, instruction, discord_message_id, status, created_at)
+      SELECT gen_random_uuid(), f.task_id, 'followup', f.instruction, f.discord_message_id, 'queued', f.created_at
+      FROM task_followups f
+      JOIN tasks t ON t.id = f.task_id
+      WHERE t.status IN ('queued', 'running', 'waiting')
+      ON CONFLICT (discord_message_id) DO NOTHING
+    `);
   }
 
   async createDraft(

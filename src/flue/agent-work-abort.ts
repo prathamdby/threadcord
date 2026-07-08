@@ -93,3 +93,21 @@ export async function abortAgentWorkForInstance(
 export function sessionKeyForInstance(instanceId: string): string {
   return createSessionStorageKey(instanceId, "default", "default");
 }
+
+/**
+ * Check whether a Flue agent submission is currently running for the given
+ * instance. Used by the turn executor's resume path to decide whether to
+ * re-dispatch (crash recovery) or simply await the existing turn's outcome.
+ * Treats "no execution store" as "not live" (early in boot or unregistered).
+ */
+export async function isFlueInstanceRunning(
+  instanceId: string,
+): Promise<boolean> {
+  const submissions = executionStore?.submissions;
+  if (!submissions) return false;
+  const sessionKey = sessionKeyForInstance(instanceId);
+  for (const submission of await submissions.listRunningSubmissions()) {
+    if (submission.sessionKey === sessionKey) return true;
+  }
+  return false;
+}

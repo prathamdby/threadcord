@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { JobWithMetadata } from "pg-boss";
 import {
   TaskOrchestrator,
   type BootstrapTurn,
@@ -19,9 +20,16 @@ import type {
   NewTaskRecord,
   TaskRecord,
   TaskStatus,
+  TaskTurnRecord,
   ThreadMessage,
   ThreadRef,
+  TurnStatus,
 } from "../../src/types.js";
+import type { TurnStore } from "../../src/task/turn-store.js";
+import type { TurnJobData } from "../../src/task/turn-executor.js";
+import { executeTurnJob } from "../../src/task/turn-executor.js";
+import { TASK_TURN_QUEUE } from "../../src/task/boss.js";
+import type { Pool, PoolClient } from "pg";
 
 const TEST_WORKSPACE_ROOT = join(process.cwd(), "test", "tmp", "workspaces");
 
@@ -110,6 +118,11 @@ export class InMemoryStore {
 
   taskCount(): number {
     return this.tasks.size;
+  }
+
+  runningCount(): number {
+    return [...this.tasks.values()].filter((t) => t.status === "running")
+      .length;
   }
 
   async getByMessageId(messageId: string): Promise<TaskRecord | undefined> {
@@ -364,6 +377,347 @@ function byCreatedThenId(a: TaskRecord, b: TaskRecord): number {
   return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
 }
 
+// ---------------------------------------------------------------------------
+// In-memory TurnStore double (mirrors src/task/turn-store.ts semantics)
+// ---------------------------------------------------------------------------
+
+interface StoredTurn {
+  id: string;
+  taskId: string;
+  source: "initial" | "followup";
+  instruction: string;
+  discordMessageId?: string;
+  status: TurnStatus;
+  attemptCount: number;
+  cancelRequestedAt?: Date;
+  lastError?: string;
+  createdAt: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+  updatedAt: Date;
+}
+
+const TERMINAL_TURN_STATUSES: readonly TurnStatus[] = [
+  "cancelled",
+  "completed",
+  "failed",
+];
+
+export class InMemoryTurnStore {
+  private readonly turns = new Map<string, StoredTurn>();
+  /** When true, the next insertTurn simulates a duplicate (ON CONFLICT). */
+  duplicateNextInsert = false;
+
+  async insertTurn(
+    turn: {
+      id: string;
+      taskId: string;
+      source: "initial" | "followup";
+      instruction: string;
+      discordMessageId?: string;
+    },
+    _client?: PoolClient,
+  ): Promise<{ created: boolean }> {
+    if (this.duplicateNextInsert) {
+      this.duplicateNextInsert = false;
+      return { created: false };
+    }
+    if (turn.discordMessageId) {
+      for (const existing of this.turns.values()) {
+        if (existing.discordMessageId === turn.discordMessageId) {
+          return { created: false };
+        }
+      }
+    }
+    const now = new Date();
+    this.turns.set(turn.id, {
+      id: turn.id,
+      taskId: turn.taskId,
+      source: turn.source,
+      instruction: turn.instruction,
+      ...(turn.discordMessageId
+        ? { discordMessageId: turn.discordMessageId }
+        : {}),
+      status: "queued",
+      attemptCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { created: true };
+  }
+
+  async claimQueuedTurn(
+    turnId: string,
+  ): Promise<TaskTurnRecord | undefined> {
+    const turn = this.turns.get(turnId);
+    if (!turn || turn.status !== "queued" || turn.cancelRequestedAt) {
+      return undefined;
+    }
+    turn.status = "running";
+    turn.attemptCount += 1;
+    turn.startedAt ??= new Date();
+    turn.updatedAt = new Date();
+    return this.toRecord(turn);
+  }
+
+  async resumeTurnForExecution(turnId: string): Promise<boolean> {
+    const turn = this.turns.get(turnId);
+    if (!turn) return false;
+    if (turn.status === "queued" && !turn.cancelRequestedAt) {
+      turn.status = "running";
+      turn.attemptCount += 1;
+      turn.startedAt ??= new Date();
+      turn.updatedAt = new Date();
+      return true;
+    }
+    return turn.status === "running" && !turn.cancelRequestedAt;
+  }
+
+  async markTurnCompleted(turnId: string): Promise<boolean> {
+    const turn = this.turns.get(turnId);
+    if (!turn || turn.status !== "running" || turn.cancelRequestedAt) {
+      return false;
+    }
+    turn.status = "completed";
+    turn.completedAt = new Date();
+    turn.updatedAt = new Date();
+    return true;
+  }
+
+  async markTurnFailed(turnId: string, lastError: string): Promise<boolean> {
+    const turn = this.turns.get(turnId);
+    if (!turn || turn.status !== "running" || turn.cancelRequestedAt) {
+      return false;
+    }
+    turn.status = "failed";
+    turn.lastError = lastError;
+    turn.completedAt = new Date();
+    turn.updatedAt = new Date();
+    return true;
+  }
+
+  async markTurnRetrying(turnId: string, lastError: string): Promise<boolean> {
+    const turn = this.turns.get(turnId);
+    if (!turn || turn.status !== "running" || turn.cancelRequestedAt) {
+      return false;
+    }
+    turn.status = "queued";
+    turn.lastError = lastError;
+    turn.updatedAt = new Date();
+    return true;
+  }
+
+  async requestCancel(turnId: string): Promise<void> {
+    const turn = this.turns.get(turnId);
+    if (!turn) return;
+    turn.cancelRequestedAt ??= new Date();
+    turn.updatedAt = new Date();
+  }
+
+  async markTurnCancelled(turnId: string): Promise<void> {
+    const turn = this.turns.get(turnId);
+    if (!turn) return;
+    if (turn.status === "queued" || turn.status === "running") {
+      turn.status = "cancelled";
+      turn.completedAt ??= new Date();
+      turn.updatedAt = new Date();
+    }
+  }
+
+  async cancelPendingTurnsForTask(
+    taskId: string,
+    _client?: PoolClient,
+  ): Promise<string[]> {
+    const cancelled: string[] = [];
+    for (const turn of this.turns.values()) {
+      if (turn.taskId === taskId && turn.status === "queued") {
+        turn.status = "cancelled";
+        turn.completedAt ??= new Date();
+        turn.updatedAt = new Date();
+        cancelled.push(turn.id);
+      }
+    }
+    return cancelled;
+  }
+
+  async shouldSkipTurn(turnId: string): Promise<boolean> {
+    const turn = this.turns.get(turnId);
+    if (!turn) return true;
+    if (
+      (TERMINAL_TURN_STATUSES as readonly string[]).includes(turn.status)
+    ) {
+      return true;
+    }
+    return turn.cancelRequestedAt !== undefined;
+  }
+
+  async getTurn(turnId: string): Promise<TaskTurnRecord | undefined> {
+    const turn = this.turns.get(turnId);
+    return turn ? this.toRecord(turn) : undefined;
+  }
+
+  async deleteAgedTerminalTurns(): Promise<number> {
+    return 0;
+  }
+
+  /** Test helper: seed a turn directly. */
+  seedTurn(turn: StoredTurn): void {
+    this.turns.set(turn.id, { ...turn });
+  }
+
+  /** Test helper: get a snapshot of a turn. */
+  snapshotTurn(turnId: string): TaskTurnRecord | undefined {
+    const turn = this.turns.get(turnId);
+    return turn ? this.toRecord(turn) : undefined;
+  }
+
+  private toRecord(turn: StoredTurn): TaskTurnRecord {
+    return {
+      id: turn.id,
+      taskId: turn.taskId,
+      source: turn.source,
+      instruction: turn.instruction,
+      ...(turn.discordMessageId
+        ? { discordMessageId: turn.discordMessageId }
+        : {}),
+      status: turn.status,
+      attemptCount: turn.attemptCount,
+      ...(turn.cancelRequestedAt
+        ? { cancelRequestedAt: turn.cancelRequestedAt }
+        : {}),
+      ...(turn.lastError ? { lastError: turn.lastError } : {}),
+      createdAt: turn.createdAt,
+      ...(turn.startedAt ? { startedAt: turn.startedAt } : {}),
+      ...(turn.completedAt ? { completedAt: turn.completedAt } : {}),
+      updatedAt: turn.updatedAt,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FakeBoss — in-memory pg-boss double
+// ---------------------------------------------------------------------------
+
+interface RecordedJob {
+  id: string;
+  queue: string;
+  data: TurnJobData;
+  options: Record<string, unknown>;
+  retryCount: number;
+  retryLimit: number;
+}
+
+export class FakeBoss {
+  private jobs: RecordedJob[] = [];
+  private deliveredIds = new Set<string>();
+  private workHandler?:
+    | ((jobs: JobWithMetadata<TurnJobData>[]) => Promise<void>)
+    | undefined;
+  readonly cancelCalls: unknown[] = [];
+  readonly rethrownJobs: { jobId: string; error: unknown }[] = [];
+  /** When true, the next send() returns null (intake atomicity test). */
+  nullOnNextSend = false;
+
+  async send(
+    queue: string,
+    data: TurnJobData,
+    options: Record<string, unknown> = {},
+  ): Promise<string | null> {
+    if (this.nullOnNextSend) {
+      this.nullOnNextSend = false;
+      return null;
+    }
+    const id = `job-${this.jobs.length + 1}`;
+    const retryLimit =
+      (options.retryLimit as number | undefined) ??
+      config.QUEUE_RETRY_LIMIT;
+    this.jobs.push({
+      id,
+      queue,
+      data,
+      options,
+      retryCount: 0,
+      retryLimit,
+    });
+    return id;
+  }
+
+  async work(
+    _queue: string,
+    _options: Record<string, unknown>,
+    handler: (jobs: JobWithMetadata<TurnJobData>[]) => Promise<void>,
+  ): Promise<void> {
+    this.workHandler = handler;
+  }
+
+  async cancel(...args: unknown[]): Promise<void> {
+    this.cancelCalls.push(args);
+  }
+
+  get sentJobs(): readonly RecordedJob[] {
+    return this.jobs;
+  }
+
+  get pendingJobs(): RecordedJob[] {
+    return this.jobs.filter((j) => !this.deliveredIds.has(j.id));
+  }
+
+  /**
+   * Claim the next pending job (or a specific one by id), mark it delivered,
+   * and return a JobWithMetadata ready for the work handler. Returns undefined
+   * if no pending job exists.
+   */
+  claimNextJob(
+    jobId?: string,
+    retryCount?: number,
+  ): { job: JobWithMetadata<TurnJobData>; recorded: RecordedJob } | undefined {
+    let recorded: RecordedJob | undefined;
+    if (jobId) {
+      recorded = this.jobs.find((j) => j.id === jobId);
+    } else {
+      recorded = this.pendingJobs[0];
+    }
+    if (!recorded) return undefined;
+    this.deliveredIds.add(recorded.id);
+    const job: JobWithMetadata<TurnJobData> = {
+      id: recorded.id,
+      name: recorded.queue,
+      data: recorded.data,
+      retryCount: retryCount ?? recorded.retryCount,
+      retryLimit: recorded.retryLimit,
+    } as JobWithMetadata<TurnJobData>;
+    return { job, recorded };
+  }
+
+  recordRethrow(jobId: string, error: unknown): void {
+    this.rethrownJobs.push({ jobId, error });
+  }
+
+  get workHandlerFn():
+    | ((jobs: JobWithMetadata<TurnJobData>[]) => Promise<void>)
+    | undefined {
+    return this.workHandler;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FakePool / FakePoolClient — satisfy inTransaction without a real database
+// ---------------------------------------------------------------------------
+
+class FakePoolClient {
+  async query(): Promise<{ rows: unknown[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  release(): void {}
+}
+
+export class FakePool {
+  async connect(): Promise<FakePoolClient> {
+    return new FakePoolClient();
+  }
+}
+
 export interface ThreadFailure {
   createThread?: boolean;
   statusSend?: boolean;
@@ -420,8 +774,11 @@ export interface WorldOverrides {
 
 export class World {
   readonly store: InMemoryStore;
+  readonly turnStore: InMemoryTurnStore;
+  readonly boss: FakeBoss;
   readonly orchestrator: TaskOrchestrator;
   readonly dispatched: string[] = [];
+  private readonly maxConcurrent: number;
   private counter = 0;
 
   constructor(
@@ -429,7 +786,11 @@ export class World {
     typingIntervalMs = 9000,
     overrides: WorldOverrides = {},
   ) {
+    this.maxConcurrent = maxConcurrent;
     this.store = new InMemoryStore(maxConcurrent);
+    this.turnStore = new InMemoryTurnStore();
+    this.boss = new FakeBoss();
+    const fakePool = new FakePool();
     this.orchestrator = new TaskOrchestrator(
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
@@ -446,6 +807,22 @@ export class World {
         }),
       async () => {},
       typingIntervalMs,
+      {
+        boss: this.boss as unknown as import("pg-boss").PgBoss,
+        turnStore: this.turnStore as unknown as TurnStore,
+        pool: fakePool as unknown as Pool,
+      },
+    );
+    // Register the turn worker (mirrors app.ts wiring).
+    const turnExecutorDeps = this.orchestrator.getTurnExecutorDeps();
+    void this.boss.work(
+      TASK_TURN_QUEUE,
+      { localConcurrency: maxConcurrent },
+      async (jobs: JobWithMetadata<TurnJobData>[]) => {
+        const job = jobs[0];
+        if (!job) return;
+        await executeTurnJob(turnExecutorDeps, job);
+      },
     );
   }
 
@@ -453,9 +830,66 @@ export class World {
     return `thread-${messageId}`;
   }
 
+  /**
+   * Deliver the next pending pg-boss job (or a specific one by id) to the
+   * registered turn worker. The executor runs in the background (fire-and-
+   * forget) so it can suspend at `waitForTurnOutcome` until the test resolves
+   * the outcome via `handleAgentEnd`/`handleAgentFailure`. Returns true if a
+   * job was delivered.
+   */
+  async deliver(
+    options?: {
+      retryCount?: number;
+      jobId?: string;
+      forceRedeliver?: boolean;
+    },
+  ): Promise<boolean> {
+    const handler = this.boss.workHandlerFn;
+    if (!handler) return false;
+    let job: JobWithMetadata<TurnJobData> | undefined;
+    let recordedId: string | undefined;
+    if (options?.forceRedeliver && options.jobId) {
+      const recorded = this.boss.sentJobs.find((j) => j.id === options.jobId);
+      if (!recorded) return false;
+      job = {
+        id: recorded.id,
+        name: recorded.queue,
+        data: recorded.data,
+        retryCount: options.retryCount ?? 0,
+        retryLimit: recorded.retryLimit,
+      } as JobWithMetadata<TurnJobData>;
+      recordedId = recorded.id;
+    } else {
+      const claimed = this.boss.claimNextJob(
+        options?.jobId,
+        options?.retryCount,
+      );
+      if (!claimed) return false;
+      job = claimed.job;
+      recordedId = claimed.recorded.id;
+    }
+    void handler([job]).catch((err) => {
+      this.boss.recordRethrow(recordedId!, err);
+    });
+    await flush();
+    return true;
+  }
+
+  /**
+   * Auto-deliver pending jobs while there are free concurrency slots,
+   * simulating pg-boss's localConcurrency scheduling without timers.
+   */
+  private async autoDeliver(): Promise<void> {
+    while (this.store.runningCount() < this.maxConcurrent) {
+      const delivered = await this.deliver();
+      if (!delivered) break;
+    }
+  }
+
   async submitRaw(
     messageId: string,
     failure: ThreadFailure = {},
+    options?: { autoDeliver?: boolean },
   ): Promise<SubmitResult> {
     const threadId = this.threadIdFor(messageId);
     const replies: string[] = [];
@@ -530,6 +964,9 @@ export class World {
     if (!result.ok) {
       replies.push(result.reason);
     }
+    if (options?.autoDeliver ?? true) {
+      await this.autoDeliver();
+    }
     await flush();
     return {
       task: this.store.findByMessageId(messageId),
@@ -548,6 +985,7 @@ export class World {
       attachments?: import("../../src/types.js").ThreadMessageAttachment[];
       channelId?: string;
       failure?: ThreadFailure;
+      autoDeliver?: boolean;
     } = {},
   ): Promise<SubmitResult> {
     const threadId = this.threadIdFor(messageId);
@@ -630,6 +1068,9 @@ export class World {
         message.reactionLog.push(`unreact:${emoji}`);
       },
     });
+    if (options.autoDeliver ?? true) {
+      await this.autoDeliver();
+    }
     await flush();
 
     return {
@@ -679,6 +1120,7 @@ export class World {
       },
     };
     await this.orchestrator.handleThreadMessage(message);
+    await this.autoDeliver();
     await flush();
     return { message, replies };
   }
@@ -789,6 +1231,7 @@ export class World {
     await this.orchestrator.resumeAfterRestart(
       notifyThread ?? (async () => {}),
     );
+    await this.autoDeliver();
     await flush();
   }
 }

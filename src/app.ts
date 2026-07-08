@@ -17,7 +17,10 @@ import { SetupStore } from "./setup/store.js";
 import { startWorkspaceJanitor } from "./task/janitor.js";
 import { TaskOrchestrator } from "./task/orchestrator.js";
 import { TaskStore } from "./task/store.js";
-import { createStartedBoss, ensureTaskQueues, stopBoss } from "./task/boss.js";
+import { TASK_TURN_QUEUE, createStartedBoss, ensureTaskQueues, stopBoss } from "./task/boss.js";
+import { TurnStore } from "./task/turn-store.js";
+import { executeTurnJob, type TurnJobData } from "./task/turn-executor.js";
+import type { JobWithMetadata } from "pg-boss";
 
 export async function createApp(): Promise<{
   app: Hono;
@@ -44,7 +47,17 @@ export async function createApp(): Promise<{
   const mcpServers = await mcpStore.listServers();
   warmMcpPool(mcpServers.map(rowToMcpConfig));
 
-  const orchestrator = new TaskOrchestrator(config, store, setupStore);
+  const turnStore = new TurnStore(pool);
+  const orchestrator = new TaskOrchestrator(
+    config,
+    store,
+    setupStore,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { boss, turnStore, pool },
+  );
   const setupOrchestrator = new SetupOrchestrator(config, setupStore);
   const discordClient = startDiscordGateway(
     config.DISCORD_BOT_TOKEN,
@@ -105,6 +118,28 @@ export async function createApp(): Promise<{
     .catch((error) => {
       console.error("[threadcord] startup reconciliation failed", error);
     });
+
+  // Register the pg-boss turn worker. localConcurrency caps concurrent turns
+  // per process (replaces the old running-count gate); heartbeatRefreshSeconds
+  // keeps the job alive while the Flue agent runs; includeMetadata exposes
+  // retryCount/retryLimit so the executor can classify terminal vs retriable.
+  const turnExecutorDeps = orchestrator.getTurnExecutorDeps();
+  await boss.work(
+    TASK_TURN_QUEUE,
+    {
+      localConcurrency: config.MAX_CONCURRENT_TASKS,
+      heartbeatRefreshSeconds: Math.max(
+        1,
+        Math.floor(config.QUEUE_HEARTBEAT_SECONDS / 2),
+      ),
+      includeMetadata: true as const,
+    },
+    async (jobs: JobWithMetadata<TurnJobData>[]) => {
+      const job = jobs[0];
+      if (!job) return;
+      await executeTurnJob(turnExecutorDeps, job);
+    },
+  );
 
   const app = new Hono();
 
