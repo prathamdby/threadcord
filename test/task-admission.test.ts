@@ -178,28 +178,7 @@ describe("duplicate control messages", () => {
   });
 });
 
-describe("scheduler ignores unattached drafts", () => {
-  it("cannot claim a draft until it is attached and promoted", async () => {
-    const store = new InMemoryStore(1);
-    const input = draftInput("m-draft");
-    const { created } = await store.createDraft(input);
-    expect(created).toBe(true);
-
-    expect(await store.claimNextTurn()).toBeUndefined();
-    expect(await store.claimNextTurn(input.id)).toBeUndefined();
-
-    const promoted = await store.attachAndPromote(
-      input.id,
-      "thread-real",
-      "discord:thread:thread-real",
-      "status-1",
-    );
-    expect(promoted!.status).toBe("queued");
-
-    const claimed = await store.claimNextTurn();
-    expect(claimed!.task.id).toBe(input.id);
-  });
-
+describe("draft promotion", () => {
   it("only promotes a draft once", async () => {
     const store = new InMemoryStore(1);
     const input = draftInput("m-once");
@@ -256,8 +235,8 @@ describe("restart reconciliation with bad Discord threads", () => {
     expect(result1.task!.status).toBe("running");
     expect(result2.task!.status).toBe("running");
 
-    // Restart: releaseRunningAfterRestart moves them to waiting, then
-    // notifications fire. The notify callback throws for the bad thread.
+    // Restart: interrupted turns are requeued, then notifications fire.
+    // The notify callback throws for the bad thread.
     let notifyCalls = 0;
     await world.restart(async (threadId, _content) => {
       notifyCalls++;
@@ -268,10 +247,10 @@ describe("restart reconciliation with bad Discord threads", () => {
 
     // Both tasks were visited.
     expect(notifyCalls).toBe(2);
-    // The good task is still waiting (not broken by the bad one).
-    expect(world.store.snapshot(goodTaskId).status).toBe("waiting");
-    // The bad task is also still waiting (notification failure doesn't change state).
-    expect(world.store.snapshot(result1.task!.id).status).toBe("waiting");
+    // Both tasks were requeued and auto-delivered (notification failure
+    // on one doesn't block the other).
+    expect(world.store.snapshot(goodTaskId).status).toBe("running");
+    expect(world.store.snapshot(result1.task!.id).status).toBe("running");
   });
 
   it("fills scheduler slots after restart even when a notification fails", async () => {
@@ -285,9 +264,9 @@ describe("restart reconciliation with bad Discord threads", () => {
     const resultQueued = await world.submitRaw("m-queued");
     expect(resultQueued.task!.status).toBe("queued");
 
-    // Restart: releaseRunningAfterRestart moves the running task to waiting,
-    // freeing the slot. The notification throws, but the queued task should
-    // still be claimed and dispatched.
+    // Restart: the running task's turn is requeued, freeing the slot.
+    // The notification throws, but the queued task should still be
+    // dispatched.
     world.dispatched.length = 0;
     await world.restart(async () => {
       throw new Error("discord: channel not sendable");

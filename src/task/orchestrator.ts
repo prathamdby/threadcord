@@ -6,10 +6,7 @@ import { formatTaskInstructionForDiscord } from "../discord/task-instruction-mes
 import { renderTaskHeader } from "../discord/task-header.js";
 import type { ViewPayload } from "../discord/ui/index.js";
 import { errorView } from "../discord/ui/index.js";
-import {
-  clearPendingUserTurnMessage,
-  takePendingUserTurnMessages,
-} from "../discord/user-turn-message.js";
+import { takePendingUserTurnMessages } from "../discord/user-turn-message.js";
 import type { AppConfig } from "../config.js";
 import { resolveTaskRequest } from "../config.js";
 import codingAgent from "../agents/coding.js";
@@ -18,17 +15,12 @@ import {
   pendingThreadId,
   toFlueInstanceId,
 } from "../ids.js";
-import {
-  bootstrapWorkspace,
-  runSetupInstall,
-  runSetupSkillsInstall,
-} from "./bootstrap.js";
+import { bootstrapWorkspace, runSetupInstall } from "./bootstrap.js";
 import type { BootstrapMode } from "./bootstrap.js";
 import type { PendingTaskCreate } from "./create-flow.js";
 import { parseTaskMessage } from "./parser.js";
 import { validateTaskPolicy } from "./policy.js";
 import type { TaskStore } from "./store.js";
-import type { SetupEnvironment } from "../setup/profile.js";
 import type { SetupStore } from "../setup/store.js";
 import { summarizeError } from "../util/redact.js";
 import {
@@ -51,15 +43,26 @@ import {
 import { threadName } from "./thread-name.js";
 import type {
   ChannelMessage,
-  ClaimedTurn,
   DispatchAgentInput,
   TaskRecord,
   TaskRequest,
   TaskStatus,
+  TaskTurnRecord,
   ThreadMessage,
   ThreadMessageAttachment,
   ThreadMessageReplyQuote,
 } from "../types.js";
+import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
+import { inTransaction, pgBossDb } from "../db.js";
+import { TASK_TURN_QUEUE, releaseTaskSingleton } from "./boss.js";
+import { resolveTurnOutcome } from "./turn-completion.js";
+import type { TurnStore } from "./turn-store.js";
+import type {
+  TurnExecutorDeps,
+  TurnExecutorHooks,
+  TurnJobData,
+} from "./turn-executor.js";
 
 export type StartTaskFromSlashResult =
   | { ok: false; reason: string }
@@ -151,6 +154,13 @@ const TERMINAL_STATUSES = new Set<TaskStatus>([
   "cancelled",
 ]);
 
+/** pg-boss queue wiring passed into the orchestrator for transactional intake. */
+export interface TurnQueueDeps {
+  boss: PgBoss;
+  turnStore: TurnStore;
+  pool: Pool;
+}
+
 export class TaskOrchestrator {
   private postMessage?: (threadId: string, content: string) => Promise<void>;
   private editHeaderMessage?: EditHeaderMessage;
@@ -169,7 +179,46 @@ export class TaskOrchestrator {
     private readonly bootstrap: BootstrapTurn = bootstrapWorkspace,
     private readonly runSetupInstallTurn: RunSetupInstallTurn = runSetupInstall,
     private readonly typingIntervalMs: number = TYPING_INTERVAL_MS,
+    private readonly queue?: TurnQueueDeps,
   ) {}
+
+  /** Throw if the pg-boss queue was not wired (tests omit it). */
+  private requireQueue(): TurnQueueDeps {
+    if (!this.queue) {
+      throw new Error("pg-boss queue not configured for this orchestrator");
+    }
+    return this.queue;
+  }
+
+  /** Build the dependency bundle the turn executor needs. */
+  getTurnExecutorDeps(): TurnExecutorDeps {
+    const queue = this.requireQueue();
+    const hooks: TurnExecutorHooks = {
+      beginTurn: (task, initiatorMessageId) =>
+        this.beginTurn(task, initiatorMessageId),
+      refreshHeader: async (taskId, runningTurn) => {
+        await this.refreshHeader(taskId, runningTurn);
+      },
+      postToThread: (threadId, content) => this.post(threadId, content),
+      startTypingLoopForTask: (task) => this.startTypingLoopForTask(task),
+      scheduleRename: (threadId, instruction) =>
+        this.scheduleRename(threadId, instruction),
+      onTurnCompleted: (task) => this.onTurnCompleted(task),
+      onTurnFailed: (task, errorSummary) =>
+        this.onTurnFailed(task, errorSummary),
+      clearInFlightState: (instanceId) => this.clearInFlight(instanceId),
+    };
+    return {
+      turnStore: queue.turnStore,
+      taskStore: this.store,
+      setupStore: this.setupStore,
+      config: this.config,
+      dispatchTurn: this.dispatchTurn,
+      bootstrap: this.bootstrap,
+      runSetupInstallTurn: this.runSetupInstallTurn,
+      hooks,
+    };
+  }
 
   setMilestonePublisher(
     postMessage: (threadId: string, content: string) => Promise<void>,
@@ -192,14 +241,40 @@ export class TaskOrchestrator {
   async resumeAfterRestart(
     notifyThread: (threadId: string, content: string) => Promise<void>,
   ): Promise<void> {
-    const released = await this.store.releaseRunningAfterRestart();
-    for (const task of released) {
+    const { boss, turnStore } = this.requireQueue();
+
+    // 1. Requeue turns stuck running (interrupted by a crash). The process
+    //    just started, so no Flue submission is live.
+    const runningTurns = await turnStore.listRunningTurns();
+    for (const turn of runningTurns) {
+      const task = await this.store.getById(turn.taskId);
+      if (!task) continue;
+
+      // Clear the dead job blocking the FIFO key for this task.
+      await releaseTaskSingleton(boss, task.id);
+      // Reset the turn: running → queued (attempt_count preserved).
+      await turnStore.requeueInterruptedTurn(turn.id);
+      // Transition the task: running → queued.
+      await this.store.transition(task.id, "running", "queued");
+      // Fresh boss.send for the requeued turn.
+      const jobId = await boss.send(
+        TASK_TURN_QUEUE,
+        {
+          turnId: turn.id,
+          taskId: task.id,
+          flueInstanceId: task.flueInstanceId,
+          source: turn.source,
+        },
+        { singletonKey: task.id },
+      );
+      if (jobId === null) throw new Error("boss.send returned null for requeued turn");
+
       await this.refreshHeader(task.id);
       if (!isPendingThreadId(task.discordThreadId)) {
         try {
           await notifyThread(
             task.discordThreadId,
-            "Resumed after restart. Ready for the next instruction.",
+            "Restart detected. The interrupted turn was requeued.",
           );
         } catch (error) {
           console.error(
@@ -209,8 +284,55 @@ export class TaskOrchestrator {
         }
       }
     }
+
+    // 2. Enqueue jobs for queued turns that have no boss job (covers plan
+    //    003's backfilled follow-ups from the legacy task_followups table).
+    const queuedTurns = await turnStore.listQueuedTurns();
+    const turnsByTask = new Map<string, TaskTurnRecord[]>();
+    for (const turn of queuedTurns) {
+      const list = turnsByTask.get(turn.taskId);
+      if (list) {
+        list.push(turn);
+      } else {
+        turnsByTask.set(turn.taskId, [turn]);
+      }
+    }
+    for (const [taskId, turns] of turnsByTask) {
+      const jobs = await boss.findJobs<TurnJobData>(TASK_TURN_QUEUE, {
+        key: taskId,
+      });
+      const representedTurnIds = new Set(
+        jobs
+          .filter(
+            (j) =>
+              j.state !== "cancelled" &&
+              j.state !== "completed" &&
+              j.state !== "failed",
+          )
+          .map((j) => j.data.turnId),
+      );
+      for (const turn of turns) {
+        if (representedTurnIds.has(turn.id)) continue;
+        const task = await this.store.getById(turn.taskId);
+        if (!task) continue;
+        const jobId = await boss.send(
+          TASK_TURN_QUEUE,
+          {
+            turnId: turn.id,
+            taskId: task.id,
+            flueInstanceId: task.flueInstanceId,
+            source: turn.source,
+          },
+          { singletonKey: task.id },
+        );
+        if (jobId === null) {
+          throw new Error("boss.send returned null for orphaned queued turn");
+        }
+      }
+    }
+
+    // 3. Fail abandoned drafts (unchanged).
     await this.store.failAbandonedDrafts();
-    await this.fillConcurrencySlots();
   }
 
   async startTaskFromSlash(
@@ -398,11 +520,33 @@ export class TaskOrchestrator {
     input.recordInitiator(attached.id);
     await input.onAdmitted?.();
 
-    const claimed = await this.store.claimNextTurn(attached.id);
-    if (claimed) {
-      void this.runTurn(claimed);
-      return { ok: true, threadId: thread.id, startedImmediately: true };
-    }
+    // Transactional intake: insert the turn row and send the pg-boss job in
+    // one transaction so "row exists but no job" is impossible.
+    const { boss, turnStore, pool } = this.requireQueue();
+    const initialTurnId = randomUUID();
+    await inTransaction(pool, async (client) => {
+      await turnStore.insertTurn(
+        {
+          id: initialTurnId,
+          taskId: attached.id,
+          source: "initial",
+          instruction: input.taskRequest.instruction,
+          discordMessageId: input.initiatorMessageId,
+        },
+        client,
+      );
+      const jobId = await boss.send(
+        TASK_TURN_QUEUE,
+        {
+          turnId: initialTurnId,
+          taskId: attached.id,
+          flueInstanceId: attached.flueInstanceId,
+          source: "initial",
+        },
+        { singletonKey: attached.id, db: pgBossDb(client) },
+      );
+      if (jobId === null) throw new Error("boss.send returned null for initial turn");
+    });
     await this.refreshHeader(attached.id);
     return { ok: true, threadId: thread.id, startedImmediately: false };
   }
@@ -469,20 +613,47 @@ export class TaskOrchestrator {
       instructionWithReply,
       message.attachments,
     ).trim();
-    const position = await this.store.enqueueFollowup(
-      task.id,
-      message.id,
-      instructionWithAttachments,
-    );
-    await message.reply(`Queued follow-up - position ${position}`);
-    await this.refreshHeader(task.id);
-    this.recordInitiator(task.id, message);
-    void this.reactSafely(message, EYES);
 
-    if (task.status === "waiting") {
-      const claimed = await this.store.claimNextTurn(task.id);
-      if (claimed) void this.runTurn(claimed);
-    }
+    // Record the initiator reaction handle BEFORE the insert so it is in the
+    // map when the executor's beginTurn runs.
+    this.recordInitiator(task.id, message);
+
+    // Transactional intake: insert turn row + send pg-boss job atomically.
+    // Dedupe on discord_message_id via insertTurn's ON CONFLICT; when the
+    // insert was skipped (duplicate delivery), skip the send too.
+    const { boss, turnStore, pool } = this.requireQueue();
+    const followupTurnId = randomUUID();
+    const { created } = await inTransaction(pool, async (client) => {
+      const result = await turnStore.insertTurn(
+        {
+          id: followupTurnId,
+          taskId: task.id,
+          source: "followup",
+          instruction: instructionWithAttachments,
+          discordMessageId: message.id,
+        },
+        client,
+      );
+      if (!result.created) return result;
+      const jobId = await boss.send(
+        TASK_TURN_QUEUE,
+        {
+          turnId: followupTurnId,
+          taskId: task.id,
+          flueInstanceId: task.flueInstanceId,
+          source: "followup",
+        },
+        { singletonKey: task.id, db: pgBossDb(client) },
+      );
+      if (jobId === null) throw new Error("boss.send returned null for followup turn");
+      return result;
+    });
+
+    await message.reply(
+      created ? "Queued follow-up." : "Follow-up already queued.",
+    );
+    await this.refreshHeader(task.id);
+    void this.reactSafely(message, EYES);
   }
 
   async handleControlButton(input: HandleControlButtonInput): Promise<void> {
@@ -529,10 +700,13 @@ export class TaskOrchestrator {
     command: ThreadControlCommand,
   ): Promise<{ view: ViewPayload; refreshHeader: boolean }> {
     if (command === "abort" || command === "cancel") {
+      const queue = this.requireQueue();
       const result = await stopTaskWork(
         task,
         {
           store: this.store,
+          turnStore: queue.turnStore,
+          boss: queue.boss,
           clearInFlight: (id) => this.clearInFlight(id),
           flipReaction: (initiator, emoji) =>
             this.flipReaction(initiator, emoji),
@@ -541,7 +715,6 @@ export class TaskOrchestrator {
           deleteTaskThread: (id) => {
             this.taskThreads.delete(id);
           },
-          fillConcurrencySlots: () => this.fillConcurrencySlots(),
         },
         { abortInFlight: command === "abort" },
       );
@@ -573,196 +746,83 @@ export class TaskOrchestrator {
         refreshHeader: false,
       };
     }
+    // A completed task must not have queued turns fire later.
+    const queue = this.requireQueue();
+    await queue.turnStore.cancelPendingTurnsForTask(task.id);
+    await releaseTaskSingleton(queue.boss, task.id);
     await this.disposeInitiators(task.id, CHECK);
     this.taskThreads.delete(task.flueInstanceId);
     return { view: controlOutcomeView(command, true), refreshHeader: true };
   }
 
+  /**
+   * Resolve the turn outcome for an agent-end event. This is safe to call even
+   * when no turn waiter is registered for the instanceId (e.g. setup agents,
+   * or late events after an abort already resolved the outcome) because
+   * `resolveTurnOutcome` is a no-op when no waiter exists.
+   */
   async handleAgentEnd(instanceId: string): Promise<void> {
-    const task = await this.store.getByInstanceId(instanceId);
-    if (!task) return;
-
-    if (task.status === "running") {
-      const turned = await this.store.transition(task.id, "running", "waiting");
-      if (!turned) {
-        // A concurrent cancel/failure changed the status between the read
-        // and this transition; its own handler did the cleanup and slot fill.
-        clearPendingUserTurnMessage(instanceId);
-        this.clearInFlight(instanceId);
-        await this.fillConcurrencySlots();
-        return;
-      }
-      const userMessages = takePendingUserTurnMessages(instanceId);
-      await this.refreshHeader(task.id);
-      if (userMessages.length > 0) {
-        for (const message of userMessages) {
-          await this.post(task.discordThreadId, message);
-        }
-      }
-      const turn = this.clearInFlight(instanceId);
-      await this.flipReaction(turn?.initiator, CHECK);
-      await this.scheduleAfterTurn(task.id);
-      return;
-    }
-
-    clearPendingUserTurnMessage(instanceId);
-    this.clearInFlight(instanceId);
-    if (task.status === "cancelled" || task.status === "failed") {
-      await this.fillConcurrencySlots();
-    }
+    resolveTurnOutcome(instanceId, { kind: "completed" });
   }
 
   async handleAgentFailure(
     instanceId: string,
     errorSummary: string,
   ): Promise<void> {
-    const task = await this.store.getByInstanceId(instanceId);
-    if (!task) return;
-
-    const failed = await this.store.transition(
-      task.id,
-      "running",
-      "failed",
-      summarizeError(new Error(errorSummary)),
-    );
-    if (!failed) return;
-
-    takePendingUserTurnMessages(instanceId);
-
-    console.error(
-      `[threadcord] task ${task.id} agent failure details:`,
-      summarizeError(errorSummary),
-    );
-    await this.post(
-      task.discordThreadId,
-      failureDiscordMessage(failed.errorSummary ?? errorSummary),
-    );
-    await this.refreshHeader(task.id);
-    const turn = this.clearInFlight(instanceId);
-    await this.flipReaction(turn?.initiator, CROSS);
-    await this.disposeInitiators(task.id, CROSS);
-    this.taskThreads.delete(instanceId);
-    await this.fillConcurrencySlots();
+    resolveTurnOutcome(instanceId, { kind: "failed", errorSummary });
   }
 
-  private async scheduleAfterTurn(taskId: string): Promise<void> {
-    const claimed = await this.store.claimNextTurn(taskId);
-    if (claimed) {
-      void this.runTurn(claimed);
-      return;
-    }
-    await this.fillConcurrencySlots();
-  }
+  // -- TurnExecutorHooks implementation -------------------------------------
 
-  private async fillConcurrencySlots(): Promise<void> {
-    for (;;) {
-      const claimed = await this.store.claimNextTurn();
-      if (!claimed) break;
-      void this.runTurn(claimed);
-    }
-  }
-
-  private async runTurn(claimed: ClaimedTurn): Promise<void> {
-    const { task, instruction, source } = claimed;
-    const initiator = this.initiatorMessages.get(claimed.initiatorMessageId);
-    if (initiator) {
-      this.initiatorMessages.delete(claimed.initiatorMessageId);
-      this.pendingInitiatorIds.get(task.id)?.delete(claimed.initiatorMessageId);
+  /** Set up the in-flight turn entry and dequeue the initiator handle. */
+  private beginTurn(task: TaskRecord, initiatorMessageId?: string): void {
+    const initiator = initiatorMessageId
+      ? this.initiatorMessages.get(initiatorMessageId)
+      : undefined;
+    if (initiator && initiatorMessageId) {
+      this.initiatorMessages.delete(initiatorMessageId);
+      this.pendingInitiatorIds.get(task.id)?.delete(initiatorMessageId);
     }
     this.inFlightTurns.set(task.flueInstanceId, { initiator });
-    await this.refreshHeader(
-      task.id,
-      source === "initial" ? "initial" : "follow-up",
-    );
-    try {
-      const checkoutPath = await this.bootstrap(
-        task,
-        this.config.GITHUB_TOKEN,
-        source === "initial" ? "initial" : "continue",
-      );
-      const setupProfile = await this.setupStore.getReadyProfile(
-        task.repo,
-        task.branch,
-      );
-      if (!setupProfile) {
-        throw new Error(
-          `Missing ready setup profile for ${task.repo} on ${task.branch}`,
-        );
-      }
-      if (source === "initial") {
-        await this.runSetupInstallTurn(
-          task.workspacePath,
-          checkoutPath,
-          setupProfile.environment.install,
-          this.config.GITHUB_TOKEN,
-        );
-        const skillLinks = setupProfile.environment.skills ?? [];
-        if (skillLinks.length > 0) {
-          await runSetupSkillsInstall(
-            task.workspacePath,
-            checkoutPath,
-            skillLinks,
-            this.config.GITHUB_TOKEN,
-          );
-        }
-      }
-      // A concurrent cancel transitions the task out of running during setup;
-      // re-check the store (source of truth) before dispatching, since the
-      // in-flight entry may have been re-created here after cancel cleared it.
-      const current = await this.store.getByInstanceId(task.flueInstanceId);
-      if (!current || current.status !== "running") {
-        this.clearInFlight(task.flueInstanceId);
-        return;
-      }
-      const fullPrompt = buildPrompt(
-        task,
-        checkoutPath,
-        setupProfile.revision,
-        setupProfile.environment,
-        setupProfile.memoryMarkdown,
-        instruction,
-      );
-      const input: DispatchAgentInput = {
-        kind: "threadcord.turn",
-        workspacePath: checkoutPath,
-        model: task.model,
-        repo: task.repo,
-        baseBranch: task.branch,
-        instruction: fullPrompt,
-      };
-      if (source === "initial" && this.renameDiscordThread) {
-        scheduleReadableThreadRename(
-          task.discordThreadId,
-          instruction,
-          this.renameDiscordThread,
-        );
-      }
-      await this.dispatchTurn(task.flueInstanceId, input);
-      const inFlight = this.inFlightTurns.get(task.flueInstanceId);
-      if (inFlight) {
-        inFlight.typingTimer = this.startTypingLoop(task);
-      }
-      await this.post(task.discordThreadId, "Agent turn accepted.");
-    } catch (error) {
-      const summary = summarizeError(error);
-      takePendingUserTurnMessages(task.flueInstanceId);
-      console.error(
-        `[threadcord] task ${task.id} turn failure details:`,
-        summary,
-      );
-      await this.store.transition(
-        task.id,
-        ["queued", "waiting", "running"],
-        "failed",
-        summary,
-      );
-      await this.refreshHeader(task.id);
-      await this.post(task.discordThreadId, failureDiscordMessage(summary));
-      const turn = this.clearInFlight(task.flueInstanceId);
-      await this.flipReaction(turn?.initiator, CROSS);
-      await this.disposeInitiators(task.id, CROSS);
-      this.taskThreads.delete(task.flueInstanceId);
-      await this.fillConcurrencySlots();
+  }
+
+  /** Post-turn side effects for a completed turn (moved from handleAgentEnd). */
+  private async onTurnCompleted(task: TaskRecord): Promise<void> {
+    const userMessages = takePendingUserTurnMessages(task.flueInstanceId);
+    await this.refreshHeader(task.id);
+    for (const message of userMessages) {
+      await this.post(task.discordThreadId, message);
+    }
+    const turn = this.clearInFlight(task.flueInstanceId);
+    await this.flipReaction(turn?.initiator, CHECK);
+  }
+
+  /** Side effects for a terminally failed turn (moved from runTurn catch). */
+  private async onTurnFailed(
+    task: TaskRecord,
+    errorSummary: string,
+  ): Promise<void> {
+    takePendingUserTurnMessages(task.flueInstanceId);
+    await this.post(task.discordThreadId, failureDiscordMessage(errorSummary));
+    await this.refreshHeader(task.id);
+    const turn = this.clearInFlight(task.flueInstanceId);
+    await this.flipReaction(turn?.initiator, CROSS);
+    await this.disposeInitiators(task.id, CROSS);
+    this.taskThreads.delete(task.flueInstanceId);
+  }
+
+  /** Start the typing loop and store the timer in the in-flight entry. */
+  private startTypingLoopForTask(task: TaskRecord): void {
+    const inFlight = this.inFlightTurns.get(task.flueInstanceId);
+    if (inFlight) {
+      inFlight.typingTimer = this.startTypingLoop(task);
+    }
+  }
+
+  /** Schedule a readable thread rename (initial turn only). */
+  private scheduleRename(threadId: string, instruction: string): void {
+    if (this.renameDiscordThread) {
+      scheduleReadableThreadRename(threadId, instruction, this.renameDiscordThread);
     }
   }
 
@@ -958,47 +1018,6 @@ async function replyThreadView(
     return;
   }
   await message.reply("Confirm or cancel using the buttons above.");
-}
-
-function buildPrompt(
-  task: TaskRecord,
-  checkoutPath: string,
-  activeSetupProfileRevision: number,
-  setupEnvironment: SetupEnvironment,
-  setupMemoryMarkdown: string,
-  instruction: string,
-): string {
-  const lines = [
-    `Task id: ${task.id}`,
-    `Repository: ${task.repo}`,
-    `Base branch: ${task.branch}`,
-    ...(task.pushOverride ? [`Push override: ${task.pushOverride}`] : []),
-    `Workspace: ${checkoutPath}`,
-    `Model: ${task.model}`,
-    `Admitted setup profile revision: ${task.setupProfileRevision}`,
-    `Active setup profile revision: ${activeSetupProfileRevision}`,
-    `Setup install command: ${setupEnvironment.install}`,
-    `Setup skills: ${
-      setupEnvironment.skills?.length
-        ? setupEnvironment.skills.join("; ")
-        : "none"
-    }`,
-    `Setup checks: ${formatChecks(setupEnvironment.checks)}`,
-    `Required env: ${setupEnvironment.requiredEnv.join(", ") || "none"}`,
-    `Required services: ${setupEnvironment.requiredServices.join(", ") || "none"}`,
-    "",
-    "Setup profile memory:",
-    setupMemoryMarkdown,
-    "",
-    instruction,
-  ];
-  return lines.join("\n");
-}
-
-function formatChecks(checks: Record<string, string>): string {
-  const entries = Object.entries(checks);
-  if (entries.length === 0) return "none";
-  return entries.map(([name, command]) => `${name}=${command}`).join("; ");
 }
 
 /**

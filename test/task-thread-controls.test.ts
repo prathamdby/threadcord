@@ -123,6 +123,21 @@ describe("orchestrator thread controls", () => {
       flags: IS_COMPONENTS_V2,
     });
     expect(JSON.stringify(message.viewEdits.at(-1))).toContain("Aborted");
+
+    // Boss jobs for the task were cancelled.
+    const taskJob = world.boss.sentJobs.find(
+      (j) => j.data.taskId === task.id,
+    );
+    expect(taskJob).toBeDefined();
+    expect(
+      world.boss.cancelCalls.some(
+        ([queue, id]) => queue === "task-turn" && id === taskJob!.id,
+      ),
+    ).toBe(true);
+
+    // The running turn was marked cancelled after the deferred resolved.
+    const turnRecord = world.turnStore.snapshotTurn(taskJob!.data.turnId);
+    expect(turnRecord?.status).toBe("cancelled");
   });
 
   it("dismisses abort confirmation without stopping work", async () => {
@@ -239,6 +254,19 @@ describe("orchestrator thread controls", () => {
     await flush();
 
     expect(world.store.snapshot(task.id).status).toBe("completed");
+
+    // Pending turns and boss jobs for the completed task were cancelled.
+    const taskJob = world.boss.sentJobs.find(
+      (j) => j.data.taskId === task.id,
+    );
+    expect(taskJob).toBeDefined();
+    expect(
+      world.boss.cancelCalls.some(
+        ([queue, id]) => queue === "task-turn" && id === taskJob!.id,
+      ),
+    ).toBe(true);
+    const turnRecord = world.turnStore.snapshotTurn(taskJob!.data.turnId);
+    expect(turnRecord?.status).toBe("cancelled");
   });
 
   it("replies with an error when control command author is unknown", async () => {
@@ -313,7 +341,6 @@ describe("TaskOrchestrator.handleControlButton", () => {
       instruction: "Do the work",
       setupProfileRevision: 2,
       status: "waiting",
-      initialTurnStarted: true,
       createdAt: new Date(0),
       updatedAt: new Date(0),
     });

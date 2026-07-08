@@ -33,7 +33,6 @@ export interface TaskRecord extends Omit<TaskRequest, "model"> {
   workspacePath: string;
   model: string;
   status: TaskStatus;
-  initialTurnStarted: boolean;
   progressMessageIds?: string[];
   statusMessageId?: string;
   headerMessageId?: string;
@@ -50,6 +49,31 @@ export interface NewTaskRecord extends TaskRequest {
   flueInstanceId: string;
   workspacePath: string;
   setupProfileRevision: number;
+}
+
+export const TURN_STATUSES = [
+  "queued",
+  "running",
+  "cancelled",
+  "completed",
+  "failed",
+] as const;
+export type TurnStatus = (typeof TURN_STATUSES)[number];
+
+export interface TaskTurnRecord {
+  id: string; // uuid generated with crypto.randomUUID()
+  taskId: string;
+  source: "initial" | "followup";
+  instruction: string;
+  discordMessageId?: string; // conditionally spread, exactOptionalPropertyTypes
+  status: TurnStatus;
+  attemptCount: number;
+  cancelRequestedAt?: Date;
+  lastError?: string;
+  createdAt: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+  updatedAt: Date;
 }
 
 export interface ChannelMessage {
@@ -122,13 +146,4 @@ export interface DispatchAgentInput {
   repo: string;
   baseBranch: string;
   instruction: string;
-}
-
-export interface ClaimedTurn {
-  task: TaskRecord;
-  instruction: string;
-  source: "initial" | "followup";
-  // id (not the live handle) so the postgres TaskStore can populate it; the
-  // orchestrator re-resolves the reaction handle from its own in-memory map.
-  initiatorMessageId: string;
 }

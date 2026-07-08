@@ -20,9 +20,14 @@ import {
 } from "../src/discord/tool-format.js";
 import { redact } from "../src/util/redact.js";
 import { progressMessageIdsFromRow } from "../src/task/store.js";
-import { InMemoryStore } from "./support/orchestrator-harness.js";
+import {
+  config,
+  fakeSetupStore,
+  InMemoryStore,
+  World,
+  flush,
+} from "./support/orchestrator-harness.js";
 import { TaskOrchestrator } from "../src/task/orchestrator.js";
-import { config, fakeSetupStore } from "./support/orchestrator-harness.js";
 import {
   markOperatorAborted,
   resetOperatorAbortStateForTests,
@@ -66,7 +71,6 @@ function recordingBridge(): {
         instruction: "Do the work",
         setupProfileRevision: 2,
         status: "running",
-        initialTurnStarted: true,
         progressMessageIds: ["status-1"],
         createdAt: new Date(0),
         updatedAt: new Date(0),
@@ -394,8 +398,7 @@ describe("handleObserveEvent", () => {
             instruction: "Do the work",
             setupProfileRevision: 2,
             status: "running",
-            initialTurnStarted: true,
-            progressMessageIds: ["status-1"],
+                progressMessageIds: ["status-1"],
             createdAt: new Date(0),
             updatedAt: new Date(0),
           }),
@@ -445,8 +448,7 @@ describe("handleObserveEvent", () => {
             instruction: "Do the work",
             setupProfileRevision: 2,
             status: "cancelled",
-            initialTurnStarted: true,
-            progressMessageIds: ["status-cancelled"],
+                progressMessageIds: ["status-cancelled"],
             createdAt: new Date(0),
             updatedAt: new Date(0),
           }),
@@ -498,8 +500,7 @@ describe("handleObserveEvent", () => {
             instruction: "Do the work",
             setupProfileRevision: 2,
             status: "running",
-            initialTurnStarted: true,
-            progressMessageIds: ["status-aborted"],
+                progressMessageIds: ["status-aborted"],
             createdAt: new Date(0),
             updatedAt: new Date(0),
           }),
@@ -1131,7 +1132,6 @@ describe("TaskStore progress-message migration", () => {
       instruction: "Do the work",
       setupProfileRevision: 2,
       status: "running",
-      initialTurnStarted: true,
       statusMessageId: "old",
       createdAt: new Date(0),
       updatedAt: new Date(0),
@@ -1183,7 +1183,6 @@ describe("TaskStore progress-message migration", () => {
       instruction: "Do the work",
       setupProfileRevision: 2,
       status: "running",
-      initialTurnStarted: true,
       statusMessageId: "old",
       createdAt: new Date(0),
       updatedAt: new Date(0),
@@ -1231,41 +1230,24 @@ describe("setup observe streaming", () => {
 
 describe("TaskOrchestrator.handleAgentFailure", () => {
   it("marks a running task failed and keeps it failed on agent_end", async () => {
-    const store = new InMemoryStore(1);
-    const orchestrator = new TaskOrchestrator(
-      config,
-      store as never,
-      fakeSetupStore,
-    );
-    const { task, created } = await store.createDraft({
-      id: "task-1",
-      discordMessageId: "msg-1",
-      discordThreadId: toFlueInstanceId("thread-1"),
-      flueInstanceId: toFlueInstanceId("thread-1"),
-      workspacePath: "/workspaces/task-1",
-      repo: "acme/web",
-      branch: "main",
-      model: "anthropic/claude-sonnet-4-5",
-      instruction: "Do the work",
-      setupProfileRevision: 2,
+    const world = new World();
+    const result = await world.submitRaw("m-observe-fail", {}, {
+      autoDeliver: false,
     });
-    expect(created).toBe(true);
-    await store.attachAndPromote(
-      task.id,
-      "thread-1",
-      toFlueInstanceId("thread-1"),
-      "status-1",
-    );
-    await store.claimNextTurn(task.id);
+    const task = result.task!;
+    await world.deliver({ retryCount: config.QUEUE_RETRY_LIMIT });
+    await flush();
 
-    await orchestrator.handleAgentFailure(
-      toFlueInstanceId("thread-1"),
+    await world.orchestrator.handleAgentFailure(
+      task.flueInstanceId,
       "Stream ended without finish_reason",
     );
-    expect(store.snapshot(task.id).status).toBe("failed");
+    await flush();
+    expect(world.store.snapshot(task.id).status).toBe("failed");
 
-    await orchestrator.handleAgentEnd(toFlueInstanceId("thread-1"));
-    expect(store.snapshot(task.id).status).toBe("failed");
+    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await flush();
+    expect(world.store.snapshot(task.id).status).toBe("failed");
   });
 });
 

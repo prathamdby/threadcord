@@ -110,8 +110,13 @@ describe("inbound-message reactions", () => {
 
   it("does not flip reactions on slash initiator when a turn fails", async () => {
     const world = new World();
-    const result = await world.submitRaw("m-fail-turn");
+    const result = await world.submitRaw("m-fail-turn", {}, {
+      autoDeliver: false,
+    });
     const task = result.task!;
+
+    await world.deliver({ retryCount: config.QUEUE_RETRY_LIMIT });
+    await flush();
 
     await world.orchestrator.handleAgentFailure(
       task.flueInstanceId,
@@ -157,23 +162,14 @@ describe("persistent typing indicator", () => {
   });
 
   it("can send typing by thread id after a restart", async () => {
-    const store = new InMemoryStore(1);
-    const dispatched: string[] = [];
     const typingThreadIds: string[] = [];
-    const orchestrator = new TaskOrchestrator(
-      config,
-      store as never,
-      fakeSetupStore,
-      async (instanceId) => {
-        dispatched.push(instanceId);
-      },
-      async () => "/workspaces/task-restart/web",
-      async () => {},
-    );
-    orchestrator.setTypingPublisher(async (threadId) => {
+    const world = new World(1, 9000, {
+      bootstrap: async () => "/workspaces/task-restart/web",
+    });
+    world.orchestrator.setTypingPublisher(async (threadId) => {
       typingThreadIds.push(threadId);
     });
-    store.seedTask({
+    world.store.seedTask({
       id: "task-restart",
       discordMessageId: "init-1",
       discordThreadId: "thread-restart",
@@ -185,25 +181,15 @@ describe("persistent typing indicator", () => {
       instruction: "Do the work",
       setupProfileRevision: 2,
       status: "waiting",
-      initialTurnStarted: true,
       progressMessageIds: ["status-1"],
       headerMessageId: "header-1",
       createdAt: new Date(0),
       updatedAt: new Date(0),
     });
 
-    await orchestrator.handleThreadMessage({
-      id: "followup-1",
-      content: "next turn",
-      authorBot: false,
-      channelId: "thread-restart",
-      reply: async () => {},
-      react: async () => {},
-      unreact: async () => {},
-    });
-    await flush();
+    await world.submitFollowup("task-restart", "followup-1", "next turn");
 
-    expect(dispatched).toEqual(["discord:thread:thread-restart"]);
+    expect(world.dispatched).toEqual(["discord:thread:thread-restart"]);
     expect(typingThreadIds).toContain("thread-restart");
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatTaskInstructionForDiscord } from "../src/discord/task-instruction-message.js";
-import { World, flush } from "./support/orchestrator-harness.js";
+import { config, World, flush } from "./support/orchestrator-harness.js";
 
 const EYES = "👀";
 const CROSS = "❌";
@@ -116,11 +116,14 @@ describe("control channel message task creation", () => {
     const result = await world.submitChannelMessage(
       "m-fast-fail",
       ["Fix it.", "", taskFields].join("\n"),
+      { autoDeliver: false },
     );
+    const task = result.task!;
 
+    await world.deliver({ retryCount: config.QUEUE_RETRY_LIMIT });
     await flush();
 
-    expect(result.task?.status).toBe("failed");
+    expect(world.store.snapshot(task.id).status).toBe("failed");
     expect(result.message.reactionLog).toEqual([
       `react:${EYES}`,
       `unreact:${EYES}`,
