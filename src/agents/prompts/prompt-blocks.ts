@@ -106,12 +106,7 @@ Workflow playbooks under HOME and project checkout. Use \`skill\` per TOOL ARGUM
 GIT WORKFLOW overrides skill git rules. Installed already — do not reinstall. Survives compaction — use \`skill\` instead of grepping SKILL.md.`;
 
 export const REPO_MAP_TOOL = `REPO MAP (tree-sitter)
-Use \`repo_map\` early on an unfamiliar checkout or when you need structural orientation before broad greps.
-- No args: whole-repo ranked definitions fitted to a character budget.
-- \`path\`: scope to a subdirectory or file.
-- \`focusFiles\`: files already read (seed ranking, excluded from map so neighbors surface).
-- \`priorityIdents\`: symbol names from the task to boost defining files.
-- Prefer this over raw \`find\`/\`ls\` for "where does X live?" orientation; then \`read\` the specific files the map surfaces.`;
+Use \`repo_map\` early for structural orientation (tool schema has full arg docs). Optional: \`path\`, \`focusFiles\`, \`priorityIdents\`, \`maxChars\`. Prefer over raw \`find\`/\`ls\`, then \`read\` the files the map surfaces.`;
 
 export const NEVER_CODING = `NEVER
 - Commit unless this turn's instruction explicitly asks.

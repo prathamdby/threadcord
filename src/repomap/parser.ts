@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Language, Parser, type Node as TsNode } from "web-tree-sitter";
 import { GRAMMAR_SPECS, type GrammarId } from "./languages.js";
@@ -30,19 +30,27 @@ async function ensureInit(): Promise<void> {
   await initPromise;
 }
 
-export async function loadLanguage(id: GrammarId): Promise<Language> {
-  const cached = languageCache.get(id);
-  if (cached) return cached;
+export async function loadLanguage(
+  id: GrammarId,
+  /** Test override for the WASM directory (production callers omit this). */
+  wasmDir?: string,
+): Promise<Language> {
+  const cacheKey = id;
+  if (!wasmDir) {
+    const cached = languageCache.get(cacheKey);
+    if (cached) return cached;
+  }
   await ensureInit();
   const spec = GRAMMAR_SPECS[id];
-  const wasmPath = join(resolveWasmDir(), spec.wasm);
+  const dir = wasmDir ?? resolveWasmDir();
+  const wasmPath = join(dir, spec.wasm);
   if (!existsSync(wasmPath)) {
     throw new Error(
       `Missing tree-sitter WASM for ${id} at ${wasmPath}. Ensure vendor/tree-sitter is present.`,
     );
   }
   const lang = await Language.load(wasmPath);
-  languageCache.set(id, lang);
+  if (!wasmDir) languageCache.set(cacheKey, lang);
   return lang;
 }
 
@@ -284,13 +292,26 @@ export async function extractTags(
   return tags;
 }
 
-/** Normalize a focus/priority path to a root-relative posix path. */
+/**
+ * Normalize a focus/priority path to a root-relative posix path.
+ * Uses path.relative so sibling prefixes like `/app` vs `/application` never collide.
+ * Paths outside the root (including `..` escapes) are returned unchanged so callers
+ * can detect a non-match against scanned files.
+ */
 export function toRelPath(root: string, path: string): string {
   if (!path) return path;
-  const abs = (isAbsolute(path) ? path : join(root, path)).replace(/\\/g, "/");
-  const rootNorm = root.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (abs === rootNorm) return ".";
-  const prefix = rootNorm + "/";
-  if (!abs.startsWith(prefix)) return path;
-  return abs.slice(prefix.length);
+  const absRoot = pathResolve(root);
+  const abs = pathResolve(isAbsolute(path) ? path : join(root, path));
+  const rel = relative(absRoot, abs);
+  // Outside root: relative is absolute or walks up with `..`.
+  if (!rel || rel === "") return ".";
+  if (
+    isAbsolute(rel) ||
+    rel === ".." ||
+    rel.startsWith(".." + "/") ||
+    rel.startsWith(".." + "\\")
+  ) {
+    return path;
+  }
+  return rel.split("\\").join("/");
 }

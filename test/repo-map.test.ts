@@ -7,6 +7,7 @@ import { discoverSourceFiles } from "../src/repomap/discover.js";
 import {
   clearLanguageCache,
   extractTags,
+  loadLanguage,
   toRelPath,
 } from "../src/repomap/parser.js";
 import { rankFiles } from "../src/repomap/rank.js";
@@ -219,6 +220,14 @@ def top_level():
       true,
     );
   });
+
+  it("throws Missing tree-sitter WASM when grammar file is absent", async () => {
+    clearLanguageCache();
+    await expect(
+      loadLanguage("typescript", "/tmp/threadcord-no-wasm-dir-for-test"),
+    ).rejects.toThrow(/Missing tree-sitter WASM/);
+  });
+
 });
 
 describe("toRelPath", () => {
@@ -228,7 +237,7 @@ describe("toRelPath", () => {
   });
 
   it("does not treat sibling prefix paths as under root", () => {
-    // /app must not match /application
+    // path.relative based: /app must not match /application
     expect(toRelPath("/app", "/application/foo.ts")).toBe(
       "/application/foo.ts",
     );
@@ -367,6 +376,34 @@ describe("rankFiles", () => {
     const lonelyIdx = paths.indexOf("lonely.ts");
     expect(paths.indexOf("one.ts")).toBeLessThan(lonelyIdx);
     expect(paths.indexOf("two.ts")).toBeLessThan(lonelyIdx);
+  });
+
+  it("preserves overloaded same-name defs in a file", () => {
+    const tags: Tag[] = [
+      {
+        relPath: "over.ts",
+        name: "foo",
+        kind: "def",
+        line: 1,
+        signature: "export function foo(a: string)",
+        category: "function",
+      },
+      {
+        relPath: "over.ts",
+        name: "foo",
+        kind: "def",
+        line: 4,
+        signature: "export function foo(a: number)",
+        category: "function",
+      },
+    ];
+    const { ranked } = rankFiles({
+      tags,
+      focusFiles: new Set(),
+      priorityIdents: new Set(),
+    });
+    const defs = ranked.find((r) => r.relPath === "over.ts")?.defs ?? [];
+    expect(defs.filter((d) => d.name === "foo")).toHaveLength(2);
   });
 
   it("warns when focusFiles match nothing", () => {
