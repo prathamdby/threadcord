@@ -15,6 +15,7 @@ import { composePrompt } from "./prompts/compose.js";
 import { resolveAgentRuntimeContext } from "../task/turn-context.js";
 import { workspaceEnv, workspacePaths } from "../task/workspace-env.js";
 import { createSkillTools } from "../skills/skill-tool.js";
+import { createRepoMapTools } from "../repomap/tool.js";
 import type { DispatchAgentInput } from "../types.js";
 
 export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
@@ -48,6 +49,7 @@ export default createAgent<DispatchAgentInput>(async ({ id, env, payload }) => {
       ...createThreadMessageTools(id),
       ...createSetupMemoryTools(turn.repo, turn.baseBranch),
       ...createSkillTools(skillHome, turn.cwd),
+      ...createRepoMapTools(turn.cwd),
       ...(githubToken ? createGitHubTools(githubToken) : []),
       ...mcpTools,
     ],

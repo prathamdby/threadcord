@@ -48,6 +48,7 @@ COPY scripts/patch-flue-prepare-arguments.mjs scripts/patch-flue-prepare-argumen
 RUN npm install --omit=dev
 
 COPY --from=build /app/dist ./dist
+COPY vendor/tree-sitter ./vendor/tree-sitter
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
