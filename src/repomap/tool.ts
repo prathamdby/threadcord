@@ -39,7 +39,12 @@ export function createRepoMapTools(workspaceRoot: string) {
             ? { maxChars: input.maxChars }
             : {}),
         });
-        return result.map;
+        if (result.warnings.length === 0) return result.map;
+        return (
+          result.map +
+          "\n\nWarnings:\n" +
+          result.warnings.map((w) => `- ${w}`).join("\n")
+        );
       },
     }),
   ];

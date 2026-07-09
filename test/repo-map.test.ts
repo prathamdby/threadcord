@@ -4,10 +4,18 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildRepoMap } from "../src/repomap/build.js";
 import { discoverSourceFiles } from "../src/repomap/discover.js";
-import { extractTags } from "../src/repomap/parser.js";
+import {
+  clearLanguageCache,
+  extractTags,
+  toRelPath,
+} from "../src/repomap/parser.js";
 import { rankFiles } from "../src/repomap/rank.js";
-import { createRepoMapTools, REPO_MAP_DESCRIPTION } from "../src/repomap/tool.js";
-import type { Tag } from "../src/repomap/types.js";
+import { renderRepoMap } from "../src/repomap/render.js";
+import {
+  createRepoMapTools,
+  REPO_MAP_DESCRIPTION,
+} from "../src/repomap/tool.js";
+import type { RankedFile, Tag } from "../src/repomap/types.js";
 
 function makeRepo(files: Record<string, string>): string {
   const root = join(
@@ -61,11 +69,54 @@ describe("discoverSourceFiles", () => {
     expect(files.map((f) => f.relPath)).toEqual(["src/a.ts"]);
   });
 
+  it("discovers a single supported file via path", () => {
+    root = makeRepo({
+      "src/a.ts": "export function a() {}",
+      "src/b.ts": "export function b() {}",
+    });
+    const files = discoverSourceFiles(root, { path: "src/a.ts" });
+    expect(files.map((f) => f.relPath)).toEqual(["src/a.ts"]);
+  });
+
+  it("throws for unsupported single file", () => {
+    root = makeRepo({
+      "src/readme.md": "# hi",
+    });
+    expect(() => discoverSourceFiles(root, { path: "src/readme.md" })).toThrow(
+      /Unsupported file type/,
+    );
+  });
+
   it("rejects paths that escape the root", () => {
     root = makeRepo({ "a.ts": "export function a() {}" });
     expect(() => discoverSourceFiles(root, { path: ".." })).toThrow(
       /within the repository root/,
     );
+  });
+
+  it("caps discovered files at maxFiles", () => {
+    root = makeRepo({
+      "a.ts": "export function a() {}",
+      "b.ts": "export function b() {}",
+      "c.ts": "export function c() {}",
+      "d.ts": "export function d() {}",
+      "e.ts": "export function e() {}",
+    });
+    expect(discoverSourceFiles(root, { maxFiles: 2 })).toHaveLength(2);
+    expect(discoverSourceFiles(root, { maxFiles: 0 })).toHaveLength(0);
+  });
+
+  it("throws on nonexistent subpath", () => {
+    root = makeRepo({ "a.ts": "export function a() {}" });
+    expect(() =>
+      discoverSourceFiles(root, { path: "nonexistent" }),
+    ).toThrow(/does not exist/);
+    try {
+      discoverSourceFiles(root, { path: "nonexistent" });
+      expect.unreachable();
+    } catch (error) {
+      expect(String(error)).toContain("nonexistent");
+    }
   });
 });
 
@@ -84,16 +135,51 @@ export const named = () => 1
 const localOnly = 1
 async function helper() { return foo("z"); }
 `;
-    const tags = await extractTags("/virtual/a.ts", "a.ts", "typescript", source);
+    const tags = await extractTags(
+      "/virtual/a.ts",
+      "a.ts",
+      "typescript",
+      source,
+    );
     const defs = tags.filter((t) => t.kind === "def");
     const defNames = defs.map((d) => d.name).sort();
     expect(defNames).toEqual(
-      expect.arrayContaining(["foo", "Bar", "method", "IFace", "Alias", "named", "helper"]),
+      expect.arrayContaining([
+        "foo",
+        "Bar",
+        "method",
+        "IFace",
+        "Alias",
+        "named",
+        "helper",
+      ]),
     );
     expect(defNames).not.toContain("localOnly");
     const refs = tags.filter((t) => t.kind === "ref").map((t) => t.name);
     expect(refs).toContain("bar");
     expect(refs).toContain("foo");
+    // Single-letter identifiers are filtered out of refs.
+    expect(refs).not.toContain("a");
+    expect(refs).not.toContain("x");
+  });
+
+  it("does not dedupe repeated refs (documents current behavior)", async () => {
+    const source = `
+export function foo(x: number): number { return x; }
+export function run() {
+  foo(1);
+  foo(2);
+  foo(3);
+}
+`;
+    const tags = await extractTags(
+      "/virtual/a.ts",
+      "a.ts",
+      "typescript",
+      source,
+    );
+    const fooRefs = tags.filter((t) => t.kind === "ref" && t.name === "foo");
+    expect(fooRefs.length).toBeGreaterThanOrEqual(3);
   });
 
   it("extracts Python class and function defs", async () => {
@@ -107,7 +193,50 @@ def top_level():
 `;
     const tags = await extractTags("/virtual/a.py", "a.py", "python", source);
     const defs = tags.filter((t) => t.kind === "def").map((t) => t.name);
-    expect(defs).toEqual(expect.arrayContaining(["Greeter", "hello", "top_level"]));
+    expect(defs).toEqual(
+      expect.arrayContaining(["Greeter", "hello", "top_level"]),
+    );
+  });
+
+  it("returns empty tags for empty or whitespace source", async () => {
+    await expect(
+      extractTags("/virtual/a.ts", "a.ts", "typescript", ""),
+    ).resolves.toEqual([]);
+    await expect(
+      extractTags("/virtual/a.ts", "a.ts", "typescript", "   "),
+    ).resolves.toEqual([]);
+  });
+
+  it("reloads language after clearLanguageCache", async () => {
+    clearLanguageCache();
+    const tags = await extractTags(
+      "/virtual/a.ts",
+      "a.ts",
+      "typescript",
+      "export function afterClear() { return 1; }\n",
+    );
+    expect(tags.some((t) => t.kind === "def" && t.name === "afterClear")).toBe(
+      true,
+    );
+  });
+});
+
+describe("toRelPath", () => {
+  it("returns relative path for files under root", () => {
+    expect(toRelPath("/repo", "/repo/src/a.ts")).toBe("src/a.ts");
+    expect(toRelPath("/repo", "src/a.ts")).toBe("src/a.ts");
+  });
+
+  it("does not treat sibling prefix paths as under root", () => {
+    // /app must not match /application
+    expect(toRelPath("/app", "/application/foo.ts")).toBe(
+      "/application/foo.ts",
+    );
+  });
+
+  it("returns raw path when outside the root", () => {
+    expect(toRelPath("/repo", "/etc/passwd")).toBe("/etc/passwd");
+    expect(toRelPath("/repo", "../../../etc")).toBe("../../../etc");
   });
 });
 
@@ -147,12 +276,11 @@ describe("rankFiles", () => {
         category: "function",
       },
     ];
-    const ranked = rankFiles({
+    const { ranked } = rankFiles({
       tags,
       focusFiles: new Set(["app.ts"]),
       priorityIdents: new Set(),
     });
-    // focus file excluded; lib should rank above unused util
     expect(ranked.map((r) => r.relPath)).not.toContain("app.ts");
     expect(ranked[0]?.relPath).toBe("lib.ts");
   });
@@ -176,12 +304,111 @@ describe("rankFiles", () => {
         category: "function",
       },
     ];
-    const ranked = rankFiles({
+    const { ranked } = rankFiles({
       tags,
       focusFiles: new Set(),
       priorityIdents: new Set(["beta"]),
     });
     expect(ranked[0]?.relPath).toBe("b.ts");
+  });
+
+  it("edges to every file defining a shared symbol name", () => {
+    const tags: Tag[] = [
+      {
+        relPath: "one.ts",
+        name: "helper",
+        kind: "def",
+        line: 1,
+        signature: "export function helper()",
+        category: "function",
+      },
+      {
+        relPath: "two.ts",
+        name: "helper",
+        kind: "def",
+        line: 1,
+        signature: "export function helper()",
+        category: "function",
+      },
+      {
+        relPath: "user.ts",
+        name: "helper",
+        kind: "ref",
+        line: 2,
+        signature: "",
+        category: "other",
+      },
+      {
+        relPath: "user.ts",
+        name: "run",
+        kind: "def",
+        line: 1,
+        signature: "export function run()",
+        category: "function",
+      },
+      {
+        relPath: "lonely.ts",
+        name: "lonely",
+        kind: "def",
+        line: 1,
+        signature: "export function lonely()",
+        category: "function",
+      },
+    ];
+    const { ranked } = rankFiles({
+      tags,
+      focusFiles: new Set(["user.ts"]),
+      priorityIdents: new Set(),
+    });
+    const paths = ranked.map((r) => r.relPath);
+    expect(paths).toContain("one.ts");
+    expect(paths).toContain("two.ts");
+    // Both defining files should outrank the unused file.
+    const lonelyIdx = paths.indexOf("lonely.ts");
+    expect(paths.indexOf("one.ts")).toBeLessThan(lonelyIdx);
+    expect(paths.indexOf("two.ts")).toBeLessThan(lonelyIdx);
+  });
+
+  it("warns when focusFiles match nothing", () => {
+    const tags: Tag[] = [
+      {
+        relPath: "a.ts",
+        name: "alpha",
+        kind: "def",
+        line: 1,
+        signature: "function alpha()",
+        category: "function",
+      },
+    ];
+    const { warnings } = rankFiles({
+      tags,
+      focusFiles: new Set(["missing.ts"]),
+      priorityIdents: new Set(),
+    });
+    expect(warnings.some((w) => w.includes("focusFiles matched no"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("renderRepoMap", () => {
+  it("reports no symbols and truncated based on filesScanned", () => {
+    const emptyScanned = renderRepoMap([], { filesScanned: 5 });
+    expect(emptyScanned.map).toContain("(no source symbols found)");
+    expect(emptyScanned.truncated).toBe(true);
+
+    const emptyZero = renderRepoMap([], { filesScanned: 0 });
+    expect(emptyZero.map).toContain("(no source symbols found)");
+    expect(emptyZero.truncated).toBe(false);
+  });
+
+  it("renders empty-defs file as (no definitions)", () => {
+    const ranked: RankedFile[] = [
+      { relPath: "empty.ts", score: 1, defs: [] },
+    ];
+    const result = renderRepoMap(ranked, { filesScanned: 1, maxChars: 8000 });
+    expect(result.map).toContain("empty.ts");
+    expect(result.map).toContain("(no definitions)");
   });
 });
 
@@ -219,10 +446,10 @@ export function lonely() { return 0; }
     expect(result.map).toContain("src/core.ts");
     expect(result.map).toMatch(/function core|class Engine/);
     expect(result.defsShown).toBeGreaterThan(0);
+    expect(result.warnings).toEqual([]);
   });
 
   it("respects maxChars budget", async () => {
-    // Inflate the tree so the full map exceeds a tight budget.
     const bigRoot = makeRepo(
       Object.fromEntries(
         Array.from({ length: 30 }, (_, i) => [

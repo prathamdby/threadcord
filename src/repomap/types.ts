@@ -54,4 +54,6 @@ export interface RepoMapResult {
   filesMapped: number;
   defsShown: number;
   truncated: boolean;
+  /** Non-fatal issues (skipped files, unmatched focus, etc.). */
+  warnings: string[];
 }

@@ -36,27 +36,31 @@ export async function buildRepoMap(
       .filter((s) => s.length > 0),
   );
 
+  const warnings: string[] = [];
   const allTags: Tag[] = [];
   for (const file of files) {
     try {
       const tags = await extractTags(file.absPath, file.relPath, file.grammar);
       allTags.push(...tags);
     } catch (error) {
-      console.warn(
-        `[threadcord] repo_map skip ${file.relPath}:`,
-        error instanceof Error ? error.message : error,
+      warnings.push(
+        `skip ${file.relPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       );
     }
   }
 
-  const ranked = rankFiles({
+  const { ranked, warnings: rankWarnings } = rankFiles({
     tags: allTags,
     focusFiles,
     priorityIdents,
   });
+  warnings.push(...rankWarnings);
 
   return renderRepoMap(ranked, {
     maxChars,
     filesScanned: files.length,
+    warnings,
   });
 }

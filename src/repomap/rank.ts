@@ -9,13 +9,19 @@ export interface RankInput {
   priorityIdents: Set<string>;
 }
 
+export interface RankOutput {
+  ranked: RankedFile[];
+  warnings: string[];
+}
+
 /**
  * Personalized PageRank over a file graph:
  * edge A → B when A references a symbol defined in B.
  * Focus files seed the personalization vector; priority idents boost their defining files.
  */
-export function rankFiles(input: RankInput): RankedFile[] {
+export function rankFiles(input: RankInput): RankOutput {
   const { tags, focusFiles, priorityIdents } = input;
+  const warnings: string[] = [];
 
   const defsByName = new Map<string, Set<string>>();
   const defsByFile = new Map<string, Tag[]>();
@@ -52,23 +58,29 @@ export function rankFiles(input: RankInput): RankedFile[] {
     const targets = defsByName.get(tag.name);
     if (!targets) continue;
     for (const to of targets) {
-      // Priority idents get heavier edges.
       const w = priorityIdents.has(tag.name) ? 10 : 1;
       addEdge(tag.relPath, to, w);
     }
   }
 
   const fileList = [...files];
-  if (fileList.length === 0) return [];
+  if (fileList.length === 0) return { ranked: [], warnings };
 
   const personal = new Map<string, number>();
   for (const f of fileList) personal.set(f, 0);
   let personalSum = 0;
+  let matchedFocus = 0;
   for (const f of focusFiles) {
     if (personal.has(f)) {
       personal.set(f, (personal.get(f) ?? 0) + 20);
       personalSum += 20;
+      matchedFocus += 1;
     }
+  }
+  if (focusFiles.size > 0 && matchedFocus === 0) {
+    warnings.push(
+      `focusFiles matched no scanned sources (${[...focusFiles].join(", ")}); using uniform ranking`,
+    );
   }
   for (const ident of priorityIdents) {
     const defs = defsByName.get(ident);
@@ -111,17 +123,17 @@ export function rankFiles(input: RankInput): RankedFile[] {
       const ow = outWeight.get(from) ?? 0;
       const fromScore = scores.get(from) ?? 0;
       if (!row || ow === 0) {
-          const share = (damping * fromScore) / fileList.length;
+        // Dangling nodes teleport via the personalization vector.
         for (const f of fileList) {
-          next.set(f, (next.get(f) ?? 0) + share);
+          next.set(
+            f,
+            (next.get(f) ?? 0) + damping * fromScore * (personal.get(f) ?? 0),
+          );
         }
         continue;
       }
       for (const [to, w] of row) {
-        next.set(
-          to,
-          (next.get(to) ?? 0) + damping * fromScore * (w / ow),
-        );
+        next.set(to, (next.get(to) ?? 0) + damping * fromScore * (w / ow));
       }
     }
     for (const f of fileList) scores.set(f, next.get(f) ?? 0);
@@ -141,24 +153,19 @@ export function rankFiles(input: RankInput): RankedFile[] {
       if (cat !== 0) return cat;
       return a.line - b.line;
     });
-    const seen = new Set<string>();
-    const unique: Tag[] = [];
-    for (const d of defs) {
-      const key = `${d.category}:${d.name}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push(d);
-    }
     return {
       relPath,
       score: scores.get(relPath) ?? 0,
-      defs: unique,
+      defs,
     };
   });
 
   ranked.sort((a, b) => b.score - a.score || a.relPath.localeCompare(b.relPath));
 
-  return ranked.filter((f) => !focusFiles.has(f.relPath));
+  return {
+    ranked: ranked.filter((f) => !focusFiles.has(f.relPath)),
+    warnings,
+  };
 }
 
 function categoryWeight(cat: Tag["category"]): number {

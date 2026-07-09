@@ -5,16 +5,18 @@ const MAX_DEFS_PER_FILE = 24;
 
 /**
  * Fit the highest-ranked files/defs into a character budget.
- * Binary-search the number of files so the rendered map stays near maxChars.
+ * Linear scan accumulates file blocks until the budget is exhausted.
  */
 export function renderRepoMap(
   ranked: RankedFile[],
   options: {
     maxChars?: number;
     filesScanned: number;
+    warnings?: string[];
   },
 ): RepoMapResult {
   const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
+  const warnings = options.warnings ?? [];
   if (ranked.length === 0) {
     return {
       map: "(no source symbols found)",
@@ -22,71 +24,75 @@ export function renderRepoMap(
       filesMapped: 0,
       defsShown: 0,
       truncated: options.filesScanned > 0,
+      warnings,
     };
   }
 
-  let lo = 1;
-  let hi = ranked.length;
-  let best = 1;
+  const blocks: string[] = [];
+  let defsShown = 0;
+  let filesMapped = 0;
+  let bodyLen = 0;
+  let hardTrimmed = false;
 
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const rendered = formatFiles(ranked.slice(0, mid));
-    if (rendered.text.length <= maxChars) {
-      best = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
+  for (const file of ranked) {
+    const block = formatFileBlock(file);
+    const extra = (blocks.length > 0 ? 1 : 0) + block.text.length;
+    if (bodyLen + extra > maxChars && filesMapped > 0) {
+      break;
     }
+    if (bodyLen + extra > maxChars && filesMapped === 0) {
+      // Even the top file exceeds the budget — hard-trim it.
+      const trimmed =
+        block.text.slice(0, Math.max(0, maxChars - 20)) + "\n… (trimmed)";
+      blocks.push(trimmed);
+      defsShown = block.defsShown;
+      filesMapped = 1;
+      hardTrimmed = true;
+      break;
+    }
+    blocks.push(block.text);
+    bodyLen += extra;
+    defsShown += block.defsShown;
+    filesMapped += 1;
   }
 
-  let body = formatFiles(ranked.slice(0, best));
-  if (body.text.length > maxChars) {
-    body = {
-      text: body.text.slice(0, maxChars - 20) + "\n… (trimmed)",
-      defsShown: body.defsShown,
-    };
-  }
-
-  const truncated =
-    best < ranked.length || body.text.includes("… (trimmed)");
+  const bodyText = blocks.join("\n");
+  const truncated = filesMapped < ranked.length || hardTrimmed;
   const header = [
-    `Repository map (${body.defsShown} defs from ${best} of ${options.filesScanned} files)`,
-    truncated ? "Map truncated to token budget — use path/focusFiles to narrow." : null,
+    `Repository map (${defsShown} defs from ${filesMapped} of ${options.filesScanned} files)`,
+    truncated
+      ? "Map truncated to token budget — use path/focusFiles to narrow."
+      : null,
     "",
   ]
     .filter((line) => line !== null)
     .join("\n");
 
   return {
-    map: header + body.text,
+    map: header + bodyText,
     filesScanned: options.filesScanned,
-    filesMapped: best,
-    defsShown: body.defsShown,
+    filesMapped,
+    defsShown,
     truncated,
+    warnings,
   };
 }
 
-function formatFiles(
-  files: RankedFile[],
+function formatFileBlock(
+  file: RankedFile,
 ): { text: string; defsShown: number } {
-  const parts: string[] = [];
-  let defsShown = 0;
-  for (const file of files) {
-    parts.push(file.relPath);
-    const defs = file.defs.slice(0, MAX_DEFS_PER_FILE);
-    if (defs.length === 0) {
-      parts.push("  (no definitions)");
-      continue;
-    }
-    for (const d of defs) {
-      const sig = d.signature || `${d.category} ${d.name}`;
-      parts.push(`  L${d.line} ${sig}`);
-      defsShown += 1;
-    }
-    if (file.defs.length > MAX_DEFS_PER_FILE) {
-      parts.push(`  … +${file.defs.length - MAX_DEFS_PER_FILE} more`);
-    }
+  const parts: string[] = [file.relPath];
+  const defs = file.defs.slice(0, MAX_DEFS_PER_FILE);
+  if (defs.length === 0) {
+    parts.push("  (no definitions)");
+    return { text: parts.join("\n"), defsShown: 0 };
   }
-  return { text: parts.join("\n"), defsShown };
+  for (const d of defs) {
+    const sig = d.signature || `${d.category} ${d.name}`;
+    parts.push(`  L${d.line} ${sig}`);
+  }
+  if (file.defs.length > MAX_DEFS_PER_FILE) {
+    parts.push(`  … +${file.defs.length - MAX_DEFS_PER_FILE} more`);
+  }
+  return { text: parts.join("\n"), defsShown: defs.length };
 }

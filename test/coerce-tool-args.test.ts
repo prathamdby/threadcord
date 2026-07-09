@@ -162,6 +162,22 @@ describe("coerceToolArgs", () => {
     expect(result.coercions).toContain("maxChars_to_int");
   });
 
+  it("does not coerce maxChars when already a valid integer", () => {
+    const result = coerceToolArgs("repo_map", {
+      maxChars: 5000,
+    });
+    expect(result.value.maxChars).toBe(5000);
+    expect(result.coercions).not.toContain("maxChars_to_int");
+  });
+
+  it("passes through invalid maxChars without coercion", () => {
+    for (const bad of [0, -1, Infinity]) {
+      const result = coerceToolArgs("repo_map", { maxChars: bad });
+      expect(result.value.maxChars).toBe(bad);
+      expect(result.coercions).not.toContain("maxChars_to_int");
+    }
+  });
+
   it("does not invent required message field", () => {
     const result = coerceToolArgs("post_thread_message", {});
     expect(result.value).not.toHaveProperty("message");

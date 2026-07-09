@@ -287,9 +287,10 @@ export async function extractTags(
 /** Normalize a focus/priority path to a root-relative posix path. */
 export function toRelPath(root: string, path: string): string {
   if (!path) return path;
-  const abs = isAbsolute(path) ? path : join(root, path);
-  const rel = abs.startsWith(root)
-    ? abs.slice(root.length).replace(/^[/\\]+/, "")
-    : path;
-  return rel.split("\\").join("/");
+  const abs = (isAbsolute(path) ? path : join(root, path)).replace(/\\/g, "/");
+  const rootNorm = root.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (abs === rootNorm) return ".";
+  const prefix = rootNorm + "/";
+  if (!abs.startsWith(prefix)) return path;
+  return abs.slice(prefix.length);
 }
