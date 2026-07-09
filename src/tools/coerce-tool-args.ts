@@ -108,6 +108,66 @@ function coercePostThreadReport(obj: Record<string, unknown>): string[] {
   return coercions;
 }
 
+
+function coerceRepoMap(obj: Record<string, unknown>): string[] {
+  const coercions: string[] = [];
+  applyUnwrap(obj, coercions, [
+    "path",
+    "focusFiles",
+    "priorityIdents",
+    "maxChars",
+  ]);
+  coercions.push(
+    ...aliasKeys(obj, [
+      ["subdir", "path"],
+      ["directory", "path"],
+      ["dir", "path"],
+      ["focus", "focusFiles"],
+      ["files", "focusFiles"],
+      ["focus_files", "focusFiles"],
+      ["idents", "priorityIdents"],
+      ["identifiers", "priorityIdents"],
+      ["symbols", "priorityIdents"],
+      ["priority_idents", "priorityIdents"],
+      ["max_chars", "maxChars"],
+      ["tokenLimit", "maxChars"],
+      ["maxTokens", "maxChars"],
+    ]),
+  );
+  if (typeof obj.path === "string") {
+    improveStringField(obj, "path", coercions);
+  }
+  if (typeof obj.focusFiles === "string" && obj.focusFiles.length > 0) {
+    obj.focusFiles = [obj.focusFiles];
+    coercions.push("focusFiles_string_to_array");
+  }
+  if (typeof obj.priorityIdents === "string" && obj.priorityIdents.length > 0) {
+    obj.priorityIdents = obj.priorityIdents
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    coercions.push("priorityIdents_string_to_array");
+  }
+  if (Array.isArray(obj.focusFiles)) {
+    obj.focusFiles = obj.focusFiles.map((f) =>
+      typeof f === "string" ? f.trim() : f,
+    );
+  }
+  if (Array.isArray(obj.priorityIdents)) {
+    obj.priorityIdents = obj.priorityIdents.map((f) =>
+      typeof f === "string" ? f.trim() : f,
+    );
+  }
+  if ("maxChars" in obj) {
+    const n = coercePositiveInt(obj.maxChars);
+    if (n !== undefined && n !== obj.maxChars) {
+      obj.maxChars = n;
+      coercions.push("maxChars_to_int");
+    }
+  }
+  return coercions;
+}
+
 function coerceSkill(obj: Record<string, unknown>): string[] {
   const coercions: string[] = [];
   applyUnwrap(obj, coercions, ["action", "name"]);
@@ -239,6 +299,9 @@ export function coerceToolArgs(
       break;
     case "skill":
       coercions = coerceSkill(value);
+      break;
+    case "repo_map":
+      coercions = coerceRepoMap(value);
       break;
     case "create_github_pull_request":
       coercions = coerceCreateGithubPullRequest(value);

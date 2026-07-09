@@ -33,7 +33,7 @@ Pass only the parameter names listed here. There is no \`description\` field on 
 - grep: \`pattern\` (string, required — a regex, not a glob). Optional: \`path\` (dir or file, default .), \`include\` (glob like "*.ts"), \`literal\` (boolean).
 - glob: \`pattern\` (string, required — a filename glob like "*.ts" or "**/*.ts"). Optional: \`path\` (directory to search).
 - task: \`prompt\` (required). Optional: \`description\`, \`agent\`, \`cwd\`, \`attachments\`.
-Threadcord tools: post_thread_message (\`message\`), post_thread_report (\`parts\`: string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`), skill (\`action\`: \`list\` or \`read\`, required; optional \`name\` string — required when action is \`read\`, bare skill id e.g. \`prath-mode\` not \`/prath-mode\`; optional \`page\` integer 1-based when action is \`list\`, 25 skills per page).
+Threadcord tools: post_thread_message (\`message\`), post_thread_report (\`parts\`: string[]), append_threadcord_setup_memory (\`markdown\`), create_github_pull_request (\`owner\`, \`repo\`, \`title\`, \`head\`, \`base\`; optional \`body\`), skill (\`action\`: \`list\` or \`read\`, required; optional \`name\` string — required when action is \`read\`, bare skill id e.g. \`prath-mode\` not \`/prath-mode\`; optional \`page\` integer 1-based when action is \`list\`, 25 skills per page), repo_map (optional \`path\`, \`focusFiles\` string[], \`priorityIdents\` string[], \`maxChars\` number).
 Common wrong keys that fail: post_thread_message needs \`message\` (not text/content/body); post_thread_report needs \`parts\` as string[] (not one string); bash needs \`command\` (not cmd/path); skill read needs bare \`name\` (slash optional at runtime but prefer bare).`;
 
 export const TOOL_USE = `TOOL USE
@@ -104,6 +104,14 @@ Workflow playbooks under HOME and project checkout. Use \`skill\` per TOOL ARGUM
 - \`list\`: paginated (25 per page); output shows page/total — use \`page\` for the next slice.
 - \`read\`: bare \`name\` (e.g. \`prath-mode\`, not \`/prath-mode\`) when user says "/prath-mode" or "use commit"; returns full skill dir contents — follow the workflow.
 GIT WORKFLOW overrides skill git rules. Installed already — do not reinstall. Survives compaction — use \`skill\` instead of grepping SKILL.md.`;
+
+export const REPO_MAP_TOOL = `REPO MAP (tree-sitter)
+Use \`repo_map\` early on an unfamiliar checkout or when you need structural orientation before broad greps.
+- No args: whole-repo ranked definitions fitted to a character budget.
+- \`path\`: scope to a subdirectory or file.
+- \`focusFiles\`: files already read (seed ranking, excluded from map so neighbors surface).
+- \`priorityIdents\`: symbol names from the task to boost defining files.
+- Prefer this over raw \`find\`/\`ls\` for "where does X live?" orientation; then \`read\` the specific files the map surfaces.`;
 
 export const NEVER_CODING = `NEVER
 - Commit unless this turn's instruction explicitly asks.

@@ -91,6 +91,9 @@ describe("composePrompt coding invariants", () => {
     "paginated (25 per page)",
     "bare `name`",
     "TOOL ARGUMENTS",
+    "REPO MAP (tree-sitter)",
+    "repo_map",
+    "priorityIdents",
   ])("contains %s", (token) => {
     expect(prompt).toContain(token);
   });
@@ -122,6 +125,13 @@ describe("composePrompt coding prompt-consistency invariants", () => {
     expect(prompt).toContain("`list` or `read`");
     expect(prompt).toContain("bare skill id");
     expect(prompt).toContain("25 skills per page");
+  });
+
+  it("documents repo_map tool in TOOL ARGUMENTS", () => {
+    expect(prompt).toContain("repo_map (optional");
+    expect(prompt).toContain("`focusFiles`");
+    expect(prompt).toContain("`priorityIdents`");
+    expect(prompt).toContain("REPO MAP (tree-sitter)");
   });
 
   it("allows multi-line bash when the command inherently needs it", () => {
@@ -251,6 +261,8 @@ describe("agent factory instructions", () => {
     expect(config.instructions).toContain("post_thread_report");
     expect(config.instructions).toContain("cwd = /workspaces/task-1/web");
     expect(config.tools?.map((t) => t.name)).toContain("skill");
+    expect(config.tools?.map((t) => t.name)).toContain("repo_map");
+    expect(config.instructions).toContain("REPO MAP (tree-sitter)");
   });
 
   it("boots the setup agent with save contract in instructions", async () => {

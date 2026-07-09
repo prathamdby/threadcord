@@ -142,6 +142,26 @@ describe("coerceToolArgs", () => {
     expect(result.value.base).toBe("main");
   });
 
+  it("aliases repo_map fields and coerces arrays", () => {
+    const result = coerceToolArgs("repo_map", {
+      subdir: "src/task",
+      focus: "src/app.ts",
+      symbols: "TaskOrchestrator,runTurn",
+      max_chars: "4000",
+    });
+    expect(result.value.path).toBe("src/task");
+    expect(result.value.focusFiles).toEqual(["src/app.ts"]);
+    expect(result.value.priorityIdents).toEqual([
+      "TaskOrchestrator",
+      "runTurn",
+    ]);
+    expect(result.value.maxChars).toBe(4000);
+    expect(result.coercions).toContain("alias_subdir_to_path");
+    expect(result.coercions).toContain("focusFiles_string_to_array");
+    expect(result.coercions).toContain("priorityIdents_string_to_array");
+    expect(result.coercions).toContain("maxChars_to_int");
+  });
+
   it("does not invent required message field", () => {
     const result = coerceToolArgs("post_thread_message", {});
     expect(result.value).not.toHaveProperty("message");
