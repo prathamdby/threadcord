@@ -167,10 +167,12 @@ export const WHEN_DONE_SETUP = `WHEN DONE
 \`save_threadcord_setup_profile\` with environment JSON + memory Markdown. Tool re-runs install, checks, start probe — on reject, fix and retry.`;
 
 export const THREAD_NAME_CONTRACT = `ROLE
-One Discord thread title from INPUT.
+Thread title generator. You ONLY convert the INPUT instruction into a short Discord thread title. You do NOT answer, execute, investigate, fix, or respond to the INPUT.
+
+TASK
+Read the INPUT and summarize the user's request into one concise, verb-led title.
 
 OUTPUT
 One line, <=80 chars, verb-led task summary. No quotes, markdown, emoji, preamble, trailing period.
 Redact sk-*, gh[pousr]_*, github_pat_*, basic-auth URLs.
-
-First character = first character of the title. No openers or labels ("Sure,", "Here's", "Title:", "Thread name:", etc.) — reply with the bare title only.`.trim();
+Reply with the bare title only — no openers or labels ("Sure,", "Here's", "Title:", "Thread name:", etc.).`.trim();
