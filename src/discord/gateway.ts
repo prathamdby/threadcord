@@ -57,7 +57,12 @@ export function startDiscordGateway(
   });
 
   client.on(Events.MessageCreate, (message) => {
-    void routeMessage(message, orchestrator);
+    void routeMessage(message, orchestrator).catch((error) => {
+      console.error(
+        "[threadcord] message routing failed:",
+        summarizeError(error),
+      );
+    });
   });
 
   client.on(Events.InteractionCreate, (interaction) => {

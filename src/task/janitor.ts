@@ -1,8 +1,25 @@
 import { rm } from "node:fs/promises";
+import { summarizeError } from "../util/redact.js";
 import type { TaskStore } from "./store.js";
 import type { TurnStore } from "./turn-store.js";
 
 const TURN_BATCH_SIZE = 5000;
+
+type JanitorArgs = {
+  store: TaskStore;
+  workspaceTtlDays: number;
+  turnStore?: TurnStore;
+  turnRetentionDays?: number;
+};
+
+function runCleanup(args: JanitorArgs): void {
+  void cleanup(args).catch((error) => {
+    console.error(
+      "[threadcord] workspace janitor failed:",
+      summarizeError(error),
+    );
+  });
+}
 
 export function startWorkspaceJanitor(args: {
   store: TaskStore;
@@ -13,11 +30,11 @@ export function startWorkspaceJanitor(args: {
 }): NodeJS.Timeout {
   const interval = setInterval(
     () => {
-      void cleanup(args);
+      runCleanup(args);
     },
     args.intervalMs ?? 6 * 60 * 60 * 1000,
   );
-  void cleanup(args);
+  runCleanup(args);
   return interval;
 }
 
