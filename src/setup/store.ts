@@ -304,6 +304,17 @@ export class SetupStore {
     return result.rows[0] ? rowToRun(result.rows[0]) : undefined;
   }
 
+  async listRunningRuns(): Promise<SetupRun[]> {
+    const result = await this.pool.query(
+      `
+        SELECT * FROM setup_runs
+        WHERE status = 'running'
+        ORDER BY created_at, id
+      `,
+    );
+    return result.rows.map((row) => rowToRun(row));
+  }
+
   async attachDiscordThread(
     runId: string,
     discordThreadId: string,
