@@ -202,14 +202,7 @@ describe("startDiscordGateway message routing boundary", () => {
     clientStubs.length = 0;
   });
 
-  it("does not produce an unhandledRejection when routeMessage rejects", async () => {
-    const orchestrator = {
-      handleChannelMessage: vi
-        .fn()
-        .mockRejectedValue(new Error("routing boom")),
-      handleThreadMessage: vi.fn(),
-    } as unknown as TaskOrchestrator;
-
+  function startGateway(orchestrator: TaskOrchestrator) {
     startDiscordGateway(
       "token",
       config,
@@ -218,13 +211,16 @@ describe("startDiscordGateway message routing boundary", () => {
       setupOrchestrator,
       mcpStore,
     );
-
     const stub = clientStubs[0];
     if (!stub) throw new Error("expected Client stub");
-    const messageHandler = stub.handlers.get(Events.MessageCreate);
-    expect(messageHandler).toBeTypeOf("function");
-    if (!messageHandler) throw new Error("expected MessageCreate handler");
+    return stub;
+  }
 
+  async function expectMessageRejectionContained(
+    messageHandler: (...args: unknown[]) => void,
+    message: unknown,
+    expectedSummary: string,
+  ) {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const rejections: unknown[] = [];
     const handler = (reason: unknown) => {
@@ -232,7 +228,37 @@ describe("startDiscordGateway message routing boundary", () => {
     };
     process.on("unhandledRejection", handler);
     try {
-      messageHandler({
+      messageHandler(message);
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(rejections).toHaveLength(0);
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[threadcord] message routing failed:",
+        expectedSummary,
+      );
+    } finally {
+      process.off("unhandledRejection", handler);
+      errorSpy.mockRestore();
+    }
+  }
+
+  it("does not produce an unhandledRejection when routeMessage rejects", async () => {
+    const orchestrator = {
+      handleChannelMessage: vi
+        .fn()
+        .mockRejectedValue(new Error("routing boom")),
+      handleThreadMessage: vi.fn(),
+    } as unknown as TaskOrchestrator;
+
+    const stub = startGateway(orchestrator);
+    const messageHandler = stub.handlers.get(Events.MessageCreate);
+    expect(messageHandler).toBeTypeOf("function");
+    if (!messageHandler) throw new Error("expected MessageCreate handler");
+
+    await expectMessageRejectionContained(
+      messageHandler,
+      {
         partial: false,
         author: { bot: false },
         channel: { isThread: () => false },
@@ -240,19 +266,107 @@ describe("startDiscordGateway message routing boundary", () => {
         id: "m-1",
         content: "hello",
         attachments: { size: 0, values: () => [] },
-      });
-      await new Promise((resolve) => setImmediate(resolve));
-      await new Promise((resolve) => setImmediate(resolve));
+      },
+      "routing boom",
+    );
+  });
 
-      expect(rejections).toHaveLength(0);
-      expect(errorSpy).toHaveBeenCalledWith(
-        "[threadcord] message routing failed:",
-        "routing boom",
-      );
-    } finally {
-      process.off("unhandledRejection", handler);
-      errorSpy.mockRestore();
-    }
+  it("contains handleThreadMessage rejections without unhandledRejection", async () => {
+    const orchestrator = {
+      handleChannelMessage: vi.fn(),
+      handleThreadMessage: vi
+        .fn()
+        .mockRejectedValue(new Error("thread routing boom")),
+    } as unknown as TaskOrchestrator;
+
+    const stub = startGateway(orchestrator);
+    const messageHandler = stub.handlers.get(Events.MessageCreate);
+    if (!messageHandler) throw new Error("expected MessageCreate handler");
+
+    await expectMessageRejectionContained(
+      messageHandler,
+      {
+        partial: false,
+        author: { id: "user-1", bot: false },
+        channel: { isThread: () => true },
+        channelId: "thread-1",
+        guildId: "guild-1",
+        id: "m-1",
+        content: "hello",
+        attachments: { size: 0, values: () => [] },
+        client: { user: { id: "bot-1" } },
+        reply: vi.fn(),
+        react: vi.fn(),
+        reactions: { resolve: () => null },
+      },
+      "thread routing boom",
+    );
+  });
+
+  it("contains message.fetch rejections for partial messages", async () => {
+    const orchestrator = {
+      handleChannelMessage: vi.fn(),
+      handleThreadMessage: vi.fn(),
+    } as unknown as TaskOrchestrator;
+
+    const stub = startGateway(orchestrator);
+    const messageHandler = stub.handlers.get(Events.MessageCreate);
+    if (!messageHandler) throw new Error("expected MessageCreate handler");
+
+    await expectMessageRejectionContained(
+      messageHandler,
+      {
+        partial: true,
+        fetch: vi.fn().mockRejectedValue(new Error("fetch failed")),
+      },
+      "fetch failed",
+    );
+  });
+
+  it("logs a redacted summary when routeMessage rejects with a secret", async () => {
+    const token = "ghp_abcdefghijklmnopqrstuvwxyz1234567890AB";
+    const orchestrator = {
+      handleChannelMessage: vi
+        .fn()
+        .mockRejectedValue(new Error(`Auth failed: ${token}`)),
+      handleThreadMessage: vi.fn(),
+    } as unknown as TaskOrchestrator;
+
+    const stub = startGateway(orchestrator);
+    const messageHandler = stub.handlers.get(Events.MessageCreate);
+    if (!messageHandler) throw new Error("expected MessageCreate handler");
+
+    await expectMessageRejectionContained(
+      messageHandler,
+      {
+        partial: false,
+        author: { bot: false },
+        channel: { isThread: () => false },
+        channelId: "channel-1",
+        id: "m-1",
+        content: "hello",
+        attachments: { size: 0, values: () => [] },
+      },
+      "Auth failed: [redacted]",
+    );
+  });
+
+  it("wires InteractionCreate through startDiscordGateway", async () => {
+    startGateway({} as TaskOrchestrator);
+    const stub = clientStubs[0];
+    if (!stub) throw new Error("expected Client stub");
+    const interactionHandler = stub.handlers.get(Events.InteractionCreate);
+    expect(interactionHandler).toBeTypeOf("function");
+    if (!interactionHandler) throw new Error("expected InteractionCreate handler");
+
+    await interactionHandler(
+      mockRepliableInteraction({
+        isChatInputCommand: () => true,
+        commandName: "task",
+      }),
+    );
+
+    expect(handleTaskInteraction).toHaveBeenCalledTimes(1);
   });
 });
 

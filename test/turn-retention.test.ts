@@ -1,11 +1,55 @@
 import { describe, expect, it, vi } from "vitest";
-import { cleanup, startWorkspaceJanitor } from "../src/task/janitor.js";
 import { InMemoryTurnStore } from "./support/orchestrator-harness.js";
 import type { TaskStore } from "../src/task/store.js";
+
+const rmMock = vi.hoisted(() => vi.fn());
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    rm: rmMock,
+  };
+});
+
+import { cleanup, startWorkspaceJanitor } from "../src/task/janitor.js";
 
 const noWorkspaceStore = {
   listExpiredWorkspacePaths: async () => [],
 } as unknown as TaskStore;
+
+async function expectJanitorRejectionContained(
+  start: () => NodeJS.Timeout,
+  expectedSummary: string,
+) {
+  vi.useFakeTimers();
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  const rejections: unknown[] = [];
+  const handler = (reason: unknown) => {
+    rejections.push(reason);
+  };
+  process.on("unhandledRejection", handler);
+  let interval: NodeJS.Timeout | undefined;
+  try {
+    interval = start();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(rejections).toHaveLength(0);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[threadcord] workspace janitor failed:",
+      expectedSummary,
+    );
+  } finally {
+    if (interval) clearInterval(interval);
+    process.off("unhandledRejection", handler);
+    errorSpy.mockRestore();
+    vi.useRealTimers();
+  }
+}
 
 describe("turn retention", () => {
   it("loops deleteAgedTerminalTurns until a short batch", async () => {
@@ -142,43 +186,70 @@ describe("turn retention", () => {
   });
 
   it("does not produce an unhandledRejection when janitor cleanup rejects", async () => {
-    vi.useFakeTimers();
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const rejections: unknown[] = [];
-    const handler = (reason: unknown) => {
-      rejections.push(reason);
-    };
-    process.on("unhandledRejection", handler);
-    let interval: NodeJS.Timeout | undefined;
-    try {
-      const store = {
-        listExpiredWorkspacePaths: vi
-          .fn()
-          .mockRejectedValue(new Error("pg down")),
-      } as unknown as TaskStore;
+    await expectJanitorRejectionContained(
+      () =>
+        startWorkspaceJanitor({
+          store: {
+            listExpiredWorkspacePaths: vi
+              .fn()
+              .mockRejectedValue(new Error("pg down")),
+          } as unknown as TaskStore,
+          workspaceTtlDays: 14,
+          intervalMs: 1_000,
+        }),
+      "pg down",
+    );
+  });
 
-      interval = startWorkspaceJanitor({
-        store,
-        workspaceTtlDays: 14,
-        intervalMs: 1_000,
-      });
+  it("logs a redacted summary when janitor cleanup rejects with a secret", async () => {
+    const token = "ghp_abcdefghijklmnopqrstuvwxyz1234567890AB";
+    await expectJanitorRejectionContained(
+      () =>
+        startWorkspaceJanitor({
+          store: {
+            listExpiredWorkspacePaths: vi
+              .fn()
+              .mockRejectedValue(new Error(`Auth failed: ${token}`)),
+          } as unknown as TaskStore,
+          workspaceTtlDays: 14,
+          intervalMs: 1_000,
+        }),
+      "Auth failed: [redacted]",
+    );
+  });
 
-      await Promise.resolve();
-      await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(1_000);
-      await Promise.resolve();
-      await Promise.resolve();
+  it("contains rm rejections without unhandledRejection", async () => {
+    rmMock.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+    await expectJanitorRejectionContained(
+      () =>
+        startWorkspaceJanitor({
+          store: {
+            listExpiredWorkspacePaths: vi
+              .fn()
+              .mockResolvedValue(["/tmp/expired-workspace"]),
+          } as unknown as TaskStore,
+          workspaceTtlDays: 14,
+          intervalMs: 1_000,
+        }),
+      "EACCES: permission denied",
+    );
+  });
 
-      expect(rejections).toHaveLength(0);
-      expect(errorSpy).toHaveBeenCalledWith(
-        "[threadcord] workspace janitor failed:",
-        "pg down",
-      );
-    } finally {
-      if (interval) clearInterval(interval);
-      process.off("unhandledRejection", handler);
-      errorSpy.mockRestore();
-      vi.useRealTimers();
-    }
+  it("contains deleteAgedTerminalTurns rejections without unhandledRejection", async () => {
+    await expectJanitorRejectionContained(
+      () =>
+        startWorkspaceJanitor({
+          store: noWorkspaceStore,
+          workspaceTtlDays: 14,
+          turnStore: {
+            deleteAgedTerminalTurns: vi
+              .fn()
+              .mockRejectedValue(new Error("turn store down")),
+          } as unknown as import("../src/task/turn-store.js").TurnStore,
+          turnRetentionDays: 14,
+          intervalMs: 1_000,
+        }),
+      "turn store down",
+    );
   });
 });
