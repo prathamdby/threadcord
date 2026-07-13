@@ -1,14 +1,44 @@
-import { MessageFlags, type Interaction } from "discord.js";
+import { Events, MessageFlags, type Interaction } from "discord.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../src/config.js";
 import { buildCustomId } from "../src/discord/ui/index.js";
-import { routeInteraction, toThreadMessage } from "../src/discord/gateway.js";
 import type { McpStore } from "../src/mcp/store.js";
 import type { SetupOrchestrator } from "../src/setup/orchestrator.js";
 import type { SetupStore } from "../src/setup/store.js";
 import type { TaskOrchestrator } from "../src/task/orchestrator.js";
 
 const IS_COMPONENTS_V2 = 32768;
+
+type ClientStub = {
+  once: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
+  login: ReturnType<typeof vi.fn>;
+  handlers: Map<string | symbol, (...args: unknown[]) => void>;
+};
+
+const clientStubs: ClientStub[] = [];
+
+vi.mock("discord.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("discord.js")>();
+  return {
+    ...actual,
+    Client: vi.fn(function MockClient(this: ClientStub) {
+      const handlers = new Map<
+        string | symbol,
+        (...args: unknown[]) => void
+      >();
+      this.handlers = handlers;
+      this.once = vi.fn((event: string | symbol, handler: (...args: unknown[]) => void) => {
+        handlers.set(event, handler);
+      });
+      this.on = vi.fn((event: string | symbol, handler: (...args: unknown[]) => void) => {
+        handlers.set(event, handler);
+      });
+      this.login = vi.fn().mockResolvedValue(undefined);
+      clientStubs.push(this);
+    }),
+  };
+});
 
 vi.mock("../src/mcp/interactions.js", () => ({
   handleMcpInteraction: vi.fn().mockResolvedValue(true),
@@ -23,6 +53,11 @@ vi.mock("../src/flue/mcp.js", () => ({
   getMcpPool: vi.fn().mockReturnValue({}),
 }));
 
+import {
+  routeInteraction,
+  startDiscordGateway,
+  toThreadMessage,
+} from "../src/discord/gateway.js";
 import { handleMcpInteraction } from "../src/mcp/interactions.js";
 import { handleSetupInteraction } from "../src/setup/interactions.js";
 import { handleTaskInteraction } from "../src/task/interactions.js";
@@ -72,6 +107,7 @@ function mockRepliableInteraction(
 describe("routeInteraction namespace dispatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clientStubs.length = 0;
     vi.mocked(handleMcpInteraction).mockResolvedValue(true);
     vi.mocked(handleTaskInteraction).mockResolvedValue(true);
     vi.mocked(handleSetupInteraction).mockResolvedValue(true);
@@ -157,6 +193,66 @@ describe("routeInteraction namespace dispatch", () => {
         flags: IS_COMPONENTS_V2 | MessageFlags.Ephemeral,
       }),
     );
+  });
+});
+
+describe("startDiscordGateway message routing boundary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clientStubs.length = 0;
+  });
+
+  it("does not produce an unhandledRejection when routeMessage rejects", async () => {
+    const orchestrator = {
+      handleChannelMessage: vi
+        .fn()
+        .mockRejectedValue(new Error("routing boom")),
+      handleThreadMessage: vi.fn(),
+    } as unknown as TaskOrchestrator;
+
+    startDiscordGateway(
+      "token",
+      config,
+      orchestrator,
+      setupStore,
+      setupOrchestrator,
+      mcpStore,
+    );
+
+    const stub = clientStubs[0];
+    if (!stub) throw new Error("expected Client stub");
+    const messageHandler = stub.handlers.get(Events.MessageCreate);
+    expect(messageHandler).toBeTypeOf("function");
+    if (!messageHandler) throw new Error("expected MessageCreate handler");
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const rejections: unknown[] = [];
+    const handler = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on("unhandledRejection", handler);
+    try {
+      messageHandler({
+        partial: false,
+        author: { bot: false },
+        channel: { isThread: () => false },
+        channelId: "channel-1",
+        id: "m-1",
+        content: "hello",
+        attachments: { size: 0, values: () => [] },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(rejections).toHaveLength(0);
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[threadcord] message routing failed:",
+        "routing boom",
+      );
+    } finally {
+      process.off("unhandledRejection", handler);
+      errorSpy.mockRestore();
+    }
   });
 });
 

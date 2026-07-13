@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cleanup } from "../src/task/janitor.js";
+import { cleanup, startWorkspaceJanitor } from "../src/task/janitor.js";
 import { InMemoryTurnStore } from "./support/orchestrator-harness.js";
 import type { TaskStore } from "../src/task/store.js";
 
@@ -139,5 +139,46 @@ describe("turn retention", () => {
     // Non-terminal turns were retained regardless of age.
     expect(turnStore.snapshotTurn("turn-old-queued")).toBeDefined();
     expect(turnStore.snapshotTurn("turn-old-running")).toBeDefined();
+  });
+
+  it("does not produce an unhandledRejection when janitor cleanup rejects", async () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const rejections: unknown[] = [];
+    const handler = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on("unhandledRejection", handler);
+    let interval: NodeJS.Timeout | undefined;
+    try {
+      const store = {
+        listExpiredWorkspacePaths: vi
+          .fn()
+          .mockRejectedValue(new Error("pg down")),
+      } as unknown as TaskStore;
+
+      interval = startWorkspaceJanitor({
+        store,
+        workspaceTtlDays: 14,
+        intervalMs: 1_000,
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(rejections).toHaveLength(0);
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[threadcord] workspace janitor failed:",
+        "pg down",
+      );
+    } finally {
+      if (interval) clearInterval(interval);
+      process.off("unhandledRejection", handler);
+      errorSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
