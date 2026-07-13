@@ -47,19 +47,35 @@ describe("setup restart recovery", () => {
     return new SetupOrchestrator({} as AppConfig, store);
   }
 
-  it("fails every interrupted run and removes its workspace", async () => {
-    const workspaceA = await createWorkspace("a");
-    const workspaceB = await createWorkspace("b");
-    const runA = makeRun({ id: "run-a", workspacePath: workspaceA });
-    const runB = makeRun({ id: "run-b", workspacePath: workspaceB });
-    const failRun = vi.fn().mockResolvedValue(true);
+  it("is a no-op when there are no running setup runs", async () => {
+    const listRunningRuns = vi.fn().mockResolvedValue([]);
+    const failRun = vi.fn();
     const store = {
-      listRunningRuns: vi.fn().mockResolvedValue([runA, runB]),
+      listRunningRuns,
       failRun,
     } as unknown as SetupStore;
 
     await createOrchestrator(store).resumeAfterRestart();
 
+    expect(listRunningRuns).toHaveBeenCalledTimes(1);
+    expect(failRun).not.toHaveBeenCalled();
+  });
+
+  it("fails every interrupted run and removes its workspace", async () => {
+    const workspaceA = await createWorkspace("a");
+    const workspaceB = await createWorkspace("b");
+    const runA = makeRun({ id: "run-a", workspacePath: workspaceA });
+    const runB = makeRun({ id: "run-b", workspacePath: workspaceB });
+    const listRunningRuns = vi.fn().mockResolvedValue([runA, runB]);
+    const failRun = vi.fn().mockResolvedValue(true);
+    const store = {
+      listRunningRuns,
+      failRun,
+    } as unknown as SetupStore;
+
+    await createOrchestrator(store).resumeAfterRestart();
+
+    expect(listRunningRuns).toHaveBeenCalledTimes(1);
     expect(failRun).toHaveBeenCalledTimes(2);
     expect(failRun).toHaveBeenNthCalledWith(
       1,
@@ -82,12 +98,13 @@ describe("setup restart recovery", () => {
       workspacePath: "/tmp/missing-setup-workspace-bad",
     });
     const runGood = makeRun({ id: "run-good", workspacePath: workspaceGood });
+    const listRunningRuns = vi.fn().mockResolvedValue([runBad, runGood]);
     const failRun = vi
       .fn()
       .mockRejectedValueOnce(new Error("db unavailable"))
       .mockResolvedValueOnce(true);
     const store = {
-      listRunningRuns: vi.fn().mockResolvedValue([runBad, runGood]),
+      listRunningRuns,
       failRun,
     } as unknown as SetupStore;
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -95,6 +112,7 @@ describe("setup restart recovery", () => {
     try {
       await createOrchestrator(store).resumeAfterRestart();
 
+      expect(listRunningRuns).toHaveBeenCalledTimes(1);
       expect(failRun).toHaveBeenCalledTimes(2);
       expect(failRun).toHaveBeenNthCalledWith(
         1,
@@ -121,14 +139,16 @@ describe("setup restart recovery", () => {
   it("does not remove a workspace when failRun returns false", async () => {
     const workspace = await createWorkspace("kept");
     const run = makeRun({ id: "run-stale", workspacePath: workspace });
+    const listRunningRuns = vi.fn().mockResolvedValue([run]);
     const failRun = vi.fn().mockResolvedValue(false);
     const store = {
-      listRunningRuns: vi.fn().mockResolvedValue([run]),
+      listRunningRuns,
       failRun,
     } as unknown as SetupStore;
 
     await createOrchestrator(store).resumeAfterRestart();
 
+    expect(listRunningRuns).toHaveBeenCalledTimes(1);
     expect(failRun).toHaveBeenCalledWith(
       "run-stale",
       "Setup interrupted by process restart.",

@@ -59,6 +59,9 @@ export async function createApp(): Promise<{
     { boss, turnStore, pool },
   );
   const setupOrchestrator = new SetupOrchestrator(config, setupStore);
+  // Fail startup if interrupted runs cannot be loaded; otherwise profiles stay
+  // stuck in running/updating and reject future /setup commands. Per-run
+  // failures are contained inside resumeAfterRestart.
   await setupOrchestrator.resumeAfterRestart();
   const discordClient = startDiscordGateway(
     config.DISCORD_BOT_TOKEN,

@@ -44,8 +44,14 @@ export class SetupOrchestrator {
           run.id,
           "Setup interrupted by process restart.",
         );
-        if (failed) {
+        if (!failed) continue;
+        try {
           await rm(run.workspacePath, { recursive: true, force: true });
+        } catch (error) {
+          console.error(
+            `[threadcord] setup run ${run.id} left orphaned workspace ${run.workspacePath}:`,
+            summarizeError(error),
+          );
         }
       } catch (error) {
         console.error(
