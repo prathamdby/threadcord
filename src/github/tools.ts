@@ -69,7 +69,7 @@ export function createGitHubTools(token: string) {
     defineResilientTool({
       name: "create_github_pull_request",
       description:
-        "Open a GitHub pull request. Call only after the branch was already-pushed successfully. Required: owner (GitHub org/user), repo (repo name only, no slash), title (plain English derived from the branch diff, not commit messages, <=72 chars), head (the pushed branch name; usually threadcord/<type>/<name>), base (the task base branch). Optional body (Markdown; group changes by area, link to relevant issues, do not paste GITHUB_TOKEN or env values). Returns JSON with the PR number, URL, and state. Do not call twice for the same head/base; if a PR already exists, post its URL via post_thread_message instead.",
+        "Open a GitHub pull request. Call only after the branch was already-pushed successfully. Required: owner (GitHub org/user), repo (repo name only, no slash), title (plain English derived from the branch diff, not commit messages, <=72 chars), head (the pushed branch name; usually threadcord/<type>/<name>), base (the task base branch). Optional body (Markdown; group changes by area, link to relevant issues, do not paste GITHUB_TOKEN or env values). Title and body follow WRITING: plain speech, no AI vocab/filler, no em dashes, sentence-case section headings, concrete file/behavior facts. Returns JSON with the PR number, URL, and state. Do not call twice for the same head/base; if a PR already exists, post its URL via post_thread_message instead.",
       parameters: v.object({
         owner: v.pipe(v.string(), v.minLength(1)),
         repo: v.pipe(v.string(), v.minLength(1)),
