@@ -59,6 +59,7 @@ export async function createApp(): Promise<{
     { boss, turnStore, pool },
   );
   const setupOrchestrator = new SetupOrchestrator(config, setupStore);
+  await setupOrchestrator.resumeAfterRestart();
   const discordClient = startDiscordGateway(
     config.DISCORD_BOT_TOKEN,
     config,

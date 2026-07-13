@@ -36,6 +36,26 @@ export class SetupOrchestrator {
     this.postMessage = postMessage;
   }
 
+  async resumeAfterRestart(): Promise<void> {
+    const runningRuns = await this.store.listRunningRuns();
+    for (const run of runningRuns) {
+      try {
+        const failed = await this.store.failRun(
+          run.id,
+          "Setup interrupted by process restart.",
+        );
+        if (failed) {
+          await rm(run.workspacePath, { recursive: true, force: true });
+        }
+      } catch (error) {
+        console.error(
+          `[threadcord] setup run ${run.id} restart recovery failed:`,
+          summarizeError(error),
+        );
+      }
+    }
+  }
+
   registerSetupThread(runId: string, thread: ThreadRef): void {
     this.setupThreads.set(runId, thread);
     this.clearSetupTyping(runId);
