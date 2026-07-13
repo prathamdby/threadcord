@@ -163,6 +163,61 @@ describe("task admission when the status message throws", () => {
   });
 });
 
+describe("task admission when initial turn intake fails", () => {
+  it("fails the attached task when intake rolls back with no turn row", async () => {
+    const world = new World();
+    world.boss.nullOnNextSend = true;
+
+    const result = await world.submitRaw("m-intake-rollback", {}, {
+      autoDeliver: false,
+    });
+    const task = result.task!;
+
+    expect(result.replies.some((r) =>
+      r.includes("initial turn could not be queued"),
+    )).toBe(true);
+    expect(task.status).toBe("failed");
+    expect(task.errorSummary).toContain("boss.send returned null");
+    expect(await world.turnStore.listQueuedTurns()).toHaveLength(0);
+    expect(world.boss.sentJobs).toHaveLength(0);
+    expect(headerEditContainsState(result.thread, "failed")).toBe(true);
+    expect(world.dispatched).toHaveLength(0);
+
+    const internals = world.orchestrator as unknown as {
+      pendingInitiatorIds: Map<string, Set<string>>;
+      taskThreads: Map<string, unknown>;
+    };
+    expect(internals.pendingInitiatorIds.has(task.id)).toBe(false);
+    expect(internals.taskThreads.has(task.flueInstanceId)).toBe(false);
+  });
+
+  it("preserves admission when the turn persisted despite a commit-ack error", async () => {
+    const world = new World();
+    world.pool.throwOnNextCommit = true;
+
+    const result = await world.submitRaw("m-intake-ambiguous", {}, {
+      autoDeliver: false,
+    });
+    const task = result.task!;
+
+    expect(result.replies).toHaveLength(0);
+    expect(task.status).toBe("queued");
+    expect(task.errorSummary).toBeUndefined();
+    const turns = await world.turnStore.listQueuedTurns();
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.source).toBe("initial");
+    expect(world.boss.sentJobs).toHaveLength(1);
+    expect(headerEditContainsState(result.thread, "failed")).toBe(false);
+
+    const internals = world.orchestrator as unknown as {
+      pendingInitiatorIds: Map<string, Set<string>>;
+      taskThreads: Map<string, unknown>;
+    };
+    expect(internals.pendingInitiatorIds.get(task.id)?.size).toBe(1);
+    expect(internals.taskThreads.has(task.flueInstanceId)).toBe(true);
+  });
+});
+
 describe("duplicate control messages", () => {
   it("create no second thread or task after a successful admission", async () => {
     const world = new World();

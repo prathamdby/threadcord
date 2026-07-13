@@ -321,7 +321,7 @@ export class InMemoryTurnStore {
       instruction: string;
       discordMessageId?: string;
     },
-    _client?: PoolClient,
+    client?: PoolClient,
   ): Promise<{ created: boolean }> {
     if (this.duplicateNextInsert) {
       this.duplicateNextInsert = false;
@@ -348,6 +348,12 @@ export class InMemoryTurnStore {
       createdAt: now,
       updatedAt: now,
     });
+    // Mirror Postgres: a rolled-back transaction must not leave the turn.
+    if (client && hasRollbackHook(client)) {
+      client.onRollback(() => {
+        this.turns.delete(turn.id);
+      });
+    }
     return { created: true };
   }
 
@@ -680,16 +686,54 @@ export class FakeBoss {
 // ---------------------------------------------------------------------------
 
 class FakePoolClient {
-  async query(): Promise<{ rows: unknown[]; rowCount: number }> {
+  private rollbackCallbacks: Array<() => void> = [];
+
+  constructor(private readonly pool: FakePool) {}
+
+  onRollback(callback: () => void): void {
+    this.rollbackCallbacks.push(callback);
+  }
+
+  async query(text = ""): Promise<{ rows: unknown[]; rowCount: number }> {
+    const sql = text.trim().toUpperCase();
+    if (sql === "BEGIN") {
+      this.rollbackCallbacks = [];
+      return { rows: [], rowCount: 0 };
+    }
+    if (sql === "COMMIT") {
+      // Clear first so a post-COMMIT error cannot undo durable work via
+      // the catch-path ROLLBACK in inTransaction (ambiguous commit ack).
+      this.rollbackCallbacks = [];
+      if (this.pool.throwOnNextCommit) {
+        this.pool.throwOnNextCommit = false;
+        throw new Error("commit acknowledgment failed");
+      }
+      return { rows: [], rowCount: 0 };
+    }
+    if (sql === "ROLLBACK") {
+      for (const callback of this.rollbackCallbacks.splice(0)) {
+        callback();
+      }
+      return { rows: [], rowCount: 0 };
+    }
     return { rows: [], rowCount: 0 };
   }
 
   release(): void {}
 }
 
+function hasRollbackHook(
+  client: PoolClient,
+): client is PoolClient & { onRollback(callback: () => void): void } {
+  return typeof (client as { onRollback?: unknown }).onRollback === "function";
+}
+
 export class FakePool {
+  /** When true, the next COMMIT clears rollbacks then throws (ambiguous ack). */
+  throwOnNextCommit = false;
+
   async connect(): Promise<FakePoolClient> {
-    return new FakePoolClient();
+    return new FakePoolClient(this);
   }
 }
 
@@ -751,6 +795,7 @@ export class World {
   readonly store: InMemoryStore;
   readonly turnStore: InMemoryTurnStore;
   readonly boss: FakeBoss;
+  readonly pool: FakePool;
   readonly orchestrator: TaskOrchestrator;
   readonly dispatched: string[] = [];
   private readonly maxConcurrent: number;
@@ -765,7 +810,7 @@ export class World {
     this.store = new InMemoryStore(maxConcurrent);
     this.turnStore = new InMemoryTurnStore();
     this.boss = new FakeBoss();
-    const fakePool = new FakePool();
+    this.pool = new FakePool();
     this.orchestrator = new TaskOrchestrator(
       { ...config, MAX_CONCURRENT_TASKS: maxConcurrent },
       this.store as unknown as import("../../src/task/store.js").TaskStore,
@@ -785,7 +830,7 @@ export class World {
       {
         boss: this.boss as unknown as import("pg-boss").PgBoss,
         turnStore: this.turnStore as unknown as TurnStore,
-        pool: fakePool as unknown as Pool,
+        pool: this.pool as unknown as Pool,
       },
     );
     // Register the turn worker (mirrors app.ts wiring).
