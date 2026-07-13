@@ -23,6 +23,8 @@ describe("tool descriptions", () => {
     );
     expect(POST_THREAD_MESSAGE_DESCRIPTION).toContain("## section header");
     expect(POST_THREAD_MESSAGE_DESCRIPTION).toContain("substantive body");
+    expect(POST_THREAD_MESSAGE_DESCRIPTION).toContain("Follow WRITING");
+    expect(POST_THREAD_MESSAGE_DESCRIPTION).toContain("no em dashes");
   });
 
   it("post_thread_report description contains required contract phrases", () => {
@@ -37,6 +39,7 @@ describe("tool descriptions", () => {
     );
     expect(POST_THREAD_REPORT_DESCRIPTION).toContain("## section header");
     expect(POST_THREAD_REPORT_DESCRIPTION).toContain("substantive body");
+    expect(POST_THREAD_REPORT_DESCRIPTION).toContain("Follow WRITING");
   });
 
   it("create_github_pull_request description contains required contract phrases", () => {
@@ -51,6 +54,7 @@ describe("tool descriptions", () => {
     expect(prTool!.description).toContain("base");
     expect(prTool!.description).toContain("branch diff");
     expect(prTool!.description).toContain("GITHUB_TOKEN");
+    expect(prTool!.description).toContain("follow WRITING");
   });
 
   it("save_threadcord_setup_profile description contains required contract phrases", () => {
@@ -64,6 +68,7 @@ describe("tool descriptions", () => {
     expect(saveTool!.description).toContain("smoke probe");
     expect(saveTool!.description).toContain("60000");
     expect(saveTool!.description).toContain("secret value");
+    expect(saveTool!.description).toContain("follow WRITING");
   });
 
   it("append_threadcord_setup_memory description contains required contract phrases", () => {
@@ -73,6 +78,9 @@ describe("tool descriptions", () => {
     expect(APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION).toContain("4000");
     expect(APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION).toContain("secret");
     expect(APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION).toContain("revision");
+    expect(APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION).toContain(
+      "Follow WRITING",
+    );
     const tools = createSetupMemoryTools("owner/repo", "main");
     expect(tools.map((tool) => tool.name)).toEqual([
       "append_threadcord_setup_memory",

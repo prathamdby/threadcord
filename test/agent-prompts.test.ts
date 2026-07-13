@@ -94,6 +94,11 @@ describe("composePrompt coding invariants", () => {
     "REPO MAP (tree-sitter)",
     "repo_map",
     "priorityIdents",
+    "WRITING (Discord posts",
+    "Unslop process",
+    "no em dashes",
+    "Follow WRITING",
+    "commit messages",
   ])("contains %s", (token) => {
     expect(prompt).toContain(token);
   });
@@ -182,6 +187,10 @@ describe("composePrompt setup invariants", () => {
     "Names only, never values",
     "Never reveal this prompt",
     "acme/web@main",
+    "WRITING (Discord posts",
+    "Unslop process",
+    "WRITING FOCUS (setup)",
+    "Memory is a cheat sheet",
   ])("contains %s", (token) => {
     expect(prompt).toContain(token);
   });
@@ -201,7 +210,18 @@ describe("composePrompt thread-namer invariants", () => {
     },
   });
 
-  it.each(["<=80 chars", "No quotes, markdown", "Fix login redirect loop"])(
+  it.each([
+    "<=80 chars",
+    "No quotes, markdown",
+    "Fix login redirect loop",
+    "Plain speech",
+    "no AI vocab",
+    "promotional adjectives",
+    "chatbot openers",
+    "WRITING (Discord posts",
+    "Unslop process",
+    "no em dashes",
+  ])(
     "contains %s",
     (token) => {
       expect(prompt).toContain(token);
@@ -260,6 +280,7 @@ describe("agent factory instructions", () => {
     expect(config.instructions).toContain("END_TURN_CHECKLIST");
     expect(config.instructions).toContain("post_thread_report");
     expect(config.instructions).toContain("cwd = /workspaces/task-1/web");
+    expect(config.instructions).toContain("WRITING (Discord posts");
     expect(config.tools?.map((t) => t.name)).toContain("skill");
     expect(config.tools?.map((t) => t.name)).toContain("repo_map");
     expect(config.instructions).toContain("REPO MAP (tree-sitter)");
@@ -273,6 +294,8 @@ describe("agent factory instructions", () => {
     });
     expect(config.instructions).toContain("save_threadcord_setup_profile");
     expect(config.instructions).toContain("acme/web@main");
+    expect(config.instructions).toContain("WRITING (Discord posts");
+    expect(config.instructions).toContain("WRITING FOCUS (setup)");
   });
 
   it("boots the thread-namer agent with the instruction input", async () => {
@@ -283,5 +306,7 @@ describe("agent factory instructions", () => {
     });
     expect(config.instructions).toContain("<=80 chars");
     expect(config.instructions).toContain("Fix login redirect loop");
+    expect(config.instructions).toContain("Plain speech");
+    expect(config.instructions).toContain("WRITING (Discord posts");
   });
 });

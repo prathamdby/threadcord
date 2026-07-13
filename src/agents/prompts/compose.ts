@@ -30,6 +30,8 @@ import {
   USER_INSTRUCTION_BOUNDARY,
   WHEN_DONE_SETUP,
   WORKSPACE,
+  WRITING,
+  WRITING_SETUP,
 } from "./prompt-blocks.js";
 
 export type AgentRole = "coding" | "setup" | "thread-namer";
@@ -94,6 +96,7 @@ export function composePrompt(input: ComposeInput): string {
         GIT_WORKFLOW,
         END_TURN_CHECKLIST(ctx.baseBranch, checksBlock, requiredEnvBlock),
         STATUS_POSTING,
+        WRITING,
         INVESTIGATION_MODE,
         SETUP_MEMORY_LEARNING,
         SKILL_TOOL,
@@ -116,6 +119,8 @@ export function composePrompt(input: ComposeInput): string {
         SECRETS_SETUP,
         SECRECY_SETUP,
         SHELL_SETUP,
+        WRITING,
+        WRITING_SETUP,
         NEVER_SETUP,
         WHEN_DONE_SETUP,
         ...(ctx.instruction ? ["INSTRUCTION", ctx.instruction] : []),
@@ -123,7 +128,9 @@ export function composePrompt(input: ComposeInput): string {
     }
     case "thread-namer": {
       const { ctx } = input;
-      return [THREAD_NAME_CONTRACT, "INPUT", ctx.instruction].join("\n\n");
+      return [WRITING, THREAD_NAME_CONTRACT, "INPUT", ctx.instruction].join(
+        "\n\n",
+      );
     }
     default: {
       const _exhaustive: never = input;

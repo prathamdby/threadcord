@@ -5,7 +5,7 @@ import { SETUP_MEMORY_APPEND_MAX_CHARS } from "./profile.js";
 import { SetupStore } from "./store.js";
 
 export const APPEND_THREADCORD_SETUP_MEMORY_DESCRIPTION =
-  "Append durable Markdown to the setup profile memory for this task's repository and base branch. Single parameter `markdown` (string). Future coding turns load the updated block under Setup profile memory. Does not change install, checks, or environment JSON. Append only after you verified a fix or learned a stable repo fact worth repeating (gotchas, test quirks, operator prefs, non-obvious paths). One short paragraph or bullet list per call; <=4000 chars; names only for env vars; no secret values. On success increments profile revision; new tasks pick up the revision automatically, in-flight tasks keep their admitted revision until the next turn.";
+  "Append durable Markdown to the setup profile memory for this task's repository and base branch. Single parameter `markdown` (string). Future coding turns load the updated block under Setup profile memory. Does not change install, checks, or environment JSON. Append only after you verified a fix or learned a stable repo fact worth repeating (gotchas, test quirks, operator prefs, non-obvious paths). One short paragraph or bullet list per call; <=4000 chars; names only for env vars; no secret values. Follow WRITING: concrete paths/commands, no puffery or chatbot filler. On success increments profile revision; new tasks pick up the revision automatically, in-flight tasks keep their admitted revision until the next turn.";
 
 export function createSetupMemoryTools(repo: string, branch: string) {
   return [
