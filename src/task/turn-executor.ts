@@ -20,6 +20,7 @@
 import type { JobWithMetadata } from "pg-boss";
 import type { AppConfig } from "../config.js";
 import { failureDiscordMessage } from "../discord/observe-bridge.js";
+import { clearPendingUserTurnMessage } from "../discord/user-turn-message.js";
 import { isFlueInstanceRunning } from "../flue/agent-work-abort.js";
 import { summarizeError } from "../util/redact.js";
 import type { SetupEnvironment, SetupProfile } from "../setup/profile.js";
@@ -324,7 +325,8 @@ async function handleTurnError(
   );
 
   if (job.retryCount < job.retryLimit) {
-    // Non-terminal: mark retrying, put task back to queued, rethrow for backoff.
+    // Non-terminal: discard queued report, mark retrying, requeue, rethrow.
+    clearPendingUserTurnMessage(flueInstanceId);
     await turnStore.markTurnRetrying(turn.id, summary);
     await taskStore.transition(taskId, "running", "queued");
     hooks.clearInFlightState(task.flueInstanceId);
