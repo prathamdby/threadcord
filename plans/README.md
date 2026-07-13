@@ -17,6 +17,7 @@ starting, honor its STOP conditions, and update your row when done.
 | 004  | Cancellation, restart recovery, retention, legacy removal | P1 | L | 003 | DONE |
 | 005  | Tool resilience: presentation, coercion, repair | P1 | L | — | DONE |
 | 006  | Contain asynchronous failures at process entrypoints | P1 | S | — | DONE |
+| 007  | Register the resumed-turn outcome waiter before liveness checks | P1 | S | — | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
