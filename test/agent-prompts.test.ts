@@ -216,6 +216,8 @@ describe("composePrompt thread-namer invariants", () => {
     "Fix login redirect loop",
     "Plain speech",
     "no AI vocab",
+    "promotional adjectives",
+    "chatbot openers",
     "WRITING (Discord posts",
     "Unslop process",
     "no em dashes",
