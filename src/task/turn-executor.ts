@@ -101,6 +101,10 @@ export async function executeTurnJob(
   // -- 2.1 Claim -----------------------------------------------------------
   let turn = await turnStore.claimQueuedTurn(turnId);
   let isResume = false;
+  // Resume path: register the outcome waiter BEFORE any awaited work that
+  // could allow observe completion to fire (getTurn, liveness, task lookup).
+  // Reuse the same promise for skip-dispatch await and for redispatch.
+  let resumeOutcomePromise: Promise<TurnOutcome> | undefined;
   if (!turn) {
     const resumed = await turnStore.resumeTurnForExecution(turnId);
     if (!resumed) {
@@ -108,22 +112,24 @@ export async function executeTurnJob(
       return;
     }
     isResume = true;
+    resumeOutcomePromise = waitForTurnOutcome(flueInstanceId);
     turn = await turnStore.getTurn(turnId);
-    if (!turn) return;
+    if (!turn) {
+      clearTurnWaiter(flueInstanceId);
+      return;
+    }
   }
 
-  // Resume path: check Flue liveness. If the agent is still running, skip
-  // re-dispatch and go straight to awaiting the outcome. There is a short
-  // race between the liveness check and the outcome await (Flue could finish
-  // in between), but this is safe: Promise settlement is synchronous within
-  // the same microtask tick, so the waiter registered below will capture the
-  // outcome even if the agent completes immediately after this check.
+  // If the agent is still running, skip re-dispatch and await the outcome.
   const skipDispatch =
     isResume && (await isFlueInstanceRunning(flueInstanceId));
 
   // Load the task (needed for both dispatch and settle paths).
   let task = await taskStore.getByInstanceId(flueInstanceId);
-  if (!task) return;
+  if (!task) {
+    if (resumeOutcomePromise) clearTurnWaiter(flueInstanceId);
+    return;
+  }
 
   if (!skipDispatch) {
     // -- 2.2 Task transition ----------------------------------------------
@@ -142,10 +148,11 @@ export async function executeTurnJob(
     // On resume with task already running, task is already fetched above.
   }
 
+  let dispatched = false;
   try {
-    if (skipDispatch) {
-      // Resume-live: agent is still running, just await the outcome.
-      const outcome = await waitForTurnOutcome(flueInstanceId);
+    if (skipDispatch && resumeOutcomePromise) {
+      // Resume-live: agent is still running, just await the pre-registered outcome.
+      const outcome = await resumeOutcomePromise;
       await settleOutcome(deps, turn, task, outcome);
       return;
     }
@@ -204,6 +211,7 @@ export async function executeTurnJob(
     // transitioned the task out of running during setup).
     const current = await taskStore.getByInstanceId(task.flueInstanceId);
     if (!current || current.status !== "running") {
+      if (resumeOutcomePromise) clearTurnWaiter(flueInstanceId);
       hooks.clearInFlightState(task.flueInstanceId);
       return;
     }
@@ -230,10 +238,12 @@ export async function executeTurnJob(
     }
 
     // -- 2.5 Register waiter BEFORE dispatch -------------------------------
+    // Resume redispatch reuses the waiter already registered above.
     const outcomePromise = waitForTurnOutcome(flueInstanceId);
 
     // -- 2.4 Dispatch -----------------------------------------------------
     await deps.dispatchTurn(flueInstanceId, input);
+    dispatched = true;
     hooks.startTypingLoopForTask(task);
     await hooks.postToThread(task.discordThreadId, "Agent turn accepted.");
 
@@ -241,6 +251,10 @@ export async function executeTurnJob(
     const outcome = await outcomePromise;
     await settleOutcome(deps, turn, task, outcome);
   } catch (error) {
+    // Clear a resume pre-registration if we abandon before dispatch.
+    if (resumeOutcomePromise && !dispatched) {
+      clearTurnWaiter(flueInstanceId);
+    }
     await handleTurnError(deps, job, turn, task, error);
   }
 }

@@ -259,6 +259,58 @@ describe("turn executor", () => {
       expect(world.store.snapshot(task.id).status).toBe("waiting");
       expect(world.turnStore.snapshotTurn(turnId)?.status).toBe("completed");
     }
+
+    // --- Part C: completion during liveness check is not lost ---
+    {
+      const world = new World();
+      const result = await world.submitRaw("m-resume-race", {}, {
+        autoDeliver: false,
+      });
+      const task = result.task!;
+      const jobId = world.boss.sentJobs[0]!.id;
+      const turnId = world.boss.sentJobs[0]!.data.turnId;
+
+      // Simulate a prior delivery that crashed: turn running, task running.
+      await world.turnStore.claimQueuedTurn(turnId);
+      await world.store.transition(task.id, "queued", "running");
+      clearTurnWaiter(task.flueInstanceId);
+
+      let endTriggered = false;
+      registerFlueExecutionStore({
+        submissions: {
+          listRunningSubmissions: async () => {
+            if (!endTriggered) {
+              endTriggered = true;
+              // Fire completion inside the liveness await, before it returns.
+              await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+            }
+            return [
+              {
+                sessionKey: sessionKeyForInstance(task.flueInstanceId),
+                submissionId: "sub-race",
+                attemptId: "att-race",
+              },
+            ];
+          },
+        },
+      } as never);
+
+      world.dispatched.length = 0;
+
+      try {
+        await world.deliver({ jobId, forceRedeliver: true });
+        await flush();
+
+        expect(world.dispatched).not.toContain(task.flueInstanceId);
+        expect(world.store.snapshot(task.id).status).toBe("waiting");
+        expect(world.turnStore.snapshotTurn(turnId)?.status).toBe("completed");
+      } finally {
+        // Unblock any leftover waiter so a failed assertion cannot hang the
+        // suite on the old ordering (outcome already dropped).
+        resolveTurnOutcome(task.flueInstanceId, { kind: "completed" });
+        await flush();
+      }
+    }
   });
 
   it("intake atomicity: boss.send returning null throws and prevents job creation", async () => {
