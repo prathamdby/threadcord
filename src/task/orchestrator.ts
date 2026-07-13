@@ -524,29 +524,59 @@ export class TaskOrchestrator {
     // one transaction so "row exists but no job" is impossible.
     const { boss, turnStore, pool } = this.requireQueue();
     const initialTurnId = randomUUID();
-    await inTransaction(pool, async (client) => {
-      await turnStore.insertTurn(
-        {
-          id: initialTurnId,
-          taskId: attached.id,
-          source: "initial",
-          instruction: input.taskRequest.instruction,
-          discordMessageId: input.initiatorMessageId,
-        },
-        client,
+    try {
+      await inTransaction(pool, async (client) => {
+        await turnStore.insertTurn(
+          {
+            id: initialTurnId,
+            taskId: attached.id,
+            source: "initial",
+            instruction: input.taskRequest.instruction,
+            discordMessageId: input.initiatorMessageId,
+          },
+          client,
+        );
+        const jobId = await boss.send(
+          TASK_TURN_QUEUE,
+          {
+            turnId: initialTurnId,
+            taskId: attached.id,
+            flueInstanceId: attached.flueInstanceId,
+            source: "initial",
+          },
+          { singletonKey: attached.id, db: pgBossDb(client) },
+        );
+        if (jobId === null) throw new Error("boss.send returned null for initial turn");
+      });
+    } catch (error) {
+      // COMMIT ack can fail after the server committed. Only compensate when
+      // the initial turn is definitely absent.
+      const persisted = await turnStore.getTurn(initialTurnId);
+      if (persisted) {
+        await this.refreshHeader(attached.id);
+        return { ok: true, threadId: thread.id, startedImmediately: false };
+      }
+      const summary = summarizeError(error);
+      const failed = await this.store.transition(
+        attached.id,
+        "queued",
+        "failed",
+        summary,
       );
-      const jobId = await boss.send(
-        TASK_TURN_QUEUE,
-        {
-          turnId: initialTurnId,
-          taskId: attached.id,
-          flueInstanceId: attached.flueInstanceId,
-          source: "initial",
-        },
-        { singletonKey: attached.id, db: pgBossDb(client) },
-      );
-      if (jobId === null) throw new Error("boss.send returned null for initial turn");
-    });
+      await this.refreshHeader(attached.id);
+      await this.disposeInitiators(attached.id, CROSS);
+      this.taskThreads.delete(attached.flueInstanceId);
+      if (!failed) {
+        return {
+          ok: false,
+          reason: `Task thread created but the initial turn could not be queued, and the task could not be marked failed: ${summary}`,
+        };
+      }
+      return {
+        ok: false,
+        reason: `Task thread created but the initial turn could not be queued: ${summary}`,
+      };
+    }
     await this.refreshHeader(attached.id);
     return { ok: true, threadId: thread.id, startedImmediately: false };
   }

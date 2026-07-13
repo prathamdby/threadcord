@@ -20,6 +20,7 @@ starting, honor its STOP conditions, and update your row when done.
 | 007  | Register the resumed-turn outcome waiter before liveness checks | P1 | S | — | DONE |
 | 008  | Clear failed-attempt Discord output before retrying a turn | P1 | S | — | DONE |
 | 009  | Recover interrupted setup runs during application startup | P1 | M | — | DONE |
+| 010  | Compensate when initial task intake fails after thread attachment | P1 | M | — | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 

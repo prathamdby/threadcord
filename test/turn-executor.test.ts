@@ -362,17 +362,18 @@ describe("turn executor", () => {
     }
   });
 
-  it("intake atomicity: boss.send returning null throws and prevents job creation", async () => {
+  it("intake atomicity: boss.send returning null leaves no turn or job", async () => {
     const world = new World();
     world.boss.nullOnNextSend = true;
 
-    await expect(
-      world.submitRaw("m-atomicity", {}, { autoDeliver: false }),
-    ).rejects.toThrow("boss.send returned null");
+    const result = await world.submitRaw("m-atomicity", {}, { autoDeliver: false });
 
-    // No job was successfully sent.
+    expect(result.replies.some((r) => r.includes("initial turn could not be queued"))).toBe(
+      true,
+    );
     expect(world.boss.sentJobs).toHaveLength(0);
     expect(world.boss.pendingJobs).toHaveLength(0);
+    expect(await world.turnStore.listQueuedTurns()).toHaveLength(0);
   });
 
   it("fast-finish race: outcome resolved before executor awaits → still settles completed", async () => {
