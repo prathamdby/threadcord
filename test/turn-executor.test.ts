@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { queuePendingUserTurnMessages } from "../src/discord/user-turn-message.js";
+import {
+  hasPendingUserTurnMessages,
+  queuePendingUserTurnMessages,
+} from "../src/discord/user-turn-message.js";
 import {
   clearTurnWaiter,
   resolveTurnOutcome,
@@ -179,6 +182,52 @@ describe("turn executor", () => {
         posts.some((p) => p.includes("encountered an error")),
       ).toBe(true);
     }
+  });
+
+  it("discards failed-attempt output before retry so the replacement report posts", async () => {
+    const world = new World();
+    const posts: string[] = [];
+    world.orchestrator.setMilestonePublisher(async (_threadId, content) => {
+      posts.push(content);
+    });
+    const result = await world.submitRaw("m-retry-output", {}, {
+      autoDeliver: false,
+    });
+    const task = result.task!;
+    const jobId = world.boss.sentJobs[0]!.id;
+    const turnId = world.boss.sentJobs[0]!.data.turnId;
+
+    await world.deliver({ jobId, retryCount: 0 });
+    await flush();
+
+    queuePendingUserTurnMessages(task.flueInstanceId, [
+      "Stale report from failed attempt.",
+    ]);
+    await world.orchestrator.handleAgentFailure(
+      task.flueInstanceId,
+      "transient agent failure",
+    );
+    await flush();
+
+    expect(world.store.snapshot(task.id).status).toBe("queued");
+    expect(world.turnStore.snapshotTurn(turnId)?.status).toBe("queued");
+    expect(hasPendingUserTurnMessages(task.flueInstanceId)).toBe(false);
+    expect(posts).not.toContain("Stale report from failed attempt.");
+    expect(posts).toContain("Turn hit an error, retrying.");
+
+    await world.deliver({ jobId, forceRedeliver: true, retryCount: 1 });
+    await flush();
+
+    queuePendingUserTurnMessages(task.flueInstanceId, [
+      "Replacement report from retry.",
+    ]);
+    await world.orchestrator.handleAgentEnd(task.flueInstanceId);
+    await flush();
+
+    expect(world.store.snapshot(task.id).status).toBe("waiting");
+    expect(world.turnStore.snapshotTurn(turnId)?.status).toBe("completed");
+    expect(posts).toContain("Replacement report from retry.");
+    expect(posts).not.toContain("Stale report from failed attempt.");
   });
 
   it("resume-after-redelivery: Flue not live → re-dispatch; Flue live → await outcome only", async () => {
