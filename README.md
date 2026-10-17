@@ -227,6 +227,30 @@ Add external MCP (Model Context Protocol) tool servers at runtime via Discord. N
 
 MCP servers are global — every task gets tools from all connected servers. Servers persist in Postgres and reconnect on restart.
 
+### Example: current documentation with Parallel
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) gives coding agents free web search and page fetching without a Parallel account or API key. Anonymous search uses Fast mode and is subject to usage limits.
+
+Run `/mcp add` in Discord and fill in the modal:
+
+| Field | Value |
+| ----- | ----- |
+| Server ID | `parallel` |
+| Server URL | `https://search.parallel.ai/mcp` |
+| Bearer token | Leave blank |
+| Transport | `streamable-http` |
+| Headers JSON | `{"User-Agent":"Threadcord"}` |
+
+Wait for the connection confirmation, then use `/mcp list` to check that `parallel` is registered. On the next coding turn, try an instruction such as:
+
+```text
+Use Parallel's web_search to find the current official discord.js documentation
+for creating a forum thread, then web_fetch to read the relevant pages.
+Summarize the API and link the sources before proposing a code change.
+```
+
+This server is shared by all tasks. Search queries and fetched URLs go to Parallel, so keep secrets and private code out of tool inputs. To disconnect it, run `/mcp remove` and select `parallel`.
+
 ## Why use Threadcord?
 
 ### Discord threads per task
